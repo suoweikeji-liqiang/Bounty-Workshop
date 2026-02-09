@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { requestJson } from '../lib/http'
@@ -22,7 +22,9 @@ const defaultFilters: FilterState = {
   recommended: 'all',
 }
 
-function buildQuery(filters: FilterState): string {
+const pageSize = 20
+
+function buildQuery(filters: FilterState, page: number): string {
   const params = new URLSearchParams()
   if (filters.keyword.trim()) {
     params.set('keyword', filters.keyword.trim())
@@ -36,8 +38,9 @@ function buildQuery(filters: FilterState): string {
   if (filters.recommended !== 'all') {
     params.set('recommended', filters.recommended)
   }
-  const query = params.toString()
-  return query ? `?${query}` : ''
+  params.set('offset', String((Math.max(page, 1) - 1) * pageSize))
+  params.set('limit', String(pageSize))
+  return `?${params.toString()}`
 }
 
 export function KnowledgePage({ userId }: Props) {
@@ -45,37 +48,64 @@ export function KnowledgePage({ userId }: Props) {
   const [rows, setRows] = useState<KnowledgeItem[]>([])
   const [detail, setDetail] = useState<KnowledgeItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (nextFilters: FilterState) => {
-    setLoading(true)
-    try {
-      setError(null)
-      const data = await requestJson<KnowledgeItem[]>(`/knowledge${buildQuery(nextFilters)}`, { userId })
-      setRows(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '加载知识库失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [userId])
+  const hasNext = useMemo(() => rows.length === pageSize, [rows.length])
+
+  const load = useCallback(
+    async (nextFilters: FilterState, nextPage: number) => {
+      setLoading(true)
+      try {
+        setError(null)
+        const data = await requestJson<KnowledgeItem[]>(
+          `/knowledge${buildQuery(nextFilters, nextPage)}`,
+          { userId },
+        )
+        setRows(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'failed to load knowledge items')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [userId],
+  )
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void load(filters)
+      void load(filters, page)
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [filters, load])
+  }, [filters, page, load])
+
+  useEffect(() => {
+    if (!detailOpen) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDetailOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [detailOpen])
 
   const submitFilters = async (event: FormEvent) => {
     event.preventDefault()
-    await load(filters)
+    if (page !== 1) {
+      setPage(1)
+      return
+    }
+    await load(filters, 1)
   }
 
   const resetFilters = async () => {
     setFilters(defaultFilters)
-    await load(defaultFilters)
+    setPage(1)
+    await load(defaultFilters, 1)
   }
 
   const openDetail = async (knowledgeId: number) => {
@@ -85,49 +115,49 @@ export function KnowledgePage({ userId }: Props) {
       setDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载知识详情失败')
+      setError(err instanceof Error ? err.message : 'failed to load knowledge detail')
     }
   }
 
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>知识库</h2>
-        <p>低投入模式：自动归档 + 快速检索 + 详情查看。</p>
+        <h2>Knowledge Hub</h2>
+        <p>Lightweight archive with server-side filter and pagination.</p>
       </header>
       {error && <p className="error-text">{error}</p>}
 
       <form className="panel form-grid" onSubmit={submitFilters}>
-        <h3>筛选</h3>
+        <h3>Filters</h3>
         <label>
-          关键词
+          keyword
           <input
             value={filters.keyword}
             onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
-            placeholder="标题、方案、标签"
+            placeholder="problem summary, solution or tags"
           />
         </label>
         <label>
-          场景
+          scenario
           <select
             value={filters.scenario}
             onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="">全部</option>
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
+            <option value="">all</option>
+            <option value="rd">rd</option>
+            <option value="ops">ops</option>
+            <option value="delivery">delivery</option>
+            <option value="support">support</option>
+            <option value="other">other</option>
           </select>
         </label>
         <label>
-          等级
+          level
           <select
             value={filters.level}
             onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
           >
-            <option value="">全部</option>
+            <option value="">all</option>
             <option value="S">S</option>
             <option value="A">A</option>
             <option value="B">B</option>
@@ -135,46 +165,51 @@ export function KnowledgePage({ userId }: Props) {
           </select>
         </label>
         <label>
-          推荐
+          recommended
           <select
             value={filters.recommended}
             onChange={(event) =>
-              setFilters((prev) => ({
-                ...prev,
-                recommended: event.target.value as FilterState['recommended'],
-              }))
+              setFilters((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
             }
           >
-            <option value="all">全部</option>
-            <option value="true">推荐</option>
-            <option value="false">非推荐</option>
+            <option value="all">all</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
           </select>
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit" disabled={loading}>
-            {loading ? '查询中...' : '查询'}
+            {loading ? 'querying...' : 'query'}
           </button>
           <button type="button" onClick={() => void resetFilters()} disabled={loading}>
-            重置
+            reset
           </button>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>知识条目（{rows.length}）</h3>
-          <button type="button" onClick={() => void load(filters)} disabled={loading}>
-            刷新
+          <h3>Knowledge Items (page {page})</h3>
+          <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
+            refresh
+          </button>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
+            prev
+          </button>
+          <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
+            next
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>任务</span>
-            <span>场景/等级</span>
-            <span>推荐</span>
-            <span>归档时间</span>
-            <span>操作</span>
+            <span>task</span>
+            <span>scenario/level</span>
+            <span>recommended</span>
+            <span>archived at</span>
+            <span>action</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
@@ -183,11 +218,11 @@ export function KnowledgePage({ userId }: Props) {
               <span>
                 {item.scenario ?? '-'} / {item.level ?? '-'}
               </span>
-              <span>{item.recommended ? '是' : '否'}</span>
+              <span>{item.recommended ? 'yes' : 'no'}</span>
               <span>{new Date(item.archived_at).toLocaleString()}</span>
               <span>
                 <button type="button" onClick={() => void openDetail(item.id)}>
-                  详情
+                  detail
                 </button>
               </span>
             </div>
@@ -199,36 +234,32 @@ export function KnowledgePage({ userId }: Props) {
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-headline">
-              <h3>知识条目 #{detail.id}</h3>
+              <h3>Knowledge #{detail.id}</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                关闭
+                close
               </button>
             </div>
             <p className="line-metric">
-              <span>任务 ID</span>
+              <span>task ID</span>
               <strong>#{detail.task_id}</strong>
             </p>
             <p className="line-metric">
-              <span>场景/等级</span>
+              <span>scenario/level</span>
               <strong>
                 {detail.scenario ?? '-'} / {detail.level ?? '-'}
               </strong>
             </p>
-            <p className="line-metric">
-              <span>推荐</span>
-              <strong>{detail.recommended ? '是' : '否'}</strong>
-            </p>
             <article className="modal-section">
-              <h4>问题摘要</h4>
+              <h4>problem summary</h4>
               <p>{detail.problem_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>方案摘要</h4>
+              <h4>solution summary</h4>
               <p>{detail.solution_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>标签</h4>
-              <p>{detail.tags.length > 0 ? detail.tags.join(', ') : '无'}</p>
+              <h4>tags</h4>
+              <p>{detail.tags.length > 0 ? detail.tags.join(', ') : '-'}</p>
             </article>
           </div>
         </div>
@@ -236,4 +267,3 @@ export function KnowledgePage({ userId }: Props) {
     </section>
   )
 }
-

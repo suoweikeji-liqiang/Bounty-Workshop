@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.enums import (
@@ -1187,27 +1187,34 @@ def list_knowledge(
     scenario: str | None = None,
     level: str | None = None,
     recommended: bool | None = None,
+    offset: int = 0,
+    limit: int = 50,
 ) -> list[dict]:
-    rows = session.exec(select(Knowledge).order_by(Knowledge.archived_at.desc())).all()
-    items = [_knowledge_to_dict(item) for item in rows]
-
+    statement = select(Knowledge)
     if keyword:
         needle = keyword.strip().lower()
         if needle:
-            items = [
-                item
-                for item in items
-                if needle in item["problem_summary"].lower()
-                or needle in item["solution_summary"].lower()
-                or any(needle in tag.lower() for tag in item["tags"])
-            ]
+            like_value = f"%{needle}%"
+            statement = statement.where(
+                or_(
+                    func.lower(Knowledge.problem_summary).like(like_value),
+                    func.lower(Knowledge.solution_summary).like(like_value),
+                    func.lower(Knowledge.tags).like(like_value),
+                )
+            )
     if scenario:
-        items = [item for item in items if item["scenario"] == scenario]
+        statement = statement.where(Knowledge.tags.like(f'%"{scenario}"%'))
     if level:
-        items = [item for item in items if item["level"] == level]
+        statement = statement.where(Knowledge.tags.like(f'%"{level}"%'))
     if recommended is not None:
-        items = [item for item in items if item["recommended"] is recommended]
-    return items
+        statement = statement.where(Knowledge.recommended == recommended)
+
+    safe_offset = max(offset, 0)
+    safe_limit = max(min(limit, 200), 1)
+    rows = session.exec(
+        statement.order_by(Knowledge.archived_at.desc()).offset(safe_offset).limit(safe_limit)
+    ).all()
+    return [_knowledge_to_dict(item) for item in rows]
 
 
 def get_knowledge_detail(session: Session, knowledge_id: int) -> dict:

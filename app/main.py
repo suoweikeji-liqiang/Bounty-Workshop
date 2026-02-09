@@ -41,6 +41,7 @@ from app.jobs import (
     run_release_overdue_scheduler,
     set_release_overdue_frequency_minutes,
 )
+from app.rate_limit import rate_limit
 from app.models import User, UserRole
 from app.schemas import (
     AcceptanceCreate,
@@ -469,7 +470,10 @@ def get_task(
     return get_task_detail(session, task_id=task_id)
 
 
-@app.post("/tasks/{task_id}/claims")
+@app.post(
+    "/tasks/{task_id}/claims",
+    dependencies=[Depends(rate_limit("task_claim", limit=30, window_seconds=60))],
+)
 def post_claim_task(
     task_id: int,
     payload: ClaimCreate,
@@ -600,7 +604,10 @@ def get_claim_detail(
     return get_claim_execution_detail(session, actor_id=actor_id, actor_roles=roles, claim_id=claim_id)
 
 
-@app.post("/claims/{claim_id}/deliverables")
+@app.post(
+    "/claims/{claim_id}/deliverables",
+    dependencies=[Depends(rate_limit("deliverable_submit", limit=20, window_seconds=60))],
+)
 def post_deliverable(
     claim_id: int,
     payload: DeliverableCreate,
@@ -668,6 +675,8 @@ def get_knowledge(
     scenario: str | None = Query(default=None),
     level: str | None = Query(default=None),
     recommended: bool | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> list[dict]:
     return list_knowledge(
@@ -676,6 +685,8 @@ def get_knowledge(
         scenario=scenario,
         level=level,
         recommended=recommended,
+        offset=offset,
+        limit=limit,
     )
 
 

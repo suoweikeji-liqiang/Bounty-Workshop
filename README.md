@@ -173,3 +173,25 @@ npm run e2e
 - Audit logs:
   - `GET /operations/logs` with filters (`action`, `actor_user_id`, `created_from`, `created_to`, `limit`)
   - Frontend operation log page for admin/reviewer.
+
+## Optimization Update (2026-02-09)
+
+- P0: Rate limiting (key write APIs)
+  - `POST /tasks/{task_id}/claims`: 30 req / 60s per client key
+  - `POST /claims/{claim_id}/deliverables`: 20 req / 60s per client key
+  - Config switch: `RATE_LIMIT_ENABLED=true|false`
+  - Optional per-bucket override:
+    - `RATE_LIMIT_TASK_CLAIM_LIMIT`, `RATE_LIMIT_TASK_CLAIM_WINDOW_SECONDS`
+    - `RATE_LIMIT_DELIVERABLE_SUBMIT_LIMIT`, `RATE_LIMIT_DELIVERABLE_SUBMIT_WINDOW_SECONDS`
+
+- P1: Knowledge query performance + pagination
+  - `/knowledge` now supports SQL-level filtering and pagination params:
+    - `keyword`, `scenario`, `level`, `recommended`, `offset`, `limit`
+  - Frontend knowledge page now uses server-side pagination (`20/page`).
+
+- P1: Task hall claim improvements
+  - Claim setup can now choose tasks from both `open` and `in_progress` pools.
+  - Deliverable `criteria_results` are now loaded dynamically from claim detail acceptance criteria.
+
+- P2 (partial quick win)
+  - Added `Esc` close behavior for task detail and knowledge detail modals.
