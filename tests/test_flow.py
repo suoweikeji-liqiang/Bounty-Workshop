@@ -1,0 +1,390 @@
+from datetime import date, timedelta
+from io import BytesIO
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from openpyxl import load_workbook
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.db import get_session
+from app.enums import Role
+from app.main import app
+from app.models import User, UserRole
+
+
+def _headers(user_id: int) -> dict[str, str]:
+    return {"X-User-Id": str(user_id)}
+
+
+def _setup_client(tmp_path: Path) -> TestClient:
+    db_file = tmp_path / "test.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        admin = User(id=1, name="Admin", employee_no="A001", department="PMO")
+        session.add(admin)
+        for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
+            session.add(UserRole(user_id=1, role=role))
+        session.commit()
+
+    def override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    return TestClient(app)
+
+
+def test_end_to_end_flow(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "Reviewer",
+            "employee_no": "R001",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Alice", "employee_no": "E001", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    me_resp = client.get("/me", headers=_headers(employee_id))
+    assert me_resp.status_code == 200
+    assert me_resp.json()["id"] == employee_id
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "构建流水线重复手工操作",
+            "scenario": "rd",
+            "background": "每次发布都需要重复点选流程",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "单次发布平均浪费20分钟",
+            "value_reduce_effort": True,
+            "value_statement": "自动化后每周可节省约2小时",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    task_due_date = (date.today() + timedelta(days=7)).isoformat()
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "发布自动化脚本",
+                "goal": "减少发布手工步骤",
+                "scope": "实现发布脚本并接入流水线",
+                "due_date": task_due_date,
+                "level": "C",
+                "reward_total": 600,
+                "proposer_ratio": 0.3,
+                "accepter_id": reviewer_id,
+                "points": 20,
+                "badge": "效率之星",
+                "acceptance_criteria": [
+                    {"description": "脚本稳定运行7天", "type": "quantified"},
+                    {"description": "发布步骤由5步降到2步", "type": "behavioral"},
+                ],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    detail_owner_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(employee_id))
+    assert detail_owner_resp.status_code == 200
+    assert detail_owner_resp.json()["claim_id"] == claim_id
+
+    detail_acceptor_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(reviewer_id))
+    assert detail_acceptor_resp.status_code == 200
+
+    outsider_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Outsider", "employee_no": "E999", "department": "RD", "roles": ["employee"]},
+    )
+    outsider_id = outsider_resp.json()["id"]
+    detail_forbidden_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(outsider_id))
+    assert detail_forbidden_resp.status_code == 403
+
+    my_claims_resp = client.get("/claims/mine", headers=_headers(employee_id))
+    assert my_claims_resp.status_code == 200
+    assert len(my_claims_resp.json()) >= 1
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(employee_id),
+        json={
+            "summary": "脚本已上线并接入流水线",
+            "evidence_urls": ["https://example.com/screenshot-1"],
+            "criteria_results": ["已连续稳定运行7天", "步骤从5步减少为2步"],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    pending_acceptance_resp = client.get(
+        "/deliverables/pending-acceptance/mine",
+        headers=_headers(reviewer_id),
+    )
+    assert pending_acceptance_resp.status_code == 200
+    assert any(item["deliverable_id"] == deliverable_id for item in pending_acceptance_resp.json())
+
+    accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "验收通过"},
+    )
+    assert accept_resp.status_code == 200
+    assert accept_resp.json()["task_status"] == "completed"
+
+    rewards_resp = client.get("/rewards", headers=_headers(employee_id), params={"user_id": employee_id})
+    assert rewards_resp.status_code == 200
+    rewards = rewards_resp.json()
+    assert len(rewards) == 2
+
+    first_reward_id = rewards[0]["id"]
+    confirm_resp = client.post(f"/rewards/{first_reward_id}/confirm", headers=_headers(reviewer_id))
+    assert confirm_resp.status_code == 200
+    assert confirm_resp.json()["status"] == "confirmed"
+
+    knowledge_resp = client.get("/knowledge", headers=_headers(employee_id))
+    assert knowledge_resp.status_code == 200
+    assert len(knowledge_resp.json()) == 1
+
+    dashboard_resp = client.get("/dashboard/overview", headers=_headers(employee_id))
+    assert dashboard_resp.status_code == 200
+    assert dashboard_resp.json()["task_completed"] == 1
+
+    app.dependency_overrides.clear()
+
+
+def test_release_overdue_claims(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "Reviewer2",
+            "employee_no": "R002",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Bob", "employee_no": "E002", "department": "RD", "roles": ["employee"]},
+    )
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "日志清理流程重复",
+            "scenario": "ops",
+            "background": "每周人工清理日志",
+            "frequency": "weekly",
+            "impact_scope": "department",
+            "description": "易遗漏导致磁盘告警",
+            "value_reduce_effort": True,
+            "value_statement": "自动化可减少值班负担",
+        },
+    )
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "日志清理自动化",
+                "goal": "自动化清理",
+                "scope": "实现定时清理并留审计日志",
+                "due_date": (date.today() - timedelta(days=1)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [
+                    {"description": "定时任务连续运行3天", "type": "quantified"}
+                ],
+            },
+        },
+    )
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+
+    job_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
+    assert job_resp.status_code == 200
+    assert job_resp.json()["released_claims"] >= 1
+
+    app.dependency_overrides.clear()
+
+
+def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReviewX",
+            "employee_no": "R010",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "DevX",
+            "employee_no": "E010",
+            "department": "RD",
+            "roles": ["employee"],
+        },
+    )
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "pipeline script optimization",
+            "scenario": "rd",
+            "background": "manual release is repetitive",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "release requires repeated clicks",
+            "value_reduce_effort": True,
+            "value_statement": "save team time every week",
+        },
+    )
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "automate release",
+                "goal": "reduce manual release operations",
+                "scope": "script + ci integration",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 800,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 30,
+                "badge": "efficiency-star",
+                "acceptance_criteria": [
+                    {"description": "script runs stably", "type": "quantified"}
+                ],
+            },
+        },
+    )
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    claim_id = claim_resp.json()["claim_id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(employee_id),
+        json={
+            "summary": "done",
+            "evidence_urls": ["https://example.com/evidence"],
+            "criteria_results": ["met"],
+        },
+    )
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "ok"},
+    )
+
+    rewards_resp = client.get("/rewards", headers=_headers(1))
+    reward_id = rewards_resp.json()[0]["id"]
+    client.post(f"/rewards/{reward_id}/confirm", headers=_headers(reviewer_id))
+
+    rankings_resp = client.get("/dashboard/rankings", headers=_headers(1), params={"time_range": "all"})
+    assert rankings_resp.status_code == 200
+    assert "claim_count_ranking" in rankings_resp.json()
+
+    trends_resp = client.get(
+        "/dashboard/trends",
+        headers=_headers(1),
+        params={"time_range": "all", "granularity": "month"},
+    )
+    assert trends_resp.status_code == 200
+    assert len(trends_resp.json()["points"]) >= 1
+
+    dist_resp = client.get("/dashboard/distribution", headers=_headers(1), params={"time_range": "all"})
+    assert dist_resp.status_code == 200
+    assert "scenario_distribution" in dist_resp.json()
+
+    tasks_export = client.get("/exports/tasks.xlsx", headers=_headers(1))
+    assert tasks_export.status_code == 200
+    tasks_wb = load_workbook(BytesIO(tasks_export.content))
+    assert "Tasks" in tasks_wb.sheetnames
+
+    dashboard_export = client.get(
+        "/exports/dashboard.xlsx",
+        headers=_headers(1),
+        params={"time_range": "all", "granularity": "month"},
+    )
+    assert dashboard_export.status_code == 200
+    dashboard_wb = load_workbook(BytesIO(dashboard_export.content))
+    assert "Rankings" in dashboard_wb.sheetnames
+
+    knowledge_pdf = client.get("/exports/knowledge.pdf", headers=_headers(1))
+    assert knowledge_pdf.status_code == 200
+    assert knowledge_pdf.content.startswith(b"%PDF")
+
+    app.dependency_overrides.clear()

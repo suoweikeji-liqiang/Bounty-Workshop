@@ -1,0 +1,2 @@
+"""Bounty workshop backend package."""
+
