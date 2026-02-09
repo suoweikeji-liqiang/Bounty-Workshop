@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { apiBaseUrl, requestJson } from '../lib/http'
 import type { Attachment } from '../types'
 
@@ -9,6 +10,7 @@ type Props = {
 }
 
 export function AttachmentsPage({ userId }: Props) {
+  const toast = useToast()
   const [file, setFile] = useState<File | null>(null)
   const [lookupId, setLookupId] = useState('')
   const [entityType, setEntityType] = useState<'problem' | 'deliverable'>('problem')
@@ -60,14 +62,26 @@ export function AttachmentsPage({ userId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>附件中心</h2>
         <p>上传证据、绑定实体、追踪下载。</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
       <form className="panel form-grid" onSubmit={upload}>
         <h3>上传附件</h3>
         <label className="wide">

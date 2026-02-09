@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
   AcceptanceTemplatesConfig,
@@ -13,6 +14,7 @@ type Props = {
 }
 
 export function SystemConfigPage({ userId }: Props) {
+  const toast = useToast()
   const [overview, setOverview] = useState<SystemConfigOverview | null>(null)
   const [feishuFreq, setFeishuFreq] = useState('')
   const [releaseFreq, setReleaseFreq] = useState('')
@@ -122,14 +124,26 @@ export function SystemConfigPage({ userId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>System Config</h2>
         <p>Centralized admin settings for frequency, claim policy, and acceptance templates.</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       <article className="panel form-grid">
         <h3>Config Center</h3>

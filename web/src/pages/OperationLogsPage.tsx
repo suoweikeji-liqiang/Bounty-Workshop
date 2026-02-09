@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { OperationLog } from '../types'
 
@@ -8,6 +9,7 @@ type Props = {
 }
 
 export function OperationLogsPage({ userId }: Props) {
+  const toast = useToast()
   const [rows, setRows] = useState<OperationLog[]>([])
   const [action, setAction] = useState('')
   const [actorId, setActorId] = useState('')
@@ -53,13 +55,19 @@ export function OperationLogsPage({ userId }: Props) {
     void load()
   }, [load])
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>Operation Logs</h2>
         <p>Audit logs for key system operations, approvals, and workflow actions.</p>
       </header>
-      {error && <p className="error-text">{error}</p>}
       <form
         className="panel form-grid"
         onSubmit={(event) => {

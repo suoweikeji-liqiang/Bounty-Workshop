@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Distribution, Overview, RankingItem, Rankings, Trends } from '../types'
 
@@ -28,6 +29,7 @@ function RankingList({ title, items }: { title: string; items: RankingItem[] }) 
 }
 
 export function DashboardPage({ userId }: Props) {
+  const toast = useToast()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [rankings, setRankings] = useState<Rankings | null>(null)
   const [trends, setTrends] = useState<Trends | null>(null)
@@ -62,13 +64,19 @@ export function DashboardPage({ userId }: Props) {
     return Math.max(...trends.points.map((point) => point.problem_submitted + point.task_completed))
   }, [trends])
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>作战看板</h2>
         <p>问题、任务与激励的全链路状态。</p>
       </header>
-      {error && <p className="error-text">{error}</p>}
       <div className="kpi-grid">
         <article className="kpi-card">
           <h4>问题总数</h4>

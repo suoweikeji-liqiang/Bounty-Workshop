@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { KnowledgeItem } from '../types'
 
@@ -44,6 +45,7 @@ function buildQuery(filters: FilterState, page: number): string {
 }
 
 export function KnowledgePage({ userId }: Props) {
+  const toast = useToast()
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [rows, setRows] = useState<KnowledgeItem[]>([])
   const [detail, setDetail] = useState<KnowledgeItem | null>(null)
@@ -119,13 +121,19 @@ export function KnowledgePage({ userId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>Knowledge Hub</h2>
         <p>Lightweight archive with server-side filter and pagination.</p>
       </header>
-      {error && <p className="error-text">{error}</p>}
 
       <form className="panel form-grid" onSubmit={submitFilters}>
         <h3>Filters</h3>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { HashRouter } from 'react-router-dom'
 
 import App from './App'
+import { useToast } from './components/ToastProvider'
 import { getStoredAuthToken, requestJson, setStoredAuthToken } from './lib/http'
 import { LoginPage } from './pages/LoginPage'
 import type { AuthLoginResponse, UserProfile } from './types'
@@ -12,6 +13,7 @@ type FeishuCallbackPayload = {
 }
 
 export default function Bootstrap() {
+  const toast = useToast()
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuthToken())
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
@@ -91,6 +93,13 @@ export default function Bootstrap() {
     setProfileError(null)
   }
 
+  useEffect(() => {
+    if (!profileError) {
+      return
+    }
+    toast.error(profileError)
+  }, [profileError, toast])
+
   if (!authToken || !profile) {
     return <LoginPage onLogin={handleLogin} />
   }
@@ -101,7 +110,6 @@ export default function Bootstrap() {
         userId={userId}
         profile={profile}
         loadingProfile={loadingProfile}
-        profileError={profileError}
         onLogout={handleLogout}
       />
     </HashRouter>

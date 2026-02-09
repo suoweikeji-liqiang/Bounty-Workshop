@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Problem, UserProfile } from '../types'
 
@@ -56,6 +57,7 @@ function buildDefaultTaskDraft(): TaskDraft {
 }
 
 export function ReviewWorkbenchPage({ userId }: Props) {
+  const toast = useToast()
   const [pendingProblems, setPendingProblems] = useState<Problem[]>([])
   const [acceptors, setAcceptors] = useState<UserProfile[]>([])
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(null)
@@ -212,14 +214,26 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>问题审核与任务定义</h2>
         <p>审核待立项问题，完成任务定义并指定验收人。</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       <article className="panel">
         <div className="panel-headline">

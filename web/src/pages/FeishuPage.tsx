@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Department, UserProfile } from '../types'
 
@@ -30,6 +31,7 @@ type SyncResult = {
 }
 
 export function FeishuPage({ userId, profile }: Props) {
+  const toast = useToast()
   const [code, setCode] = useState('')
   const [state, setState] = useState('')
   const [loginUrl, setLoginUrl] = useState<LoginUrl | null>(null)
@@ -149,14 +151,26 @@ export function FeishuPage({ userId, profile }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>飞书集成</h2>
         <p>OAuth 回调、通讯录同步与频率配置。</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
       <article className="panel form-grid">
         <h3>OAuth 登录</h3>
         <button type="button" onClick={() => void generateLoginUrl()}>

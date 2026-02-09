@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { AuthLoginResponse } from '../types'
 
@@ -9,6 +10,7 @@ type Props = {
 }
 
 export function LoginPage({ onLogin }: Props) {
+  const toast = useToast()
   const [employeeNo, setEmployeeNo] = useState('A0001')
   const [userId, setUserId] = useState('1')
   const [loading, setLoading] = useState(false)
@@ -49,6 +51,13 @@ export function LoginPage({ onLogin }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="login-wrap">
       <article className="login-card">
@@ -81,7 +90,6 @@ export function LoginPage({ onLogin }: Props) {
             sign in with feishu
           </button>
         </form>
-        {error && <p className="error-text">{error}</p>}
       </article>
     </section>
   )

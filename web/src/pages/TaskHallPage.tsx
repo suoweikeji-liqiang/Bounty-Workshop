@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { ClaimApprovalThresholdConfig, ClaimExecutionDetail, Task, TaskDetail, UserProfile } from '../types'
 
@@ -81,6 +82,7 @@ function buildCriteriaDrafts(detail: ClaimExecutionDetail): CriteriaDraft[] {
 }
 
 export function TaskHallPage({ userId, profile }: Props) {
+  const toast = useToast()
   const [openTasks, setOpenTasks] = useState<Task[]>([])
   const [inProgressTasks, setInProgressTasks] = useState<Task[]>([])
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([])
@@ -400,14 +402,26 @@ export function TaskHallPage({ userId, profile }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>Task Hall</h2>
         <p>Open and in-progress claims, team collaboration, and deliverable submission.</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       {canApproveForOthers && (
         <article className="panel form-grid">

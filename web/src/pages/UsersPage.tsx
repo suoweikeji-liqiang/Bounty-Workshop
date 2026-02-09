@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { UserProfile } from '../types'
 
@@ -44,6 +45,7 @@ function normalizeRoles(roles: string[]): RoleName[] {
 }
 
 export function UsersPage({ userId }: Props) {
+  const toast = useToast()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [form, setForm] = useState<CreateUserForm>(defaultCreateForm)
   const [roleDrafts, setRoleDrafts] = useState<Record<number, RoleName[]>>({})
@@ -138,14 +140,26 @@ export function UsersPage({ userId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>用户管理</h2>
         <p>管理员维护用户角色与启用状态，确保权限矩阵落地。</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       <form className="panel form-grid" onSubmit={createUser}>
         <h3>新增用户</h3>

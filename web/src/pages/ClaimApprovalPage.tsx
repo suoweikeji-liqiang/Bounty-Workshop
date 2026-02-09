@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { ClaimApprovalRequest, UserProfile } from '../types'
 
@@ -16,6 +17,7 @@ function hasAnyRole(profile: UserProfile | null, roles: string[]) {
 }
 
 export function ClaimApprovalPage({ userId, profile }: Props) {
+  const toast = useToast()
   const [mine, setMine] = useState<ClaimApprovalRequest[]>([])
   const [reviewRows, setReviewRows] = useState<ClaimApprovalRequest[]>([])
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>('pending')
@@ -72,14 +74,26 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>Claim Approvals</h2>
         <p>Overdue users submit approval requests here. Reviewer/admin can approve or reject.</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       <article className="panel">
         <div className="panel-headline">

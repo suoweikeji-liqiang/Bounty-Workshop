@@ -21,7 +21,6 @@ type Props = {
   userId: number
   profile: UserProfile | null
   loadingProfile: boolean
-  profileError: string | null
   onLogout: () => void
 }
 
@@ -52,7 +51,7 @@ function Guard({ profile, roles, children }: GuardProps) {
   )
 }
 
-function TopBar({ profile, loadingProfile, profileError, onLogout }: Props) {
+function TopBar({ profile, loadingProfile, onLogout }: Props) {
   return (
     <header className="topbar">
       <div>
@@ -68,7 +67,6 @@ function TopBar({ profile, loadingProfile, profileError, onLogout }: Props) {
           </p>
         )}
         <button type="button" onClick={onLogout}>logout</button>
-        {profileError && <p className="error-text">{profileError}</p>}
       </div>
     </header>
   )

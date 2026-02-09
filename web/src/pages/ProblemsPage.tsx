@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Problem } from '../types'
 
@@ -51,6 +52,7 @@ const defaultFilters: ProblemFilters = {
 }
 
 export function ProblemsPage({ userId }: Props) {
+  const toast = useToast()
   const [form, setForm] = useState<ProblemForm>(defaultForm)
   const [filters, setFilters] = useState<ProblemFilters>(defaultFilters)
   const [list, setList] = useState<Problem[]>([])
@@ -123,6 +125,20 @@ export function ProblemsPage({ userId }: Props) {
       setError(err instanceof Error ? err.message : '提交失败')
     }
   }
+
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
 
   return (
     <section className="page-wrap">
@@ -255,8 +271,6 @@ export function ProblemsPage({ userId }: Props) {
           提交问题
         </button>
       </form>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
       <form
         className="panel form-grid"
         onSubmit={(event) => {

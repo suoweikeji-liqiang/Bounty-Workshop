@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { PersonalSummary } from '../types'
 
@@ -8,6 +9,7 @@ type Props = {
 }
 
 export function PersonalCenterPage({ userId }: Props) {
+  const toast = useToast()
   const [summary, setSummary] = useState<PersonalSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +35,13 @@ export function PersonalCenterPage({ userId }: Props) {
   const badgeList = useMemo(() => summary?.badges ?? [], [summary])
   const rewards = useMemo(() => summary?.rewards ?? [], [summary])
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap personal-page">
       <header className="page-head personal-head">
@@ -44,8 +53,6 @@ export function PersonalCenterPage({ userId }: Props) {
           {loading ? 'loading...' : 'refresh'}
         </button>
       </header>
-
-      {error && <p className="error-text">{error}</p>}
 
       {summary && (
         <>

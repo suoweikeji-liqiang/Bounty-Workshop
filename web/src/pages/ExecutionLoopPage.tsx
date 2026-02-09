@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
   AcceptanceTemplatesConfig,
@@ -67,6 +68,7 @@ function defaultComment(templates: AcceptanceTemplatesConfig, result: Acceptance
 }
 
 export function ExecutionLoopPage({ userId, profile }: Props) {
+  const toast = useToast()
   const [claims, setClaims] = useState<ClaimExecution[]>([])
   const [pendingAcceptance, setPendingAcceptance] = useState<PendingAcceptance[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])
@@ -288,14 +290,26 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!message) {
+      return
+    }
+    toast.success(message)
+  }, [message, toast])
+
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+    toast.error(error)
+  }, [error, toast])
+
   return (
     <section className="page-wrap">
       <header className="page-head">
         <h2>执行闭环</h2>
         <p>claim execution, deliverable submission, acceptance and reward confirmation.</p>
       </header>
-      {message && <p className="ok-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
 
       {canManageTemplates && (
         <article className="panel form-grid">
