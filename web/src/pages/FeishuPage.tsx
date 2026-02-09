@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { requestJson } from '../lib/http'
@@ -37,35 +37,75 @@ export function FeishuPage({ userId, profile }: Props) {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [departments, setDepartments] = useState<Department[]>([])
   const [frequency, setFrequency] = useState(60)
+  const [releaseFrequency, setReleaseFrequency] = useState(1440)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canAdmin = Boolean(profile?.roles.includes('admin'))
 
-  const loadDepartments = async () => {
+  const loadDepartments = useCallback(async () => {
     try {
       const res = await requestJson<Department[]>('/departments', { userId })
       setDepartments(res)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载部门失败')
     }
-  }
+  }, [userId])
 
-  const loadFrequency = async () => {
+  const loadFrequency = useCallback(async () => {
     try {
-      const res = await requestJson<{ frequency_minutes: number }>('/system/config/feishu-sync-frequency', { userId })
-      setFrequency(res.frequency_minutes)
+      const [feishu, release] = await Promise.all([
+        requestJson<{ frequency_minutes: number }>('/system/config/feishu-sync-frequency', {
+          userId,
+        }),
+        requestJson<{ frequency_minutes: number }>('/system/config/release-overdue-frequency', {
+          userId,
+        }),
+      ])
+      setFrequency(feishu.frequency_minutes)
+      setReleaseFrequency(release.frequency_minutes)
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取频率失败')
+    }
+  }, [userId])
+
+  const saveReleaseFrequency = async () => {
+    try {
+      setError(null)
+      await requestJson('/system/config/release-overdue-frequency', {
+        method: 'PUT',
+        userId,
+        body: { frequency_minutes: releaseFrequency },
+      })
+      setMessage('超期检查频率已更新')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败')
+    }
+  }
+
+  const saveFrequency = async () => {
+    try {
+      setError(null)
+      await requestJson('/system/config/feishu-sync-frequency', {
+        method: 'PUT',
+        userId,
+        body: { frequency_minutes: frequency },
+      })
+      setMessage('同步频率已更新')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败')
     }
   }
 
   useEffect(() => {
-    void loadDepartments()
-    if (canAdmin) {
-      void loadFrequency()
-    }
-  }, [userId, canAdmin])
+    const timer = window.setTimeout(() => {
+      void loadDepartments()
+      if (canAdmin) {
+        void loadFrequency()
+      }
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [canAdmin, loadDepartments, loadFrequency])
 
   const generateLoginUrl = async () => {
     try {
@@ -106,20 +146,6 @@ export function FeishuPage({ userId, profile }: Props) {
       await loadDepartments()
     } catch (err) {
       setError(err instanceof Error ? err.message : '同步失败')
-    }
-  }
-
-  const saveFrequency = async () => {
-    try {
-      setError(null)
-      await requestJson('/system/config/feishu-sync-frequency', {
-        method: 'PUT',
-        userId,
-        body: { frequency_minutes: frequency },
-      })
-      setMessage('同步频率已更新')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '更新失败')
     }
   }
 
@@ -190,22 +216,40 @@ export function FeishuPage({ userId, profile }: Props) {
         )}
       </article>
       {canAdmin && (
-        <article className="panel form-grid">
-          <h3>同步频率（分钟）</h3>
-          <label>
-            frequency_minutes
-            <input
-              type="number"
-              min={5}
-              max={10080}
-              value={frequency}
-              onChange={(event) => setFrequency(Number(event.target.value))}
-            />
-          </label>
-          <button type="button" onClick={() => void saveFrequency()}>
-            保存频率
-          </button>
-        </article>
+        <>
+          <article className="panel form-grid">
+            <h3>飞书同步频率（分钟）</h3>
+            <label>
+              frequency_minutes
+              <input
+                type="number"
+                min={5}
+                max={10080}
+                value={frequency}
+                onChange={(event) => setFrequency(Number(event.target.value))}
+              />
+            </label>
+            <button type="button" onClick={() => void saveFrequency()}>
+              保存频率
+            </button>
+          </article>
+          <article className="panel form-grid">
+            <h3>超期任务检查频率（分钟）</h3>
+            <label>
+              frequency_minutes
+              <input
+                type="number"
+                min={5}
+                max={10080}
+                value={releaseFrequency}
+                onChange={(event) => setReleaseFrequency(Number(event.target.value))}
+              />
+            </label>
+            <button type="button" onClick={() => void saveReleaseFrequency()}>
+              保存频率
+            </button>
+          </article>
+        </>
       )}
       <article className="panel">
         <h3>部门列表</h3>
@@ -229,4 +273,3 @@ export function FeishuPage({ userId, profile }: Props) {
     </section>
   )
 }
-

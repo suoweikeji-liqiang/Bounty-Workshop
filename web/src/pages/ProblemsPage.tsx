@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { requestJson } from '../lib/http'
@@ -52,7 +52,7 @@ export function ProblemsPage({ userId }: Props) {
     [form.attachment_ids_text],
   )
 
-  const loadMine = async () => {
+  const loadMine = useCallback(async () => {
     setLoading(true)
     try {
       const rows = await requestJson<Problem[]>('/problems?mine_only=true', { userId })
@@ -63,11 +63,11 @@ export function ProblemsPage({ userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId])
 
   useEffect(() => {
     void loadMine()
-  }, [userId])
+  }, [loadMine])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

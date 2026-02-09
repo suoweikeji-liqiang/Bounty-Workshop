@@ -5,6 +5,7 @@
 - 主流程：问题提交 -> 审核立项 -> 揭榜 -> 成果提交 -> 验收 -> 激励生成/确认 -> 知识归档
 - 附件对象存储：`local` 与 `s3/minio` 后端，支持预签名下载
 - 飞书集成（MVP）：OAuth 登录回调、手动同步部门与人员、同步频率配置
+- 超期作业：后台定时检查超期任务并自动释放（支持频率配置）
 - 看板：总览、排行榜、趋势、分布
 - 导出：任务/激励/知识/看板导出（Excel），知识导出（PDF）
 
@@ -27,10 +28,12 @@ uvicorn app.main:app --reload
 默认数据库文件：`data/app.db`
 默认附件存储目录：`data/storage`
 
-可通过环境变量修改附件目录：
+可通过环境变量修改数据库与附件目录：
 
 ```bash
+APP_DB_PATH=./data/app.db
 ATTACHMENT_STORAGE_DIR=./data/storage
+ENABLE_BACKGROUND_JOBS=true
 ```
 
 对象存储后端切换（S3/MinIO）：
@@ -69,6 +72,7 @@ npm run dev
 
 - 用户与角色
   - `GET /me`
+  - `GET /users/active`
   - `GET /users`
   - `POST /users`
   - `PUT /users/{user_id}/roles`
@@ -85,11 +89,14 @@ npm run dev
   - `GET /departments`
   - `GET /system/config/feishu-sync-frequency`
   - `PUT /system/config/feishu-sync-frequency`
+  - `GET /system/config/release-overdue-frequency`
+  - `PUT /system/config/release-overdue-frequency`
 - 问题与任务
   - `POST /problems`
   - `GET /problems`
   - `POST /problems/{problem_id}/review`
   - `GET /tasks`
+  - `GET /tasks/{task_id}`
   - `POST /tasks/{task_id}/claims`
   - `GET /claims/mine`
   - `GET /claims/{claim_id}/detail`
@@ -121,4 +128,11 @@ npm run dev
 pytest -q
 ```
 
-当前结果：`6 passed`
+当前结果：`9 passed`
+
+前端端到端回归（Playwright）：
+
+```bash
+cd web
+npm run e2e
+```

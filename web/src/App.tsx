@@ -1,5 +1,5 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import type { ReactElement } from 'react'
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { apiBaseUrl } from './lib/http'
 import { AttachmentsPage } from './pages/AttachmentsPage'
@@ -7,7 +7,9 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
 import { FeishuPage } from './pages/FeishuPage'
 import { ProblemsPage } from './pages/ProblemsPage'
+import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { TaskHallPage } from './pages/TaskHallPage'
+import { UsersPage } from './pages/UsersPage'
 import type { UserProfile } from './types'
 
 type Props = {
@@ -39,7 +41,7 @@ function Guard({ profile, roles, children }: GuardProps) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>权限不足</h2>
-        <p>当前账号没有访问该页面的角色。</p>
+        <p>当前账号没有访问该页面的角色权限。</p>
       </header>
     </section>
   )
@@ -66,7 +68,7 @@ function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Pr
         {loadingProfile && <p className="muted">读取用户中...</p>}
         {profile && (
           <p className="muted">
-            {profile.name}（{profile.roles.join(', ')}）
+            {profile.name} ({profile.roles.join(', ')})
           </p>
         )}
         {profileError && <p className="error-text">{profileError}</p>}
@@ -77,6 +79,7 @@ function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Pr
 
 export default function App(props: Props) {
   const { userId, profile } = props
+  const isAdmin = hasAnyRole(profile, ['admin'])
   const canReviewOrAdmin = hasAnyRole(profile, ['admin', 'reviewer'])
   const canAcceptOrAdmin = hasAnyRole(profile, ['admin', 'acceptor'])
 
@@ -89,18 +92,36 @@ export default function App(props: Props) {
             仪表盘
           </NavLink>
           <NavLink to="/problems">问题池</NavLink>
+          {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核立项</NavLink>}
           <NavLink to="/tasks">任务大厅</NavLink>
           <NavLink to="/execution">执行闭环</NavLink>
           <NavLink to="/attachments">附件中心</NavLink>
+          {isAdmin && <NavLink to="/users">用户管理</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
         </aside>
         <main className="main-area">
           <Routes>
             <Route path="/" element={<DashboardPage userId={userId} />} />
             <Route path="/problems" element={<ProblemsPage userId={userId} />} />
+            <Route
+              path="/review"
+              element={
+                <Guard profile={profile} roles={['admin', 'reviewer']}>
+                  <ReviewWorkbenchPage userId={userId} />
+                </Guard>
+              }
+            />
             <Route path="/tasks" element={<TaskHallPage userId={userId} />} />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
+            <Route
+              path="/users"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <UsersPage userId={userId} />
+                </Guard>
+              }
+            />
             <Route
               path="/feishu"
               element={
@@ -116,3 +137,4 @@ export default function App(props: Props) {
     </div>
   )
 }
+

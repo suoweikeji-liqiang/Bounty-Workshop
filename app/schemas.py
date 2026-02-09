@@ -11,6 +11,7 @@ from app.enums import (
     Role,
     Scenario,
     TaskLevel,
+    UserStatus,
 )
 
 
@@ -32,6 +33,10 @@ class UserCreate(BaseModel):
 
 class RoleUpdate(BaseModel):
     roles: list[Role]
+
+
+class UserStatusUpdate(BaseModel):
+    status: UserStatus
 
 
 class UserRead(BaseModel):
@@ -124,6 +129,24 @@ class TaskRead(BaseModel):
     level: TaskLevel
     reward_total: float
     due_date: date
+    status: str
+    created_at: datetime
+
+
+class TaskDetailRead(BaseModel):
+    id: int
+    problem_id: int
+    title: str
+    goal: str
+    scope: str
+    due_date: date
+    level: TaskLevel
+    reward_total: float
+    proposer_ratio: float
+    accepter_id: int
+    points: int
+    badge: Optional[str]
+    acceptance_criteria: list[dict]
     status: str
     created_at: datetime
 

@@ -60,6 +60,13 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert employee_resp.status_code == 200
     employee_id = employee_resp.json()["id"]
 
+    acceptor_list_resp = client.get("/users/acceptors", headers=_headers(reviewer_id))
+    assert acceptor_list_resp.status_code == 200
+    assert any(item["id"] == reviewer_id for item in acceptor_list_resp.json())
+
+    acceptor_list_forbidden = client.get("/users/acceptors", headers=_headers(employee_id))
+    assert acceptor_list_forbidden.status_code == 403
+
     me_resp = client.get("/me", headers=_headers(employee_id))
     assert me_resp.status_code == 200
     assert me_resp.json()["id"] == employee_id
@@ -107,6 +114,11 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     )
     assert review_resp.status_code == 200
     task_id = review_resp.json()["id"]
+
+    task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(employee_id))
+    assert task_detail_resp.status_code == 200
+    assert task_detail_resp.json()["id"] == task_id
+    assert len(task_detail_resp.json()["acceptance_criteria"]) == 2
 
     claim_resp = client.post(
         f"/tasks/{task_id}/claims",
@@ -186,6 +198,18 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
 
 def test_release_overdue_claims(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
+
+    get_freq_resp = client.get("/system/config/release-overdue-frequency", headers=_headers(1))
+    assert get_freq_resp.status_code == 200
+    assert get_freq_resp.json()["frequency_minutes"] >= 5
+
+    put_freq_resp = client.put(
+        "/system/config/release-overdue-frequency",
+        headers=_headers(1),
+        json={"frequency_minutes": 15},
+    )
+    assert put_freq_resp.status_code == 200
+    assert put_freq_resp.json()["frequency_minutes"] == 15
 
     reviewer_resp = client.post(
         "/users",
@@ -386,5 +410,193 @@ def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
     knowledge_pdf = client.get("/exports/knowledge.pdf", headers=_headers(1))
     assert knowledge_pdf.status_code == 200
     assert knowledge_pdf.content.startswith(b"%PDF")
+
+    app.dependency_overrides.clear()
+
+
+def test_user_status_update_and_disable_effect(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "StatusUser",
+            "employee_no": "E020",
+            "department": "RD",
+            "roles": ["employee"],
+        },
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    disable_resp = client.put(
+        f"/users/{employee_id}/status",
+        headers=_headers(1),
+        json={"status": "disabled"},
+    )
+    assert disable_resp.status_code == 200
+    assert disable_resp.json()["status"] == "disabled"
+
+    blocked_problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "disabled user should be blocked",
+            "scenario": "rd",
+            "background": "x",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "x",
+            "value_reduce_effort": True,
+            "value_statement": "x",
+        },
+    )
+    assert blocked_problem_resp.status_code == 403
+
+    enable_resp = client.put(
+        f"/users/{employee_id}/status",
+        headers=_headers(1),
+        json={"status": "enabled"},
+    )
+    assert enable_resp.status_code == 200
+    assert enable_resp.json()["status"] == "enabled"
+
+    active_users_before_disable = client.get("/users/active", headers=_headers(employee_id))
+    assert active_users_before_disable.status_code == 200
+    assert any(item["id"] == employee_id for item in active_users_before_disable.json())
+
+    allowed_problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "enabled user can submit",
+            "scenario": "rd",
+            "background": "x",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "x",
+            "value_reduce_effort": True,
+            "value_statement": "x",
+        },
+    )
+    assert allowed_problem_resp.status_code == 200
+
+    non_admin_update_resp = client.put(
+        f"/users/{employee_id}/status",
+        headers=_headers(employee_id),
+        json={"status": "disabled"},
+    )
+    assert non_admin_update_resp.status_code == 403
+
+    disable_again_resp = client.put(
+        f"/users/{employee_id}/status",
+        headers=_headers(1),
+        json={"status": "disabled"},
+    )
+    assert disable_again_resp.status_code == 200
+
+    active_users_after_disable = client.get("/users/active", headers=_headers(1))
+    assert active_users_after_disable.status_code == 200
+    assert all(item["id"] != employee_id for item in active_users_after_disable.json())
+
+    app.dependency_overrides.clear()
+
+
+def test_abandon_claim_flow(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReviewerAbandon",
+            "employee_no": "R030",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_a_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "DevA", "employee_no": "E031", "department": "RD", "roles": ["employee"]},
+    )
+    employee_a_id = employee_a_resp.json()["id"]
+
+    employee_b_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "DevB", "employee_no": "E032", "department": "RD", "roles": ["employee"]},
+    )
+    employee_b_id = employee_b_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_a_id),
+        json={
+            "title": "abandon claim case",
+            "scenario": "rd",
+            "background": "need verify abandon workflow",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "abandon should reopen task when no active claim",
+            "value_reduce_effort": True,
+            "value_statement": "validate reopen behavior",
+        },
+    )
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "review abandon behavior",
+                "goal": "support abandon operation",
+                "scope": "single workflow",
+                "due_date": (date.today() + timedelta(days=2)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "flow works", "type": "quantified"}],
+            },
+        },
+    )
+    task_id = review_resp.json()["id"]
+
+    claim_a_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_a_id),
+        json={"mode": "individual"},
+    )
+    claim_a_id = claim_a_resp.json()["claim_id"]
+
+    claim_b_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_b_id),
+        json={"mode": "individual"},
+    )
+    claim_b_id = claim_b_resp.json()["claim_id"]
+
+    forbidden_abandon = client.post(f"/claims/{claim_b_id}/abandon", headers=_headers(employee_a_id))
+    assert forbidden_abandon.status_code == 403
+
+    abandon_a_resp = client.post(f"/claims/{claim_a_id}/abandon", headers=_headers(employee_a_id))
+    assert abandon_a_resp.status_code == 200
+    assert abandon_a_resp.json()["status"] == "abandoned"
+    assert abandon_a_resp.json()["task_status"] == "in_progress"
+
+    abandon_b_resp = client.post(f"/claims/{claim_b_id}/abandon", headers=_headers(employee_b_id))
+    assert abandon_b_resp.status_code == 200
+    assert abandon_b_resp.json()["status"] == "abandoned"
+    assert abandon_b_resp.json()["task_status"] == "open"
+
+    reopen_tasks_resp = client.get("/tasks", headers=_headers(employee_a_id), params={"status": "open"})
+    assert reopen_tasks_resp.status_code == 200
+    assert any(item["id"] == task_id for item in reopen_tasks_resp.json())
 
     app.dependency_overrides.clear()

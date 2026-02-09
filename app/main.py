@@ -1,7 +1,11 @@
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import Depends, FastAPI, File, Query, UploadFile
 from fastapi import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel import Session, select
 
@@ -28,6 +32,12 @@ from app.feishu import (
     set_acceptance_templates,
     set_sync_frequency_minutes,
 )
+from app.jobs import (
+    get_release_overdue_frequency_minutes,
+    is_background_jobs_enabled,
+    run_release_overdue_scheduler,
+    set_release_overdue_frequency_minutes,
+)
 from app.models import User, UserRole
 from app.schemas import (
     AcceptanceCreate,
@@ -53,10 +63,12 @@ from app.schemas import (
     RoleUpdate,
     SyncFrequencyConfig,
     TaskRead,
+    TaskDetailRead,
     TimeRange,
     TrendGranularity,
     UserCreate,
     UserRead,
+    UserStatusUpdate,
 )
 from app.reporting import (
     dashboard_distribution,
@@ -70,6 +82,7 @@ from app.reporting import (
 )
 from app.services import (
     accept_deliverable,
+    abandon_claim,
     claim_task,
     confirm_reward,
     create_problem,
@@ -77,6 +90,9 @@ from app.services import (
     dashboard_overview,
     get_my_profile,
     get_claim_execution_detail,
+    get_task_detail,
+    list_acceptor_candidates,
+    list_active_users,
     list_knowledge,
     list_my_claims,
     list_my_pending_acceptance,
@@ -87,6 +103,7 @@ from app.services import (
     release_overdue_claims,
     review_problem,
     set_user_roles,
+    set_user_status,
     submit_deliverable,
 )
 
@@ -103,10 +120,37 @@ async def lifespan(_: FastAPI):
             for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
                 session.add(UserRole(user_id=admin.id, role=role))
             session.commit()
+    stop_event = asyncio.Event()
+    scheduler_task = None
+    if is_background_jobs_enabled():
+        scheduler_task = asyncio.create_task(
+            run_release_overdue_scheduler(lambda: Session(engine), stop_event)
+        )
     yield
+    stop_event.set()
+    if scheduler_task is not None:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
 
 
 app = FastAPI(title="揭榜挂帅任务管理系统 MVP", version="0.1.0", lifespan=lifespan)
+
+cors_origins = [
+    item.strip()
+    for item in os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173",
+    ).split(",")
+    if item.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -234,6 +278,20 @@ def get_users(session: Session = Depends(get_session)) -> list[UserRead]:
     return list_users(session)
 
 
+@app.get("/users/active", response_model=list[UserRead])
+def get_users_active(session: Session = Depends(get_session)) -> list[UserRead]:
+    return list_active_users(session)
+
+
+@app.get(
+    "/users/acceptors",
+    response_model=list[UserRead],
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def get_users_acceptors(session: Session = Depends(get_session)) -> list[UserRead]:
+    return list_acceptor_candidates(session)
+
+
 @app.post("/users", response_model=UserRead, dependencies=[Depends(require_roles(Role.ADMIN))])
 def post_users(
     payload: UserCreate,
@@ -255,6 +313,20 @@ def put_user_roles(
     actor_id: int = Depends(get_current_user_id),
 ) -> UserRead:
     return set_user_roles(session, actor_id=actor_id, user_id=user_id, payload=payload)
+
+
+@app.put(
+    "/users/{user_id}/status",
+    response_model=UserRead,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def put_user_status(
+    user_id: int,
+    payload: UserStatusUpdate,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> UserRead:
+    return set_user_status(session, actor_id=actor_id, user_id=user_id, payload=payload)
 
 
 @app.post("/problems", response_model=ProblemRead)
@@ -298,6 +370,14 @@ def get_tasks(
     return list_tasks(session, status=status)
 
 
+@app.get("/tasks/{task_id}", response_model=TaskDetailRead)
+def get_task(
+    task_id: int,
+    session: Session = Depends(get_session),
+) -> TaskDetailRead:
+    return get_task_detail(session, task_id=task_id)
+
+
 @app.post("/tasks/{task_id}/claims")
 def post_claim_task(
     task_id: int,
@@ -306,6 +386,15 @@ def post_claim_task(
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
     return claim_task(session, actor_id=actor_id, task_id=task_id, payload=payload)
+
+
+@app.post("/claims/{claim_id}/abandon")
+def post_claim_abandon(
+    claim_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    return abandon_claim(session, actor_id=actor_id, claim_id=claim_id)
 
 
 @app.get("/claims/mine", response_model=list[ClaimExecutionRead])
@@ -531,6 +620,28 @@ def put_feishu_sync_frequency(
     session: Session = Depends(get_session),
 ) -> SyncFrequencyConfig:
     value = set_sync_frequency_minutes(session, payload.frequency_minutes)
+    return SyncFrequencyConfig(frequency_minutes=value)
+
+
+@app.get(
+    "/system/config/release-overdue-frequency",
+    response_model=SyncFrequencyConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def get_release_overdue_frequency(session: Session = Depends(get_session)) -> SyncFrequencyConfig:
+    return SyncFrequencyConfig(frequency_minutes=get_release_overdue_frequency_minutes(session))
+
+
+@app.put(
+    "/system/config/release-overdue-frequency",
+    response_model=SyncFrequencyConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def put_release_overdue_frequency(
+    payload: SyncFrequencyConfig,
+    session: Session = Depends(get_session),
+) -> SyncFrequencyConfig:
+    value = set_release_overdue_frequency_minutes(session, payload.frequency_minutes)
     return SyncFrequencyConfig(frequency_minutes=value)
 
 

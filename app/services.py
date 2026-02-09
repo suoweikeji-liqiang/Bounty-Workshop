@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import date, datetime
@@ -17,6 +17,7 @@ from app.enums import (
     RewardStatus,
     Role,
     TaskStatus,
+    UserStatus,
 )
 from app.attachments import bind_attachments
 from app.models import (
@@ -45,9 +46,11 @@ from app.schemas import (
     ProblemReview,
     RewardRead,
     RoleUpdate,
+    TaskDetailRead,
     TaskRead,
     UserCreate,
     UserRead,
+    UserStatusUpdate,
 )
 
 
@@ -78,10 +81,12 @@ def _log(
     )
 
 
-def _ensure_user_exists(session: Session, user_id: int) -> User:
+def _ensure_user_exists(session: Session, user_id: int, allow_disabled: bool = False) -> User:
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail=f"用户 {user_id} 不存在")
+        raise HTTPException(status_code=404, detail=f"user {user_id} not found")
+    if not allow_disabled and user.status == UserStatus.DISABLED:
+        raise HTTPException(status_code=403, detail=f"user {user_id} is disabled")
     return user
 
 
@@ -90,7 +95,7 @@ def _ensure_role(session: Session, user_id: int, role: Role) -> None:
         select(UserRole).where(UserRole.user_id == user_id, UserRole.role == role)
     ).first()
     if exists is None:
-        raise HTTPException(status_code=400, detail=f"用户 {user_id} 未被授予 {role.value} 角色")
+        raise HTTPException(status_code=400, detail=f"鐢ㄦ埛 {user_id} 鏈鎺堜簣 {role.value} 瑙掕壊")
 
 
 def create_user(session: Session, actor_id: int, payload: UserCreate) -> UserRead:
@@ -121,7 +126,7 @@ def create_user(session: Session, actor_id: int, payload: UserCreate) -> UserRea
 
 
 def set_user_roles(session: Session, actor_id: int, user_id: int, payload: RoleUpdate) -> UserRead:
-    _ensure_user_exists(session, user_id)
+    _ensure_user_exists(session, user_id, allow_disabled=True)
     for role_row in session.exec(select(UserRole).where(UserRole.user_id == user_id)).all():
         session.delete(role_row)
     roles = payload.roles or [Role.EMPLOYEE]
@@ -136,7 +141,28 @@ def set_user_roles(session: Session, actor_id: int, user_id: int, payload: RoleU
         detail={"roles": [r.value for r in roles]},
     )
     session.commit()
-    return user_to_read(session, _ensure_user_exists(session, user_id))
+    return user_to_read(session, _ensure_user_exists(session, user_id, allow_disabled=True))
+
+
+def set_user_status(
+    session: Session,
+    actor_id: int,
+    user_id: int,
+    payload: UserStatusUpdate,
+) -> UserRead:
+    user = _ensure_user_exists(session, user_id, allow_disabled=True)
+    user.status = payload.status
+    _log(
+        session=session,
+        actor_user_id=actor_id,
+        action="user.status.update",
+        target_type="user",
+        target_id=user_id,
+        detail={"status": payload.status.value},
+    )
+    session.commit()
+    session.refresh(user)
+    return user_to_read(session, user)
 
 
 def user_to_read(session: Session, user: User) -> UserRead:
@@ -158,8 +184,25 @@ def list_users(session: Session) -> list[UserRead]:
     return [user_to_read(session, item) for item in users]
 
 
+def list_active_users(session: Session) -> list[UserRead]:
+    users = session.exec(
+        select(User).where(User.status == UserStatus.ENABLED).order_by(User.id)
+    ).all()
+    return [user_to_read(session, item) for item in users]
+
+
+def list_acceptor_candidates(session: Session) -> list[UserRead]:
+    users = session.exec(
+        select(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .where(UserRole.role == Role.ACCEPTOR, User.status == UserStatus.ENABLED)
+        .order_by(User.id)
+    ).all()
+    return [user_to_read(session, item) for item in users]
+
+
 def get_my_profile(session: Session, user_id: int) -> UserRead:
-    user = _ensure_user_exists(session, user_id)
+    user = _ensure_user_exists(session, user_id, allow_disabled=True)
     return user_to_read(session, user)
 
 
@@ -239,9 +282,9 @@ def list_problems(
 def review_problem(session: Session, actor_id: int, problem_id: int, payload: ProblemReview) -> TaskRead | None:
     problem = session.get(Problem, problem_id)
     if problem is None:
-        raise HTTPException(status_code=404, detail="问题不存在")
+        raise HTTPException(status_code=404, detail="闂涓嶅瓨鍦?")
     if problem.status != ProblemStatus.PENDING_REVIEW:
-        raise HTTPException(status_code=400, detail="仅待审核问题可评审")
+        raise HTTPException(status_code=400, detail="浠呭緟瀹℃牳闂鍙瘎瀹?")
 
     if not payload.approve:
         problem.status = ProblemStatus.REJECTED
@@ -330,6 +373,36 @@ def list_tasks(session: Session, status: TaskStatus | None = None) -> list[TaskR
     ]
 
 
+def get_task_detail(session: Session, task_id: int) -> TaskDetailRead:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    acceptance_criteria: list[dict] = []
+    try:
+        parsed = _from_json(task.acceptance_criteria_json)
+        if isinstance(parsed, list):
+            acceptance_criteria = parsed
+    except Exception:
+        acceptance_criteria = []
+    return TaskDetailRead(
+        id=task.id,
+        problem_id=task.problem_id,
+        title=task.title,
+        goal=task.goal,
+        scope=task.scope,
+        due_date=task.due_date,
+        level=task.level,
+        reward_total=task.reward_total,
+        proposer_ratio=task.proposer_ratio,
+        accepter_id=task.accepter_id,
+        points=task.points,
+        badge=task.badge,
+        acceptance_criteria=acceptance_criteria,
+        status=task.status.value,
+        created_at=task.created_at,
+    )
+
+
 def list_my_claims(
     session: Session,
     user_id: int,
@@ -400,10 +473,10 @@ def get_claim_execution_detail(
 ) -> ClaimExecutionDetailRead:
     claim = session.get(Claim, claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="鎻璁板綍涓嶅瓨鍦?")
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
 
     allowed = (
         actor_id == claim.lead_user_id
@@ -412,7 +485,7 @@ def get_claim_execution_detail(
         or Role.REVIEWER in actor_roles
     )
     if not allowed:
-        raise HTTPException(status_code=403, detail="无权查看该揭榜详情")
+        raise HTTPException(status_code=403, detail="鏃犳潈鏌ョ湅璇ユ彮姒滆鎯?")
 
     deliverable = session.exec(select(Deliverable).where(Deliverable.claim_id == claim.id)).first()
     acceptance_history: list[AcceptanceHistoryItem] = []
@@ -474,9 +547,9 @@ def get_claim_execution_detail(
 def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCreate) -> dict:
     task = session.get(Task, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
     if task.status not in {TaskStatus.OPEN, TaskStatus.IN_PROGRESS}:
-        raise HTTPException(status_code=400, detail="当前任务不可揭榜")
+        raise HTTPException(status_code=400, detail="褰撳墠浠诲姟涓嶅彲鎻")
 
     lead_user_id = payload.lead_user_id or actor_id
     _ensure_user_exists(session, lead_user_id)
@@ -490,7 +563,7 @@ def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCrea
         )
     ).first()
     if existing_active is not None:
-        raise HTTPException(status_code=400, detail="该负责人已有进行中的揭榜记录")
+        raise HTTPException(status_code=400, detail="璇ヨ礋璐ｄ汉宸叉湁杩涜涓殑鎻璁板綍")
 
     claim = Claim(task_id=task_id, lead_user_id=lead_user_id, mode=payload.mode)
     session.add(claim)
@@ -501,7 +574,7 @@ def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCrea
     else:
         member_ids = {member.user_id for member in payload.members}
         if lead_user_id not in member_ids:
-            raise HTTPException(status_code=400, detail="联合揭榜成员中必须包含主负责人")
+            raise HTTPException(status_code=400, detail="鑱斿悎鎻鎴愬憳涓繀椤诲寘鍚富璐熻矗浜?")
         for member in payload.members:
             _ensure_user_exists(session, member.user_id)
             session.add(ClaimMember(claim_id=claim.id, user_id=member.user_id, ratio=member.ratio))
@@ -519,23 +592,57 @@ def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCrea
     return {"claim_id": claim.id, "task_id": task_id, "status": claim.status.value}
 
 
+def abandon_claim(session: Session, actor_id: int, claim_id: int) -> dict:
+    _ensure_user_exists(session, actor_id)
+    claim = session.get(Claim, claim_id)
+    if claim is None:
+        raise HTTPException(status_code=404, detail="鎻璁板綍涓嶅瓨鍦?")
+    if claim.status != ClaimStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="褰撳墠鎻鐘舵€佷笉鍙斁寮?")
+    if actor_id != claim.lead_user_id:
+        raise HTTPException(status_code=403, detail="浠呮彮姒滀富璐熻矗浜哄彲鏀惧純")
+
+    task = session.get(Task, claim.task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
+
+    claim.status = ClaimStatus.ABANDONED
+    active_claims = session.exec(
+        select(func.count())
+        .select_from(Claim)
+        .where(Claim.task_id == task.id, Claim.status == ClaimStatus.ACTIVE)
+    ).one()
+    task.status = TaskStatus.IN_PROGRESS if int(active_claims) > 0 else TaskStatus.OPEN
+
+    _log(
+        session,
+        actor_id,
+        "task.claim.abandon",
+        "claim",
+        claim_id,
+        {"task_id": task.id},
+    )
+    session.commit()
+    return {"claim_id": claim_id, "status": claim.status.value, "task_status": task.status.value}
+
+
 def submit_deliverable(
     session: Session, actor_id: int, claim_id: int, payload: DeliverableCreate
 ) -> dict:
     claim = session.get(Claim, claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="鎻璁板綍涓嶅瓨鍦?")
     if claim.status != ClaimStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="当前揭榜状态不可提交成果")
+        raise HTTPException(status_code=400, detail="褰撳墠鎻鐘舵€佷笉鍙彁浜ゆ垚鏋?")
 
     if claim.mode == ClaimMode.TEAM and actor_id != claim.lead_user_id:
-        raise HTTPException(status_code=403, detail="联合揭榜仅主负责人可提交成果")
+        raise HTTPException(status_code=403, detail="鑱斿悎鎻浠呬富璐熻矗浜哄彲鎻愪氦鎴愭灉")
     if claim.mode == ClaimMode.INDIVIDUAL and actor_id != claim.lead_user_id:
-        raise HTTPException(status_code=403, detail="仅揭榜人可提交成果")
+        raise HTTPException(status_code=403, detail="浠呮彮姒滀汉鍙彁浜ゆ垚鏋?")
 
     existing = session.exec(select(Deliverable).where(Deliverable.claim_id == claim_id)).first()
     if existing is not None and existing.status == DeliverableStatus.SUBMITTED:
-        raise HTTPException(status_code=400, detail="已有待验收成果，不能重复提交")
+        raise HTTPException(status_code=400, detail="宸叉湁寰呴獙鏀舵垚鏋滐紝涓嶈兘閲嶅鎻愪氦")
 
     evidence_urls = list(payload.evidence_urls)
     if existing is None:
@@ -568,7 +675,7 @@ def submit_deliverable(
 
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
     task.status = TaskStatus.PENDING_ACCEPTANCE
     _log(
         session,
@@ -589,7 +696,7 @@ def _generate_rewards_and_knowledge(session: Session, task: Task, claim: Claim, 
 
     problem = session.get(Problem, task.problem_id)
     if problem is None:
-        raise HTTPException(status_code=404, detail="问题不存在")
+        raise HTTPException(status_code=404, detail="闂涓嶅瓨鍦?")
 
     proposer_amount = round(task.reward_total * task.proposer_ratio, 2)
     executors_amount = round(task.reward_total - proposer_amount, 2)
@@ -622,8 +729,8 @@ def _generate_rewards_and_knowledge(session: Session, task: Task, claim: Claim, 
     if session.exec(select(Knowledge).where(Knowledge.task_id == task.id)).first() is None:
         knowledge = Knowledge(
             task_id=task.id,
-            problem_summary=f"{problem.title}｜{problem.description[:120]}",
-            solution_summary=f"{task.goal}｜{deliverable.summary[:200]}",
+            problem_summary=f"{problem.title} | {problem.description[:120]}",
+            solution_summary=f"{task.goal} | {deliverable.summary[:200]}",
             tags=_to_json([problem.scenario.value, task.level.value]),
             recommended=False,
         )
@@ -641,15 +748,15 @@ def accept_deliverable(
 ) -> dict:
     deliverable = session.get(Deliverable, deliverable_id)
     if deliverable is None:
-        raise HTTPException(status_code=404, detail="成果不存在")
+        raise HTTPException(status_code=404, detail="鎴愭灉涓嶅瓨鍦?")
     claim = session.get(Claim, deliverable.claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="鎻璁板綍涓嶅瓨鍦?")
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
     if actor_id != task.accepter_id:
-        raise HTTPException(status_code=403, detail="仅任务验收人可执行验收")
+        raise HTTPException(status_code=403, detail="浠呬换鍔￠獙鏀朵汉鍙墽琛岄獙鏀?")
 
     acceptance = Acceptance(
         deliverable_id=deliverable.id,
@@ -708,7 +815,7 @@ def list_rewards(session: Session, user_id: int | None = None) -> list[RewardRea
 def confirm_reward(session: Session, actor_id: int, reward_id: int) -> RewardRead:
     reward = session.get(Reward, reward_id)
     if reward is None:
-        raise HTTPException(status_code=404, detail="激励记录不存在")
+        raise HTTPException(status_code=404, detail="婵€鍔辫褰曚笉瀛樺湪")
     reward.status = RewardStatus.CONFIRMED
     reward.confirmed_at = datetime.utcnow()
     _log(

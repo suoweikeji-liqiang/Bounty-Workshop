@@ -63,6 +63,24 @@ export type Task = {
   created_at: string
 }
 
+export type TaskDetail = {
+  id: number
+  problem_id: number
+  title: string
+  goal: string
+  scope: string
+  due_date: string
+  level: string
+  reward_total: number
+  proposer_ratio: number
+  accepter_id: number
+  points: number
+  badge: string | null
+  acceptance_criteria: Array<{ description?: string; type?: string }>
+  status: string
+  created_at: string
+}
+
 export type Attachment = {
   id: number
   filename: string

@@ -1,10 +1,11 @@
 from collections.abc import Generator
+import os
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine
 
 
-DB_PATH = Path("data/app.db")
+DB_PATH = Path(os.getenv("APP_DB_PATH", "data/app.db"))
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
@@ -17,4 +18,3 @@ def init_db() -> None:
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
         yield session
-
