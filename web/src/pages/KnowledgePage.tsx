@@ -67,7 +67,7 @@ export function KnowledgePage({ userId }: Props) {
         )
         setRows(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'failed to load knowledge items')
+        setError(err instanceof Error ? err.message : '加载知识条目失败')
       } finally {
         setLoading(false)
       }
@@ -117,7 +117,7 @@ export function KnowledgePage({ userId }: Props) {
       setDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load knowledge detail')
+      setError(err instanceof Error ? err.message : '加载知识详情失败')
     }
   }
 
@@ -131,41 +131,41 @@ export function KnowledgePage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Knowledge Hub</h2>
-        <p>Lightweight archive with server-side filter and pagination.</p>
+        <h2>知识库</h2>
+        <p>支持服务端筛选与分页的知识归档中心。</p>
       </header>
 
       <form className="panel form-grid" onSubmit={submitFilters}>
-        <h3>Filters</h3>
+        <h3>筛选条件</h3>
         <label>
-          keyword
+          关键词
           <input
             value={filters.keyword}
             onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
-            placeholder="problem summary, solution or tags"
+            placeholder="问题摘要、解决方案或标签"
           />
         </label>
         <label>
-          scenario
+          场景
           <select
             value={filters.scenario}
             onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="">all</option>
-            <option value="rd">rd</option>
-            <option value="ops">ops</option>
-            <option value="delivery">delivery</option>
-            <option value="support">support</option>
-            <option value="other">other</option>
+            <option value="">全部</option>
+            <option value="rd">研发</option>
+            <option value="ops">运维</option>
+            <option value="delivery">交付</option>
+            <option value="support">支持</option>
+            <option value="other">其他</option>
           </select>
         </label>
         <label>
-          level
+          等级
           <select
             value={filters.level}
             onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
           >
-            <option value="">all</option>
+            <option value="">全部</option>
             <option value="S">S</option>
             <option value="A">A</option>
             <option value="B">B</option>
@@ -173,51 +173,51 @@ export function KnowledgePage({ userId }: Props) {
           </select>
         </label>
         <label>
-          recommended
+          推荐
           <select
             value={filters.recommended}
             onChange={(event) =>
               setFilters((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
             }
           >
-            <option value="all">all</option>
-            <option value="true">true</option>
-            <option value="false">false</option>
+            <option value="all">全部</option>
+            <option value="true">是</option>
+            <option value="false">否</option>
           </select>
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit" disabled={loading}>
-            {loading ? 'querying...' : 'query'}
+            {loading ? '查询中...' : '查询'}
           </button>
           <button type="button" onClick={() => void resetFilters()} disabled={loading}>
-            reset
+            重置
           </button>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>Knowledge Items (page {page})</h3>
+          <h3>知识条目（第 {page} 页）</h3>
           <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
-            refresh
+            刷新
           </button>
         </div>
         <div className="button-row">
           <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
-            prev
+            上一页
           </button>
           <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
-            next
+            下一页
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>task</span>
-            <span>scenario/level</span>
-            <span>recommended</span>
-            <span>archived at</span>
-            <span>action</span>
+            <span>任务</span>
+            <span>场景/等级</span>
+            <span>是否推荐</span>
+            <span>归档时间</span>
+            <span>操作</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
@@ -226,11 +226,11 @@ export function KnowledgePage({ userId }: Props) {
               <span>
                 {item.scenario ?? '-'} / {item.level ?? '-'}
               </span>
-              <span>{item.recommended ? 'yes' : 'no'}</span>
+              <span>{item.recommended ? '是' : '否'}</span>
               <span>{new Date(item.archived_at).toLocaleString()}</span>
               <span>
                 <button type="button" onClick={() => void openDetail(item.id)}>
-                  detail
+                  详情
                 </button>
               </span>
             </div>
@@ -242,31 +242,31 @@ export function KnowledgePage({ userId }: Props) {
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-headline">
-              <h3>Knowledge #{detail.id}</h3>
+              <h3>知识条目 #{detail.id}</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                close
+                关闭
               </button>
             </div>
             <p className="line-metric">
-              <span>task ID</span>
+              <span>任务 ID</span>
               <strong>#{detail.task_id}</strong>
             </p>
             <p className="line-metric">
-              <span>scenario/level</span>
+              <span>场景/等级</span>
               <strong>
                 {detail.scenario ?? '-'} / {detail.level ?? '-'}
               </strong>
             </p>
             <article className="modal-section">
-              <h4>problem summary</h4>
+              <h4>问题摘要</h4>
               <p>{detail.problem_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>solution summary</h4>
+              <h4>方案摘要</h4>
               <p>{detail.solution_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>tags</h4>
+              <h4>标签</h4>
               <p>{detail.tags.length > 0 ? detail.tags.join(', ') : '-'}</p>
             </article>
           </div>

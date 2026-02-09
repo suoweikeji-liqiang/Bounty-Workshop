@@ -40,7 +40,7 @@ export function SystemConfigPage({ userId }: Props) {
       setReworkTemplates(data.acceptance_templates.rework.join('\n'))
       setRejectedTemplates(data.acceptance_templates.rejected.join('\n'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load system config')
+      setError(err instanceof Error ? err.message : '加载系统配置失败')
     } finally {
       setLoading(false)
     }
@@ -67,15 +67,15 @@ export function SystemConfigPage({ userId }: Props) {
     }
 
     if (!Number.isInteger(feishuValue) || feishuValue < 5) {
-      setError('feishu sync frequency must be an integer >= 5')
+      setError('飞书同步频率必须是大于等于 5 的整数')
       return
     }
     if (!Number.isInteger(releaseValue) || releaseValue < 5) {
-      setError('release overdue frequency must be an integer >= 5')
+      setError('超期释放频率必须是大于等于 5 的整数')
       return
     }
     if (!Number.isInteger(thresholdValue) || thresholdValue < 1) {
-      setError('claim threshold must be an integer >= 1')
+      setError('揭榜阈值必须是大于等于 1 的整数')
       return
     }
     if (
@@ -83,7 +83,7 @@ export function SystemConfigPage({ userId }: Props) {
       templatesPayload.rework.length === 0 ||
       templatesPayload.rejected.length === 0
     ) {
-      setError('acceptance templates require at least one line for each status')
+      setError('每种验收结果至少需要一条模板')
       return
     }
 
@@ -115,10 +115,10 @@ export function SystemConfigPage({ userId }: Props) {
           body: templatesPayload,
         }),
       ])
-      setMessage('system config updated')
+      setMessage('系统配置已更新')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to save config')
+      setError(err instanceof Error ? err.message : '保存配置失败')
     } finally {
       setSaving(false)
     }
@@ -141,14 +141,14 @@ export function SystemConfigPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>System Config</h2>
-        <p>Centralized admin settings for frequency, claim policy, and acceptance templates.</p>
+        <h2>系统配置</h2>
+        <p>集中管理同步频率、揭榜策略和验收模板。</p>
       </header>
 
       <article className="panel form-grid">
-        <h3>Config Center</h3>
+        <h3>配置中心</h3>
         <label>
-          Feishu sync frequency (minutes)
+          飞书同步频率（分钟）
           <input
             type="number"
             min={5}
@@ -158,7 +158,7 @@ export function SystemConfigPage({ userId }: Props) {
           />
         </label>
         <label>
-          Release overdue frequency (minutes)
+          超期释放频率（分钟）
           <input
             type="number"
             min={5}
@@ -168,7 +168,7 @@ export function SystemConfigPage({ userId }: Props) {
           />
         </label>
         <label>
-          Claim approval overdue threshold
+          揭榜审批超期阈值
           <input
             type="number"
             min={1}
@@ -178,7 +178,7 @@ export function SystemConfigPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          Acceptance templates: approved (one line each)
+          验收模板：通过（每行一条）
           <textarea
             value={approvedTemplates}
             onChange={(event) => setApprovedTemplates(event.target.value)}
@@ -186,7 +186,7 @@ export function SystemConfigPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          Acceptance templates: rework (one line each)
+          验收模板：返工（每行一条）
           <textarea
             value={reworkTemplates}
             onChange={(event) => setReworkTemplates(event.target.value)}
@@ -194,7 +194,7 @@ export function SystemConfigPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          Acceptance templates: rejected (one line each)
+          验收模板：驳回（每行一条）
           <textarea
             value={rejectedTemplates}
             onChange={(event) => setRejectedTemplates(event.target.value)}
@@ -203,27 +203,27 @@ export function SystemConfigPage({ userId }: Props) {
         </label>
         <div className="button-row wide">
           <button type="button" onClick={() => void load()} disabled={loading}>
-            refresh
+            刷新
           </button>
           <button className="primary-btn" type="button" onClick={() => void saveAll()} disabled={saving}>
-            {saving ? 'saving...' : 'save all'}
+            {saving ? '保存中...' : '保存全部'}
           </button>
         </div>
       </article>
 
       {overview && (
         <article className="panel">
-          <h3>Current Snapshot</h3>
+          <h3>当前配置快照</h3>
           <p className="line-metric">
-            <span>Feishu sync frequency</span>
-            <strong>{overview.feishu_sync_frequency_minutes} min</strong>
+            <span>飞书同步频率</span>
+            <strong>{overview.feishu_sync_frequency_minutes} 分钟</strong>
           </p>
           <p className="line-metric">
-            <span>Release overdue frequency</span>
-            <strong>{overview.release_overdue_frequency_minutes} min</strong>
+            <span>超期释放频率</span>
+            <strong>{overview.release_overdue_frequency_minutes} 分钟</strong>
           </p>
           <p className="line-metric">
-            <span>Claim approval threshold</span>
+            <span>揭榜审批阈值</span>
             <strong>{overview.claim_approval_overdue_threshold}</strong>
           </p>
         </article>

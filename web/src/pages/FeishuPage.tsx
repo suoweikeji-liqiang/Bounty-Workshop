@@ -185,11 +185,11 @@ export function FeishuPage({ userId, profile }: Props) {
         )}
         <form className="nested-form" onSubmit={callbackLogin}>
           <label>
-            code
+            授权码（code）
             <input value={code} onChange={(event) => setCode(event.target.value)} required />
           </label>
           <label>
-            state
+            状态参数（state）
             <input value={state} onChange={(event) => setState(event.target.value)} />
           </label>
           <button className="primary-btn" type="submit">
@@ -234,7 +234,7 @@ export function FeishuPage({ userId, profile }: Props) {
           <article className="panel form-grid">
             <h3>飞书同步频率（分钟）</h3>
             <label>
-              frequency_minutes
+              同步间隔（分钟）
               <input
                 type="number"
                 min={5}
@@ -250,7 +250,7 @@ export function FeishuPage({ userId, profile }: Props) {
           <article className="panel form-grid">
             <h3>超期任务检查频率（分钟）</h3>
             <label>
-              frequency_minutes
+              检查间隔（分钟）
               <input
                 type="number"
                 min={5}
@@ -270,8 +270,8 @@ export function FeishuPage({ userId, profile }: Props) {
         <div className="table">
           <div className="row head">
             <span>ID</span>
-            <span>external_id</span>
-            <span>name</span>
+            <span>外部 ID</span>
+            <span>名称</span>
             <span>更新时间</span>
           </div>
           {departments.map((dept) => (

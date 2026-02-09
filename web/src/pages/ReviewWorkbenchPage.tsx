@@ -423,8 +423,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                         }))
                       }
                     >
-                      <option value="quantified">quantified</option>
-                      <option value="behavioral">behavioral</option>
+                      <option value="quantified">量化指标</option>
+                      <option value="behavioral">行为指标</option>
                     </select>
                   </label>
                   <button type="button" onClick={() => removeCriteria(idx)}>

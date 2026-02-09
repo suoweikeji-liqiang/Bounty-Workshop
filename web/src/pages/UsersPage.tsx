@@ -44,6 +44,29 @@ function normalizeRoles(roles: string[]): RoleName[] {
   return next.length > 0 ? next : ['employee']
 }
 
+function roleLabel(role: RoleName) {
+  if (role === 'admin') {
+    return '管理员'
+  }
+  if (role === 'reviewer') {
+    return '评审'
+  }
+  if (role === 'acceptor') {
+    return '验收人'
+  }
+  return '员工'
+}
+
+function statusLabel(status: string) {
+  if (status === 'enabled') {
+    return '启用'
+  }
+  if (status === 'disabled') {
+    return '禁用'
+  }
+  return status
+}
+
 export function UsersPage({ userId }: Props) {
   const toast = useToast()
   const [users, setUsers] = useState<UserProfile[]>([])
@@ -133,7 +156,7 @@ export function UsersPage({ userId }: Props) {
         userId,
         body: { status: nextStatus },
       })
-      setMessage(`用户 #${target.id} 状态已更新为 ${nextStatus}`)
+      setMessage(`用户 #${target.id} 状态已更新为 ${statusLabel(nextStatus)}`)
       await loadUsers()
     } catch (err) {
       setError(err instanceof Error ? err.message : '状态更新失败')
@@ -202,7 +225,7 @@ export function UsersPage({ userId }: Props) {
                   setForm((prev) => ({ ...prev, roles: toggleRole(prev.roles, role) }))
                 }
               />
-              {role}
+              {roleLabel(role)}
             </label>
           ))}
         </div>
@@ -232,7 +255,7 @@ export function UsersPage({ userId }: Props) {
               <span>#{item.id}</span>
               <span>{item.name}</span>
               <span>{item.department ?? '-'}</span>
-              <span>{item.status}</span>
+              <span>{statusLabel(item.status)}</span>
               <span>
                 <div className="actions">
                   {allRoles.map((role) => (
@@ -247,7 +270,7 @@ export function UsersPage({ userId }: Props) {
                           }))
                         }
                       />
-                      {role}
+                      {roleLabel(role)}
                     </label>
                   ))}
                 </div>

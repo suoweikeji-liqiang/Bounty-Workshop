@@ -45,7 +45,7 @@ export default function Bootstrap() {
           setAuthToken(payload.access_token)
         }
       } catch (err) {
-        setProfileError(err instanceof Error ? err.message : 'feishu login callback failed')
+        setProfileError(err instanceof Error ? err.message : '飞书登录回调失败')
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname + window.location.hash)
         setLoadingProfile(false)
@@ -71,7 +71,7 @@ export default function Bootstrap() {
         setProfile(null)
         setStoredAuthToken(null)
         setAuthToken(null)
-        setProfileError(err instanceof Error ? err.message : 'failed to load user profile')
+        setProfileError(err instanceof Error ? err.message : '加载用户信息失败')
       } finally {
         setLoadingProfile(false)
       }

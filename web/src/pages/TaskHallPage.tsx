@@ -69,14 +69,14 @@ function buildCriteriaDrafts(detail: ClaimExecutionDetail): CriteriaDraft[] {
     return [
       {
         key: 'criteria-1',
-        label: 'criteria #1',
+        label: '验收项 #1',
         value: byResult[0] ?? '',
       },
     ]
   }
   return criteria.map((item, idx) => ({
     key: `criteria-${idx + 1}`,
-    label: item.description?.trim() || `criteria #${idx + 1}`,
+    label: item.description?.trim() || `验收项 #${idx + 1}`,
     value: byResult[idx] ?? '',
   }))
 }
@@ -94,7 +94,7 @@ export function TaskHallPage({ userId, profile }: Props) {
   const [summary, setSummary] = useState('')
   const [attachments, setAttachments] = useState('')
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([
-    { key: 'criteria-1', label: 'criteria #1', value: '' },
+    { key: 'criteria-1', label: '验收项 #1', value: '' },
   ])
   const [loadingClaimCriteria, setLoadingClaimCriteria] = useState(false)
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
@@ -159,7 +159,7 @@ export function TaskHallPage({ userId, profile }: Props) {
       setInProgressTasks(progress)
       setActiveUsers(users)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load task hall data')
+      setError(err instanceof Error ? err.message : '加载任务大厅数据失败')
     }
   }, [filters.level, filters.rewardMax, filters.rewardMin, filters.scenario, userId])
 
@@ -179,7 +179,7 @@ export function TaskHallPage({ userId, profile }: Props) {
     } catch (err) {
       setPolicyThreshold(null)
       setPolicyDraft('')
-      setError(err instanceof Error ? err.message : 'failed to load claim approval policy')
+      setError(err instanceof Error ? err.message : '加载揭榜审批策略失败')
     }
   }, [canApproveForOthers, userId])
 
@@ -187,7 +187,7 @@ export function TaskHallPage({ userId, profile }: Props) {
     async (targetClaimId: string) => {
       const parsed = Number(targetClaimId)
       if (!Number.isInteger(parsed) || parsed <= 0) {
-        setCriteriaDrafts([{ key: 'criteria-1', label: 'criteria #1', value: '' }])
+        setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
         return
       }
       try {
@@ -195,7 +195,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         const detail = await requestJson<ClaimExecutionDetail>(`/claims/${parsed}/detail`, { userId })
         setCriteriaDrafts(buildCriteriaDrafts(detail))
       } catch {
-        setCriteriaDrafts([{ key: 'criteria-1', label: 'criteria #1', value: '' }])
+        setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
       } finally {
         setLoadingClaimCriteria(false)
       }
@@ -248,7 +248,7 @@ export function TaskHallPage({ userId, profile }: Props) {
     event.preventDefault()
     const taskId = Number(selectedTaskId)
     if (!Number.isInteger(taskId) || taskId <= 0) {
-      setError('please choose a task to claim')
+      setError('请选择要揭榜的任务')
       return
     }
 
@@ -269,14 +269,14 @@ export function TaskHallPage({ userId, profile }: Props) {
         })
         saveClaimRecord(taskId, res.claim_id)
         setClaimId(String(res.claim_id))
-        setMessage(`task #${taskId} claim submitted, claim_id=${res.claim_id}`)
+        setMessage(`任务 #${taskId} 揭榜已提交，claim_id=${res.claim_id}`)
         await load()
         return
       }
 
       const leadId = Number(leadUserId)
       if (!Number.isInteger(leadId) || leadId <= 0) {
-        setError('please choose team lead user')
+        setError('请选择团队负责人')
         return
       }
 
@@ -288,17 +288,17 @@ export function TaskHallPage({ userId, profile }: Props) {
         )
 
       if (parsedMembers.length < 2) {
-        setError('team claim requires at least 2 members')
+        setError('团队揭榜至少需要 2 名成员')
         return
       }
       if (!parsedMembers.some((item) => item.user_id === leadId)) {
-        setError('team members must include the lead user')
+        setError('团队成员必须包含负责人')
         return
       }
 
       const ratioTotal = parsedMembers.reduce((acc, item) => acc + item.ratio, 0)
       if (Math.abs(ratioTotal - 1) > 0.0001) {
-        setError('member ratios must sum to 1')
+        setError('成员比例之和必须为 1')
         return
       }
 
@@ -313,11 +313,11 @@ export function TaskHallPage({ userId, profile }: Props) {
       })
       saveClaimRecord(taskId, res.claim_id)
       setClaimId(String(res.claim_id))
-      setMessage(`task #${taskId} team claim submitted, claim_id=${res.claim_id}`)
+      setMessage(`任务 #${taskId} 团队揭榜已提交，claim_id=${res.claim_id}`)
       setMembers(buildDefaultMembers(userId))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'claim failed')
+      setError(err instanceof Error ? err.message : '揭榜失败')
     }
   }
 
@@ -327,7 +327,7 @@ export function TaskHallPage({ userId, profile }: Props) {
     }
     const threshold = Number(policyDraft)
     if (!Number.isInteger(threshold) || threshold < 1) {
-      setError('threshold must be an integer >= 1')
+      setError('阈值必须是大于等于 1 的整数')
       return
     }
 
@@ -344,9 +344,9 @@ export function TaskHallPage({ userId, profile }: Props) {
       )
       setPolicyThreshold(payload.threshold)
       setPolicyDraft(String(payload.threshold))
-      setMessage(`claim approval threshold updated to ${payload.threshold}`)
+      setMessage(`揭榜审批阈值已更新为 ${payload.threshold}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'policy update failed')
+      setError(err instanceof Error ? err.message : '审批策略更新失败')
     } finally {
       setSavingPolicy(false)
     }
@@ -356,7 +356,7 @@ export function TaskHallPage({ userId, profile }: Props) {
     event.preventDefault()
     const parsedClaimId = Number(claimId)
     if (!Number.isInteger(parsedClaimId) || parsedClaimId <= 0) {
-      setError('please provide valid claim_id')
+      setError('请输入有效的 claim_id')
       return
     }
     try {
@@ -380,14 +380,14 @@ export function TaskHallPage({ userId, profile }: Props) {
           evidence_urls: [],
         },
       })
-      setMessage('deliverable submitted')
+      setMessage('成果提交成功')
       setClaimId('')
       setSummary('')
       setAttachments('')
-      setCriteriaDrafts([{ key: 'criteria-1', label: 'criteria #1', value: '' }])
+      setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'deliverable submit failed')
+      setError(err instanceof Error ? err.message : '成果提交失败')
     }
   }
 
@@ -398,7 +398,7 @@ export function TaskHallPage({ userId, profile }: Props) {
       setTaskDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load task detail')
+      setError(err instanceof Error ? err.message : '加载任务详情失败')
     }
   }
 
@@ -419,22 +419,22 @@ export function TaskHallPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Task Hall</h2>
-        <p>Open and in-progress claims, team collaboration, and deliverable submission.</p>
+        <h2>任务大厅</h2>
+        <p>查看可揭榜与进行中任务，支持团队协作与成果提交。</p>
       </header>
 
       {canApproveForOthers && (
         <article className="panel form-grid">
-          <h3>Claim Approval Policy</h3>
+          <h3>揭榜审批策略</h3>
           <p className="wide muted">
-            When overdue count reaches threshold, self-claim is blocked and admin/reviewer can claim on behalf.
+            当超期数量达到阈值时，普通用户将被限制自助揭榜，管理员/评审可代为揭榜。
           </p>
           <label>
-            current threshold
+            当前阈值
             <input value={policyThreshold ?? '-'} disabled />
           </label>
           <label>
-            new threshold
+            新阈值
             <input
               type="number"
               min={1}
@@ -446,7 +446,7 @@ export function TaskHallPage({ userId, profile }: Props) {
           {canEditPolicy && (
             <div className="button-row wide">
               <button type="button" className="primary-btn" onClick={() => void savePolicy()} disabled={savingPolicy}>
-                {savingPolicy ? 'saving...' : 'save policy'}
+                {savingPolicy ? '保存中...' : '保存策略'}
               </button>
             </div>
           )}
@@ -460,11 +460,11 @@ export function TaskHallPage({ userId, profile }: Props) {
           void load()
         }}
       >
-        <h3>Task Filters</h3>
+        <h3>任务筛选</h3>
         <label>
-          level
+          等级
           <select value={filters.level} onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}>
-            <option value="">all</option>
+            <option value="">全部</option>
             <option value="S">S</option>
             <option value="A">A</option>
             <option value="B">B</option>
@@ -472,38 +472,38 @@ export function TaskHallPage({ userId, profile }: Props) {
           </select>
         </label>
         <label>
-          scenario
+          场景
           <select value={filters.scenario} onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}>
-            <option value="">all</option>
-            <option value="rd">rd</option>
-            <option value="ops">ops</option>
-            <option value="delivery">delivery</option>
-            <option value="support">support</option>
-            <option value="other">other</option>
+            <option value="">全部</option>
+            <option value="rd">研发</option>
+            <option value="ops">运维</option>
+            <option value="delivery">交付</option>
+            <option value="support">支持</option>
+            <option value="other">其他</option>
           </select>
         </label>
         <label>
-          min reward
+          最低奖励
           <input type="number" value={filters.rewardMin} onChange={(event) => setFilters((prev) => ({ ...prev, rewardMin: event.target.value }))} />
         </label>
         <label>
-          max reward
+          最高奖励
           <input type="number" value={filters.rewardMax} onChange={(event) => setFilters((prev) => ({ ...prev, rewardMax: event.target.value }))} />
         </label>
         <div className="button-row wide">
-          <button className="primary-btn" type="submit">apply filters</button>
-          <button type="button" onClick={() => setFilters({ level: '', scenario: '', rewardMin: '', rewardMax: '' })}>reset</button>
+          <button className="primary-btn" type="submit">应用筛选</button>
+          <button type="button" onClick={() => setFilters({ level: '', scenario: '', rewardMin: '', rewardMax: '' })}>重置</button>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>Open Tasks</h3>
-          <button type="button" onClick={() => void load()}>refresh</button>
+          <h3>可揭榜任务</h3>
+          <button type="button" onClick={() => void load()}>刷新</button>
         </div>
         <div className="table">
           <div className="row head wide-row">
-            <span>ID</span><span>title</span><span>scenario</span><span>level</span><span>reward</span><span>due</span><span>claims</span><span>actions</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>奖励</span><span>截止日期</span><span>揭榜数</span><span>操作</span>
           </div>
           {openTasks.map((task) => (
             <div className="row wide-row" key={task.id}>
@@ -511,13 +511,13 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span>{task.title}</span>
               <span>{task.scenario}</span>
               <span>{task.level}</span>
-              <span>CNY {task.reward_total.toFixed(0)}</span>
+              <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
               <span>{task.active_claim_count}</span>
               <span className="actions">
-                <button type="button" onClick={() => void openTaskDetail(task.id)}>detail</button>
-                <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>choose</button>
-                <button type="button" onClick={() => { setClaimMode('individual'); setSelectedTaskId(String(task.id)) }}>quick claim</button>
+                <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
+                <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>选择</button>
+                <button type="button" onClick={() => { setClaimMode('individual'); setSelectedTaskId(String(task.id)) }}>快速揭榜</button>
               </span>
             </div>
           ))}
@@ -525,11 +525,11 @@ export function TaskHallPage({ userId, profile }: Props) {
       </article>
 
       <form className="panel form-grid" onSubmit={submitClaim}>
-        <h3>Claim Setup</h3>
+        <h3>揭榜设置</h3>
         <label>
-          task_id
+          任务 ID
           <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} required>
-            <option value="">select task</option>
+            <option value="">请选择任务</option>
             {claimableTasks.map((task) => (
               <option key={`claim-task-${task.id}`} value={task.id}>
                 #{task.id} [{task.status}] {task.title}
@@ -538,16 +538,16 @@ export function TaskHallPage({ userId, profile }: Props) {
           </select>
         </label>
         <label>
-          mode
+          模式
           <select value={claimMode} onChange={(event) => setClaimMode(event.target.value as ClaimMode)}>
-            <option value="individual">individual</option>
-            <option value="team">team</option>
+            <option value="individual">个人</option>
+            <option value="team">团队</option>
           </select>
         </label>
 
         {(claimMode === 'team' || canApproveForOthers) && (
           <label>
-            lead user
+            负责人
             <select value={leadUserId} onChange={(event) => setLeadUserId(event.target.value)} required>
               {visibleLeadUsers.map((user) => (
                 <option key={`lead-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
@@ -559,25 +559,25 @@ export function TaskHallPage({ userId, profile }: Props) {
         {claimMode === 'team' && (
           <div className="wide">
             <div className="panel-headline">
-              <h3>Team Member Ratios (sum = 1)</h3>
-              <button type="button" onClick={addMemberRow}>add member</button>
+              <h3>团队成员比例（总和 = 1）</h3>
+              <button type="button" onClick={addMemberRow}>新增成员</button>
             </div>
             {members.map((item, idx) => (
               <div className="acceptance-editor" key={`member-${idx}`}>
                 <label>
-                  member
+                  成员
                   <select
                     value={item.user_id}
                     onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, user_id: event.target.value } : row))}
                   >
-                    <option value="">select user</option>
+                    <option value="">请选择成员</option>
                     {activeUsers.map((user) => (
                       <option key={`member-${idx}-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
                     ))}
                   </select>
                 </label>
                 <label>
-                  ratio
+                  比例
                   <input
                     type="number"
                     min="0.01"
@@ -587,20 +587,20 @@ export function TaskHallPage({ userId, profile }: Props) {
                     onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, ratio: event.target.value } : row))}
                   />
                 </label>
-                <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>remove</button>
+                <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>移除</button>
               </div>
             ))}
           </div>
         )}
 
-        <button className="primary-btn" type="submit">submit claim</button>
+        <button className="primary-btn" type="submit">提交揭榜</button>
       </form>
 
       <article className="panel">
-        <h3>In-progress Tasks (with local claim id mapping)</h3>
+        <h3>进行中任务（含本地 claim_id 映射）</h3>
         <div className="table">
           <div className="row head">
-            <span>ID</span><span>title</span><span>scenario</span><span>status</span><span>claims</span><span>claim_id</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>状态</span><span>揭榜数</span><span>揭榜 ID</span>
           </div>
           {inProgressTasks.map((task) => (
             <div className="row" key={task.id}>
@@ -616,24 +616,24 @@ export function TaskHallPage({ userId, profile }: Props) {
       </article>
 
       <form className="panel form-grid" onSubmit={submitDeliverable}>
-        <h3>Submit Deliverable</h3>
+        <h3>提交成果</h3>
         <label>
-          claim_id
+          揭榜 ID（claim_id）
           <input value={claimId} onChange={(event) => setClaimId(event.target.value)} required />
         </label>
         <label className="wide">
-          summary
+          成果说明
           <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
         </label>
         <label className="wide">
-          evidence attachment IDs (comma separated)
-          <input value={attachments} onChange={(event) => setAttachments(event.target.value)} placeholder="e.g. 8,9" />
+          证据附件 ID（逗号分隔）
+          <input value={attachments} onChange={(event) => setAttachments(event.target.value)} placeholder="例如：8,9" />
         </label>
         <div className="wide">
           <div className="panel-headline">
-            <h3>Criteria Results</h3>
+            <h3>验收项结果</h3>
             <button type="button" onClick={() => void loadClaimCriteria(claimId)} disabled={loadingClaimCriteria}>
-              {loadingClaimCriteria ? 'loading...' : 'reload criteria'}
+              {loadingClaimCriteria ? '加载中...' : '重新加载验收项'}
             </button>
           </div>
           {criteriaDrafts.map((item, idx) => (
@@ -644,32 +644,32 @@ export function TaskHallPage({ userId, profile }: Props) {
                 onChange={(event) =>
                   setCriteriaDrafts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, value: event.target.value } : row))
                 }
-                placeholder="describe result for this criteria"
+                placeholder="填写该验收项的结果说明"
               />
             </label>
           ))}
         </div>
-        <button className="primary-btn" type="submit">submit deliverable</button>
+        <button className="primary-btn" type="submit">提交成果</button>
       </form>
 
       {detailOpen && taskDetail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-headline">
-              <h3>Task #{taskDetail.id} detail</h3>
-              <button type="button" onClick={() => setDetailOpen(false)}>close</button>
+              <h3>任务 #{taskDetail.id} 详情</h3>
+              <button type="button" onClick={() => setDetailOpen(false)}>关闭</button>
             </div>
-            <p className="line-metric"><span>title</span><strong>{taskDetail.title}</strong></p>
-            <p className="line-metric"><span>goal</span><strong>{taskDetail.goal}</strong></p>
-            <p className="line-metric"><span>scope</span><strong>{taskDetail.scope}</strong></p>
-            <p className="line-metric"><span>level/status</span><strong>{taskDetail.level} / {taskDetail.status}</strong></p>
-            <p className="line-metric"><span>due</span><strong>{taskDetail.due_date}</strong></p>
+            <p className="line-metric"><span>标题</span><strong>{taskDetail.title}</strong></p>
+            <p className="line-metric"><span>目标</span><strong>{taskDetail.goal}</strong></p>
+            <p className="line-metric"><span>范围</span><strong>{taskDetail.scope}</strong></p>
+            <p className="line-metric"><span>等级/状态</span><strong>{taskDetail.level} / {taskDetail.status}</strong></p>
+            <p className="line-metric"><span>截止日期</span><strong>{taskDetail.due_date}</strong></p>
             <article className="modal-section">
-              <h4>acceptance criteria</h4>
+              <h4>验收标准</h4>
               <ul>
                 {taskDetail.acceptance_criteria.map((item, idx) => (
                   <li key={`${item.description ?? 'criteria'}-${idx}`}>
-                    {item.description ?? 'unnamed criteria'} ({item.type ?? 'unknown'})
+                    {item.description ?? '未命名验收项'} ({item.type ?? '未知'})
                   </li>
                 ))}
               </ul>

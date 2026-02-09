@@ -48,7 +48,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
         setReviewRows([])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load approval requests')
+      setError(err instanceof Error ? err.message : '加载审批请求失败')
     } finally {
       setLoading(false)
     }
@@ -67,10 +67,10 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
         userId,
         body: { comment: comment || null },
       })
-      setMessage(`request #${id} ${action}d`)
+      setMessage(`审批请求 #${id} 已${action === 'approve' ? '通过' : '驳回'}`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${action} failed`)
+      setError(err instanceof Error ? err.message : `${action === 'approve' ? '通过' : '驳回'}失败`)
     }
   }
 
@@ -91,27 +91,27 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Claim Approvals</h2>
-        <p>Overdue users submit approval requests here. Reviewer/admin can approve or reject.</p>
+        <h2>揭榜审批</h2>
+        <p>超期用户在此提交审批请求，审核人/管理员可通过或驳回。</p>
       </header>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>My Pending Requests</h3>
+          <h3>我的待处理审批</h3>
           <button type="button" onClick={() => void load()} disabled={loading}>
-            refresh
+            刷新
           </button>
         </div>
         {mine.length === 0 ? (
-          <p className="muted">No pending approval requests.</p>
+          <p className="muted">暂无待处理审批请求。</p>
         ) : (
           <div className="table">
             <div className="row head wide-row approval-row">
-              <span>request</span>
-              <span>task</span>
-              <span>status</span>
-              <span>reason</span>
-              <span>created</span>
+              <span>请求</span>
+              <span>任务</span>
+              <span>状态</span>
+              <span>原因</span>
+              <span>创建时间</span>
             </div>
             {mine.map((item) => (
               <div className="row wide-row approval-row" key={item.id}>
@@ -131,31 +131,31 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
       {canReview && (
         <article className="panel">
           <div className="panel-headline">
-            <h3>Review Queue</h3>
+            <h3>审批队列</h3>
             <div className="button-row">
               <button type="button" onClick={() => setStatus('pending')}>
-                pending
+                待处理
               </button>
               <button type="button" onClick={() => setStatus('approved')}>
-                approved
+                已通过
               </button>
               <button type="button" onClick={() => setStatus('rejected')}>
-                rejected
+                已驳回
               </button>
             </div>
           </div>
           {reviewRows.length === 0 ? (
-            <p className="muted">No requests in current filter.</p>
+            <p className="muted">当前筛选条件下暂无请求。</p>
           ) : (
             <div className="table">
               <div className="row head wide-row approval-review-row">
-                <span>request</span>
-                <span>task</span>
-                <span>applicant</span>
-                <span>overdue</span>
-                <span>status</span>
-                <span>reviewed</span>
-                <span>actions</span>
+                <span>请求</span>
+                <span>任务</span>
+                <span>申请人</span>
+                <span>超期次数</span>
+                <span>状态</span>
+                <span>审核时间</span>
+                <span>操作</span>
               </div>
               {reviewRows.map((item) => (
                 <div className="row wide-row approval-review-row" key={item.id}>
@@ -177,13 +177,13 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
                           onChange={(event) =>
                             setCommentDraft((prev) => ({ ...prev, [item.id]: event.target.value }))
                           }
-                          placeholder="review comment"
+                          placeholder="审核意见"
                         />
                         <button type="button" onClick={() => void act(item.id, 'approve')}>
-                          approve
+                          通过
                         </button>
                         <button type="button" onClick={() => void act(item.id, 'reject')}>
-                          reject
+                          驳回
                         </button>
                       </>
                     ) : (

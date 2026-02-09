@@ -44,8 +44,8 @@ function Guard({ profile, roles, children }: GuardProps) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Permission denied</h2>
-        <p>The current account does not have permission to access this page.</p>
+        <h2>无权限访问</h2>
+        <p>当前账号没有访问该页面的权限。</p>
       </header>
     </section>
   )
@@ -55,18 +55,18 @@ function TopBar({ profile, loadingProfile, onLogout }: Props) {
   return (
     <header className="topbar">
       <div>
-        <p className="kicker">Bounty Workshop</p>
-        <h1>Bounty Task Console</h1>
+        <p className="kicker">揭榜挂帅工坊</p>
+        <h1>任务协作控制台</h1>
       </div>
       <div className="topbar-controls">
-        <p className="muted">API: {apiBaseUrl}</p>
-        {loadingProfile && <p className="muted">Loading user profile...</p>}
+        <p className="muted">接口地址：{apiBaseUrl}</p>
+        {loadingProfile && <p className="muted">正在加载用户信息...</p>}
         {profile && (
           <p className="muted">
             #{profile.id} {profile.name} ({profile.roles.join(', ')})
           </p>
         )}
-        <button type="button" onClick={onLogout}>logout</button>
+        <button type="button" onClick={onLogout}>退出登录</button>
       </div>
     </header>
   )
@@ -84,20 +84,20 @@ export default function App(props: Props) {
       <div className="content-shell">
         <aside className="sidenav">
           <NavLink to="/" end>
-            Dashboard
+            看板
           </NavLink>
-          <NavLink to="/personal">Personal</NavLink>
-          <NavLink to="/problems">Problems</NavLink>
-          {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">Review</NavLink>}
-          <NavLink to="/tasks">Task Hall</NavLink>
-          <NavLink to="/claim-approvals">Claim Approvals</NavLink>
-          <NavLink to="/execution">Execution</NavLink>
-          <NavLink to="/knowledge">Knowledge</NavLink>
-          <NavLink to="/attachments">Attachments</NavLink>
-          {canReviewOrAdmin && <NavLink to="/operation-logs">Operation Logs</NavLink>}
-          {isAdmin && <NavLink to="/system-config">System Config</NavLink>}
-          {isAdmin && <NavLink to="/users">Users</NavLink>}
-          {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">Feishu</NavLink>}
+          <NavLink to="/personal">个人中心</NavLink>
+          <NavLink to="/problems">问题提报</NavLink>
+          {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核工作台</NavLink>}
+          <NavLink to="/tasks">任务大厅</NavLink>
+          <NavLink to="/claim-approvals">揭榜审批</NavLink>
+          <NavLink to="/execution">执行闭环</NavLink>
+          <NavLink to="/knowledge">知识库</NavLink>
+          <NavLink to="/attachments">附件中心</NavLink>
+          {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
+          {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
+          {isAdmin && <NavLink to="/users">用户管理</NavLink>}
+          {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
         </aside>
         <main className="main-area">
           <Routes>

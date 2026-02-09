@@ -45,7 +45,7 @@ export function OperationLogsPage({ userId }: Props) {
       const data = await requestJson<OperationLog[]>(`/operations/logs${suffix}`, { userId })
       setRows(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load operation logs')
+      setError(err instanceof Error ? err.message : '加载操作日志失败')
     } finally {
       setLoading(false)
     }
@@ -65,8 +65,8 @@ export function OperationLogsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Operation Logs</h2>
-        <p>Audit logs for key system operations, approvals, and workflow actions.</p>
+        <h2>操作日志</h2>
+        <p>记录系统关键操作、审批行为与流程动作，便于审计追踪。</p>
       </header>
       <form
         className="panel form-grid"
@@ -75,47 +75,47 @@ export function OperationLogsPage({ userId }: Props) {
           void load()
         }}
       >
-        <h3>Filters</h3>
+        <h3>筛选条件</h3>
         <label>
-          action
-          <input value={action} onChange={(event) => setAction(event.target.value)} placeholder="e.g. task.claim" />
+          操作类型
+          <input value={action} onChange={(event) => setAction(event.target.value)} placeholder="例如：task.claim" />
         </label>
         <label>
-          actor_user_id
+          操作人 ID
           <input value={actorId} onChange={(event) => setActorId(event.target.value)} />
         </label>
         <label>
-          created_from
+          开始日期
           <input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} />
         </label>
         <label>
-          created_to
+          结束日期
           <input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} />
         </label>
         <label>
-          limit
+          条数上限
           <input type="number" min={1} max={1000} value={limit} onChange={(event) => setLimit(event.target.value)} />
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit" disabled={loading}>
-            query
+            查询
           </button>
           <button type="button" onClick={() => void load()} disabled={loading}>
-            refresh
+            刷新
           </button>
         </div>
       </form>
 
       <article className="panel">
-        <h3>Log Rows ({rows.length})</h3>
+        <h3>日志记录（{rows.length}）</h3>
         <div className="table">
           <div className="row head wide-row op-log-row">
-            <span>id</span>
-            <span>time</span>
-            <span>action</span>
-            <span>actor</span>
-            <span>target</span>
-            <span>detail</span>
+            <span>ID</span>
+            <span>时间</span>
+            <span>操作</span>
+            <span>操作人</span>
+            <span>目标</span>
+            <span>详情</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row op-log-row" key={item.id}>

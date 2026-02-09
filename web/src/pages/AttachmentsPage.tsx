@@ -107,8 +107,8 @@ export function AttachmentsPage({ userId }: Props) {
         <label>
           实体类型
           <select value={entityType} onChange={(event) => setEntityType(event.target.value as 'problem' | 'deliverable')}>
-            <option value="problem">problem</option>
-            <option value="deliverable">deliverable</option>
+            <option value="problem">问题</option>
+            <option value="deliverable">成果</option>
           </select>
         </label>
         <label>
@@ -132,7 +132,7 @@ export function AttachmentsPage({ userId }: Props) {
           </p>
           <p className="line-metric">
             <span>大小</span>
-            <strong>{attachment.size_bytes} bytes</strong>
+            <strong>{attachment.size_bytes} 字节</strong>
           </p>
           <p className="line-metric">
             <span>后端</span>
