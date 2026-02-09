@@ -36,6 +36,8 @@ from app.feishu import (
 from app.jobs import (
     get_release_overdue_frequency_minutes,
     is_background_jobs_enabled,
+    is_feishu_sync_job_enabled,
+    run_feishu_sync_scheduler,
     run_release_overdue_scheduler,
     set_release_overdue_frequency_minutes,
 )
@@ -92,6 +94,7 @@ from app.services import (
     get_knowledge_detail,
     get_my_profile,
     get_claim_execution_detail,
+    get_user_detail,
     get_task_detail,
     list_acceptor_candidates,
     list_active_users,
@@ -123,14 +126,18 @@ async def lifespan(_: FastAPI):
                 session.add(UserRole(user_id=admin.id, role=role))
             session.commit()
     stop_event = asyncio.Event()
-    scheduler_task = None
+    scheduler_tasks: list[asyncio.Task] = []
     if is_background_jobs_enabled():
-        scheduler_task = asyncio.create_task(
+        scheduler_tasks.append(asyncio.create_task(
             run_release_overdue_scheduler(lambda: Session(engine), stop_event)
-        )
+        ))
+        if is_feishu_sync_job_enabled():
+            scheduler_tasks.append(asyncio.create_task(
+                run_feishu_sync_scheduler(lambda: Session(engine), stop_event)
+            ))
     yield
     stop_event.set()
-    if scheduler_task is not None:
+    for scheduler_task in scheduler_tasks:
         scheduler_task.cancel()
         with suppress(asyncio.CancelledError):
             await scheduler_task
@@ -292,6 +299,14 @@ def get_users_active(session: Session = Depends(get_session)) -> list[UserRead]:
 )
 def get_users_acceptors(session: Session = Depends(get_session)) -> list[UserRead]:
     return list_acceptor_candidates(session)
+
+
+@app.get("/users/{user_id}", response_model=UserRead, dependencies=[Depends(require_roles(Role.ADMIN))])
+def get_user(
+    user_id: int,
+    session: Session = Depends(get_session),
+) -> UserRead:
+    return get_user_detail(session, user_id)
 
 
 @app.post("/users", response_model=UserRead, dependencies=[Depends(require_roles(Role.ADMIN))])

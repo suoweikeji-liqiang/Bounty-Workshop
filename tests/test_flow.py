@@ -51,6 +51,9 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     )
     assert reviewer_resp.status_code == 200
     reviewer_id = reviewer_resp.json()["id"]
+    reviewer_detail_resp = client.get(f"/users/{reviewer_id}", headers=_headers(1))
+    assert reviewer_detail_resp.status_code == 200
+    assert reviewer_detail_resp.json()["id"] == reviewer_id
 
     employee_resp = client.post(
         "/users",
@@ -270,6 +273,8 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     dashboard_resp = client.get("/dashboard/overview", headers=_headers(employee_id))
     assert dashboard_resp.status_code == 200
     assert dashboard_resp.json()["task_completed"] == 1
+    assert dashboard_resp.json()["task_completion_rate"] > 0
+    assert "task_overdue_rate" in dashboard_resp.json()
 
     app.dependency_overrides.clear()
 

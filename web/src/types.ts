@@ -4,6 +4,8 @@ export type Overview = {
   task_total: number
   task_completed: number
   task_overdue_claims: number
+  task_completion_rate: number
+  task_overdue_rate: number
   reward_total_confirmed_amount: number
 }
 

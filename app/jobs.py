@@ -7,6 +7,12 @@ from datetime import datetime
 
 from sqlmodel import Session
 
+from app.feishu import (
+    DEFAULT_SYNC_FREQUENCY_MINUTES,
+    get_feishu_provider,
+    get_sync_frequency_minutes,
+    run_feishu_sync,
+)
 from app.models import SystemConfig
 from app.services import release_overdue_claims
 
@@ -26,6 +32,10 @@ def _parse_bool(raw: str | None, default: bool) -> bool:
 
 def is_background_jobs_enabled() -> bool:
     return _parse_bool(os.getenv("ENABLE_BACKGROUND_JOBS"), default=True)
+
+
+def is_feishu_sync_job_enabled() -> bool:
+    return _parse_bool(os.getenv("ENABLE_FEISHU_SYNC_JOB"), default=True)
 
 
 def get_release_overdue_frequency_minutes(session: Session) -> int:
@@ -74,3 +84,24 @@ async def run_release_overdue_scheduler(session_factory, stop_event: asyncio.Eve
         except TimeoutError:
             continue
 
+
+async def run_feishu_sync_scheduler(session_factory, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        interval_minutes = DEFAULT_SYNC_FREQUENCY_MINUTES
+        try:
+            provider = get_feishu_provider()
+            with session_factory() as session:
+                interval_minutes = get_sync_frequency_minutes(session)
+                result = run_feishu_sync(session, provider=provider, mode="all")
+            logger.info(
+                "feishu sync job done, synced_departments=%s, synced_users=%s, next_run_in_minutes=%s",
+                result.synced_departments,
+                result.synced_users,
+                interval_minutes,
+            )
+        except Exception:
+            logger.exception("feishu sync job failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=max(interval_minutes, 1) * 60)
+        except TimeoutError:
+            continue

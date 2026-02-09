@@ -91,6 +91,14 @@ export function DashboardPage({ userId }: Props) {
           <strong>{overview?.task_overdue_claims ?? '-'}</strong>
         </article>
         <article className="kpi-card">
+          <h4>任务完成率</h4>
+          <strong>{overview ? `${(overview.task_completion_rate * 100).toFixed(1)}%` : '-'}</strong>
+        </article>
+        <article className="kpi-card">
+          <h4>任务超期率</h4>
+          <strong>{overview ? `${(overview.task_overdue_rate * 100).toFixed(1)}%` : '-'}</strong>
+        </article>
+        <article className="kpi-card">
           <h4>已发放激励</h4>
           <strong>¥{overview?.reward_total_confirmed_amount?.toFixed(2) ?? '-'}</strong>
         </article>
@@ -155,4 +163,3 @@ export function DashboardPage({ userId }: Props) {
     </section>
   )
 }
-

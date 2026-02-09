@@ -186,6 +186,11 @@ def list_users(session: Session) -> list[UserRead]:
     return [user_to_read(session, item) for item in users]
 
 
+def get_user_detail(session: Session, user_id: int) -> UserRead:
+    user = _ensure_user_exists(session, user_id, allow_disabled=True)
+    return user_to_read(session, user)
+
+
 def list_active_users(session: Session) -> list[UserRead]:
     users = session.exec(
         select(User).where(User.status == UserStatus.ENABLED).order_by(User.id)
@@ -988,6 +993,8 @@ def dashboard_overview(session: Session) -> DashboardOverview:
     reward_total_confirmed_amount = session.exec(
         select(func.coalesce(func.sum(Reward.amount), 0.0)).where(Reward.status == RewardStatus.CONFIRMED)
     ).one()
+    completion_rate = (int(task_completed) / int(task_total)) if int(task_total) > 0 else 0.0
+    overdue_rate = (int(task_overdue_claims) / int(task_total)) if int(task_total) > 0 else 0.0
 
     return DashboardOverview(
         problem_total=int(problem_total),
@@ -995,5 +1002,7 @@ def dashboard_overview(session: Session) -> DashboardOverview:
         task_total=int(task_total),
         task_completed=int(task_completed),
         task_overdue_claims=int(task_overdue_claims),
+        task_completion_rate=round(completion_rate, 4),
+        task_overdue_rate=round(overdue_rate, 4),
         reward_total_confirmed_amount=float(reward_total_confirmed_amount or 0.0),
     )

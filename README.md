@@ -5,7 +5,7 @@
 - 主流程：问题提交 -> 审核立项 -> 揭榜 -> 成果提交 -> 验收 -> 激励生成/确认 -> 知识归档
 - 附件对象存储：`local` 与 `s3/minio` 后端，支持预签名下载
 - 飞书集成（MVP）：OAuth 登录回调、手动同步部门与人员、同步频率配置
-- 超期作业：后台定时检查超期任务并自动释放（支持频率配置）
+- 定时作业：后台定时执行超期释放与飞书同步（均支持频率配置）
 - 看板：总览、排行榜、趋势、分布
 - 导出：任务/激励/知识/看板导出（Excel），知识导出（PDF）
 
@@ -34,6 +34,7 @@ uvicorn app.main:app --reload
 APP_DB_PATH=./data/app.db
 ATTACHMENT_STORAGE_DIR=./data/storage
 ENABLE_BACKGROUND_JOBS=true
+ENABLE_FEISHU_SYNC_JOB=true
 ```
 
 对象存储后端切换（S3/MinIO）：
@@ -72,6 +73,7 @@ npm run dev
 
 - 用户与角色
   - `GET /me`
+  - `GET /users/{user_id}`
   - `GET /users/active`
   - `GET /users`
   - `POST /users`

@@ -220,6 +220,8 @@ class DashboardOverview(BaseModel):
     task_total: int
     task_completed: int
     task_overdue_claims: int
+    task_completion_rate: float
+    task_overdue_rate: float
     reward_total_confirmed_amount: float
 
 
