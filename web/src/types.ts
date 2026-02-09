@@ -120,6 +120,13 @@ export type UserProfile = {
   roles: string[]
 }
 
+export type AuthLoginResponse = {
+  access_token: string
+  token_type: string
+  expires_in: number
+  user: UserProfile
+}
+
 export type PersonalRewardStats = {
   total_records: number
   confirmed_records: number
@@ -139,6 +146,17 @@ export type ClaimApprovalThresholdConfig = {
   threshold: number
 }
 
+export type SyncFrequencyConfig = {
+  frequency_minutes: number
+}
+
+export type SystemConfigOverview = {
+  feishu_sync_frequency_minutes: number
+  release_overdue_frequency_minutes: number
+  claim_approval_overdue_threshold: number
+  acceptance_templates: AcceptanceTemplatesConfig
+}
+
 export type ClaimExecution = {
   claim_id: number
   claim_status: string
@@ -150,6 +168,20 @@ export type ClaimExecution = {
   deliverable_id: number | null
   deliverable_status: string | null
   deliverable_submitted_at: string | null
+}
+
+export type ClaimApprovalRequest = {
+  id: number
+  task_id: number
+  task_title: string
+  applicant_user_id: number
+  applicant_user_name: string
+  applicant_overdue_count: number
+  status: string
+  reason: string | null
+  reviewed_by_user_id: number | null
+  reviewed_at: string | null
+  created_at: string
 }
 
 export type PendingAcceptance = {
@@ -219,4 +251,14 @@ export type KnowledgeItem = {
   level: string | null
   recommended: boolean
   archived_at: string
+}
+
+export type OperationLog = {
+  id: number
+  actor_user_id: number | null
+  action: string
+  target_type: string
+  target_id: number | null
+  detail: Record<string, unknown>
+  created_at: string
 }

@@ -1,19 +1,43 @@
 const defaultBaseUrl = 'http://127.0.0.1:8000'
+const authTokenStorageKey = 'bw_access_token'
 
 export const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? defaultBaseUrl
 
-type HttpOptions = {
+export type HttpOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  userId: number
+  userId?: number
   body?: unknown
   formData?: FormData
+  token?: string
+}
+
+export function getStoredAuthToken(): string | null {
+  return localStorage.getItem(authTokenStorageKey)
+}
+
+export function setStoredAuthToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(authTokenStorageKey, token)
+    return
+  }
+  localStorage.removeItem(authTokenStorageKey)
+}
+
+function buildHeaders(options: HttpOptions): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const token = options.token ?? getStoredAuthToken()
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  if (typeof options.userId === 'number' && Number.isFinite(options.userId)) {
+    headers['X-User-Id'] = String(options.userId)
+  }
+  return headers
 }
 
 export async function requestJson<T>(path: string, options: HttpOptions): Promise<T> {
-  const { method = 'GET', userId, body, formData } = options
-  const headers: Record<string, string> = {
-    'X-User-Id': String(userId),
-  }
+  const { method = 'GET', body, formData } = options
+  const headers = buildHeaders(options)
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -40,10 +64,8 @@ export async function requestJson<T>(path: string, options: HttpOptions): Promis
 }
 
 export async function requestRaw(path: string, options: HttpOptions): Promise<Response> {
-  const { method = 'GET', userId, body, formData } = options
-  const headers: Record<string, string> = {
-    'X-User-Id': String(userId),
-  }
+  const { method = 'GET', body, formData } = options
+  const headers = buildHeaders(options)
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -60,4 +82,3 @@ export async function requestRaw(path: string, options: HttpOptions): Promise<Re
   })
   return res
 }
-

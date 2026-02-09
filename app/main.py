@@ -18,9 +18,9 @@ from app.attachments import (
     list_attachments_by_entity,
     local_file_path,
 )
-from app.auth import get_current_user_id, get_user_roles, require_roles
+from app.auth import create_access_token, get_current_user_id, get_user_roles, require_roles
 from app.db import engine, get_session, init_db
-from app.enums import ProblemStatus, Role, Scenario, TaskLevel, TaskStatus
+from app.enums import ClaimApprovalStatus, ProblemStatus, Role, Scenario, TaskLevel, TaskStatus, UserStatus
 from app.feishu import (
     consume_oauth_state,
     create_oauth_state,
@@ -45,7 +45,11 @@ from app.models import User, UserRole
 from app.schemas import (
     AcceptanceCreate,
     ClaimApprovalThresholdConfig,
+    ClaimApprovalRequestRead,
+    ClaimApprovalReviewInput,
     AcceptanceTemplatesConfig,
+    AuthLoginRequest,
+    AuthLoginResponse,
     ClaimCreate,
     ClaimExecutionDetailRead,
     ClaimExecutionRead,
@@ -59,6 +63,7 @@ from app.schemas import (
     FeishuLoginResult,
     FeishuLoginUrlResponse,
     FeishuSyncResult,
+    OperationLogRead,
     PersonalSummaryRead,
     PendingAcceptanceRead,
     ProblemCreate,
@@ -67,6 +72,7 @@ from app.schemas import (
     RewardRead,
     RoleUpdate,
     SyncFrequencyConfig,
+    SystemConfigOverviewRead,
     TaskRead,
     TaskDetailRead,
     TimeRange,
@@ -88,6 +94,7 @@ from app.reporting import (
 from app.services import (
     accept_deliverable,
     abandon_claim,
+    approve_claim_approval_request,
     claim_task,
     confirm_reward,
     create_problem,
@@ -105,16 +112,19 @@ from app.services import (
     list_knowledge,
     list_my_claims,
     list_my_pending_acceptance,
+    list_operation_logs,
     list_problems,
     list_rewards,
     list_tasks,
     list_users,
     release_overdue_claims,
+    reject_claim_approval_request,
     review_problem,
     set_user_roles,
     set_user_status,
     set_claim_approval_overdue_threshold,
     submit_deliverable,
+    list_claim_approval_requests,
 )
 
 
@@ -170,6 +180,31 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/auth/login", response_model=AuthLoginResponse)
+def post_auth_login(
+    payload: AuthLoginRequest,
+    session: Session = Depends(get_session),
+) -> AuthLoginResponse:
+    user: User | None = None
+    if payload.user_id is not None:
+        user = session.get(User, payload.user_id)
+    elif payload.employee_no:
+        employee_no = payload.employee_no.strip()
+        if employee_no:
+            user = session.exec(select(User).where(User.employee_no == employee_no)).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.status == UserStatus.DISABLED:
+        raise HTTPException(status_code=403, detail="user is disabled")
+
+    access_token, expires_in = create_access_token(user.id)
+    return AuthLoginResponse(
+        access_token=access_token,
+        expires_in=expires_in,
+        user=get_my_profile(session, user.id),
+    )
 
 
 @app.get("/me", response_model=UserRead)
@@ -292,7 +327,11 @@ def get_feishu_callback(
     if state:
         consume_oauth_state(session, provider_name=provider.provider_name, state=state)
     profile = provider.fetch_profile_by_code(code)
-    return login_by_feishu_code(session, profile=profile)
+    login_result = login_by_feishu_code(session, profile=profile)
+    access_token, expires_in = create_access_token(login_result.user_id)
+    return login_result.model_copy(
+        update={"access_token": access_token, "token_type": "Bearer", "expires_in": expires_in}
+    )
 
 
 @app.get("/users", response_model=list[UserRead], dependencies=[Depends(require_roles(Role.ADMIN))])
@@ -474,6 +513,83 @@ def get_claims_mine(
     return list_my_claims(session, user_id=actor_id, status=parsed_status)
 
 
+@app.get("/claims/overdue-approvals/mine", response_model=list[ClaimApprovalRequestRead])
+def get_my_overdue_approval_requests(
+    status: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> list[ClaimApprovalRequestRead]:
+    parsed_status = None
+    if status:
+        try:
+            parsed_status = ClaimApprovalStatus(status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid approval status") from exc
+    return list_claim_approval_requests(
+        session,
+        actor_id=actor_id,
+        mine_only=True,
+        status=parsed_status,
+    )
+
+
+@app.get(
+    "/claims/overdue-approvals/pending",
+    response_model=list[ClaimApprovalRequestRead],
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def get_pending_overdue_approval_requests(
+    status: str = Query(default="pending", pattern="^(pending|approved|rejected)$"),
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> list[ClaimApprovalRequestRead]:
+    parsed_status = ClaimApprovalStatus(status)
+    return list_claim_approval_requests(
+        session,
+        actor_id=actor_id,
+        mine_only=False,
+        status=parsed_status,
+    )
+
+
+@app.post(
+    "/claims/overdue-approvals/{request_id}/approve",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def post_approve_overdue_claim_request(
+    request_id: int,
+    payload: ClaimApprovalReviewInput,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    actor_roles = get_user_roles(session, actor_id)
+    return approve_claim_approval_request(
+        session=session,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        request_id=request_id,
+        comment=payload.comment,
+    )
+
+
+@app.post(
+    "/claims/overdue-approvals/{request_id}/reject",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def post_reject_overdue_claim_request(
+    request_id: int,
+    payload: ClaimApprovalReviewInput,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    return reject_claim_approval_request(
+        session=session,
+        actor_id=actor_id,
+        request_id=request_id,
+        comment=payload.comment,
+    )
+
+
 @app.get("/claims/{claim_id}/detail", response_model=ClaimExecutionDetailRead)
 def get_claim_detail(
     claim_id: int,
@@ -569,6 +685,29 @@ def get_knowledge_item(
     session: Session = Depends(get_session),
 ) -> dict:
     return get_knowledge_detail(session, knowledge_id)
+
+
+@app.get(
+    "/operations/logs",
+    response_model=list[OperationLogRead],
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def get_operation_logs(
+    action: str | None = Query(default=None),
+    actor_user_id: int | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+) -> list[OperationLogRead]:
+    return list_operation_logs(
+        session=session,
+        action=action,
+        actor_user_id=actor_user_id,
+        created_from=created_from,
+        created_to=created_to,
+        limit=limit,
+    )
 
 
 @app.get("/departments", response_model=list[DepartmentRead])
@@ -677,6 +816,20 @@ def get_export_knowledge_pdf(session: Session = Depends(get_session)) -> Streami
         iter([payload]),
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=knowledge_export.pdf"},
+    )
+
+
+@app.get(
+    "/system/config/overview",
+    response_model=SystemConfigOverviewRead,
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR))],
+)
+def get_system_config_overview(session: Session = Depends(get_session)) -> SystemConfigOverviewRead:
+    return SystemConfigOverviewRead(
+        feishu_sync_frequency_minutes=get_sync_frequency_minutes(session),
+        release_overdue_frequency_minutes=get_release_overdue_frequency_minutes(session),
+        claim_approval_overdue_threshold=get_claim_approval_overdue_threshold(session),
+        acceptance_templates=get_acceptance_templates(session),
     )
 
 

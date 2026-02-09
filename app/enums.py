@@ -69,6 +69,12 @@ class ClaimStatus(str, Enum):
     ABANDONED = "abandoned"
 
 
+class ClaimApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class DeliverableStatus(str, Enum):
     SUBMITTED = "submitted"
     NEEDS_REWORK = "needs_rework"
@@ -90,4 +96,3 @@ class RewardRoleType(str, Enum):
 class RewardStatus(str, Enum):
     GENERATED = "generated"
     CONFIRMED = "confirmed"
-

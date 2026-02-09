@@ -3,23 +3,26 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { apiBaseUrl } from './lib/http'
 import { AttachmentsPage } from './pages/AttachmentsPage'
+import { ClaimApprovalPage } from './pages/ClaimApprovalPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
 import { FeishuPage } from './pages/FeishuPage'
 import { KnowledgePage } from './pages/KnowledgePage'
+import { OperationLogsPage } from './pages/OperationLogsPage'
 import { PersonalCenterPage } from './pages/PersonalCenterPage'
 import { ProblemsPage } from './pages/ProblemsPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
+import { SystemConfigPage } from './pages/SystemConfigPage'
 import { TaskHallPage } from './pages/TaskHallPage'
 import { UsersPage } from './pages/UsersPage'
 import type { UserProfile } from './types'
 
 type Props = {
   userId: number
-  setUserId: (value: number) => void
   profile: UserProfile | null
   loadingProfile: boolean
   profileError: string | null
+  onLogout: () => void
 }
 
 type GuardProps = {
@@ -49,7 +52,7 @@ function Guard({ profile, roles, children }: GuardProps) {
   )
 }
 
-function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Props) {
+function TopBar({ profile, loadingProfile, profileError, onLogout }: Props) {
   return (
     <header className="topbar">
       <div>
@@ -58,21 +61,13 @@ function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Pr
       </div>
       <div className="topbar-controls">
         <p className="muted">API: {apiBaseUrl}</p>
-        <label>
-          X-User-Id
-          <input
-            type="number"
-            value={userId}
-            onChange={(event) => setUserId(Number(event.target.value) || 1)}
-            min={1}
-          />
-        </label>
         {loadingProfile && <p className="muted">Loading user profile...</p>}
         {profile && (
           <p className="muted">
-            {profile.name} ({profile.roles.join(', ')})
+            #{profile.id} {profile.name} ({profile.roles.join(', ')})
           </p>
         )}
+        <button type="button" onClick={onLogout}>logout</button>
         {profileError && <p className="error-text">{profileError}</p>}
       </div>
     </header>
@@ -97,9 +92,12 @@ export default function App(props: Props) {
           <NavLink to="/problems">Problems</NavLink>
           {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">Review</NavLink>}
           <NavLink to="/tasks">Task Hall</NavLink>
+          <NavLink to="/claim-approvals">Claim Approvals</NavLink>
           <NavLink to="/execution">Execution</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
           <NavLink to="/attachments">Attachments</NavLink>
+          {canReviewOrAdmin && <NavLink to="/operation-logs">Operation Logs</NavLink>}
+          {isAdmin && <NavLink to="/system-config">System Config</NavLink>}
           {isAdmin && <NavLink to="/users">Users</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">Feishu</NavLink>}
         </aside>
@@ -117,9 +115,26 @@ export default function App(props: Props) {
               }
             />
             <Route path="/tasks" element={<TaskHallPage userId={userId} profile={profile} />} />
+            <Route path="/claim-approvals" element={<ClaimApprovalPage userId={userId} profile={profile} />} />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
+            <Route
+              path="/operation-logs"
+              element={
+                <Guard profile={profile} roles={['admin', 'reviewer']}>
+                  <OperationLogsPage userId={userId} />
+                </Guard>
+              }
+            />
+            <Route
+              path="/system-config"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <SystemConfigPage userId={userId} />
+                </Guard>
+              }
+            />
             <Route
               path="/users"
               element={

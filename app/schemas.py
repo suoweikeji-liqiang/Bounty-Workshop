@@ -50,6 +50,24 @@ class UserRead(BaseModel):
     roles: list[Role]
 
 
+class AuthLoginRequest(BaseModel):
+    user_id: Optional[int] = Field(default=None, ge=1)
+    employee_no: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "AuthLoginRequest":
+        if self.user_id is None and not (self.employee_no and self.employee_no.strip()):
+            raise ValueError("either user_id or employee_no is required")
+        return self
+
+
+class AuthLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int
+    user: UserRead
+
+
 class ProblemCreate(BaseModel):
     title: str = Field(min_length=1, max_length=50)
     scenario: Scenario
@@ -183,6 +201,24 @@ class ClaimRead(BaseModel):
     created_at: datetime
 
 
+class ClaimApprovalRequestRead(BaseModel):
+    id: int
+    task_id: int
+    task_title: str
+    applicant_user_id: int
+    applicant_user_name: str
+    applicant_overdue_count: int
+    status: str
+    reason: Optional[str]
+    reviewed_by_user_id: Optional[int]
+    reviewed_at: Optional[datetime]
+    created_at: datetime
+
+
+class ClaimApprovalReviewInput(BaseModel):
+    comment: Optional[str] = None
+
+
 class DeliverableCreate(BaseModel):
     summary: str
     evidence_urls: list[str] = Field(default_factory=list)
@@ -292,6 +328,9 @@ class FeishuLoginResult(BaseModel):
     user_name: str
     external_id: str
     is_new_user: bool
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    expires_in: Optional[int] = None
 
 
 class SyncFrequencyConfig(BaseModel):
@@ -300,6 +339,13 @@ class SyncFrequencyConfig(BaseModel):
 
 class ClaimApprovalThresholdConfig(BaseModel):
     threshold: int = Field(ge=1, le=100)
+
+
+class SystemConfigOverviewRead(BaseModel):
+    feishu_sync_frequency_minutes: int
+    release_overdue_frequency_minutes: int
+    claim_approval_overdue_threshold: int
+    acceptance_templates: "AcceptanceTemplatesConfig"
 
 
 class AcceptanceTemplatesConfig(BaseModel):
@@ -410,3 +456,13 @@ class ClaimExecutionDetailRead(BaseModel):
     criteria_results: list[str] = Field(default_factory=list)
     submitted_at: Optional[datetime] = None
     acceptance_history: list[AcceptanceHistoryItem] = Field(default_factory=list)
+
+
+class OperationLogRead(BaseModel):
+    id: int
+    actor_user_id: Optional[int]
+    action: str
+    target_type: str
+    target_id: Optional[int]
+    detail: dict
+    created_at: datetime

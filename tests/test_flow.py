@@ -36,6 +36,29 @@ def _setup_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
+def _bearer_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_auth_login_and_bearer_access(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    login_resp = client.post("/auth/login", json={"user_id": 1})
+    assert login_resp.status_code == 200
+    payload = login_resp.json()
+    assert payload["token_type"] == "Bearer"
+    assert payload["expires_in"] > 0
+    assert payload["user"]["id"] == 1
+    token = payload["access_token"]
+    assert token
+
+    me_resp = client.get("/me", headers=_bearer_headers(token))
+    assert me_resp.status_code == 200
+    assert me_resp.json()["id"] == 1
+
+    app.dependency_overrides.clear()
+
+
 def test_end_to_end_flow(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 
@@ -513,14 +536,101 @@ def test_claim_overdue_approval_policy(tmp_path: Path) -> None:
     )
     assert blocked_claim_resp.status_code == 403
     assert "approval" in blocked_claim_resp.text.lower()
-
-    approved_claim_resp = client.post(
-        f"/tasks/{second_task_id}/claims",
-        headers=_headers(reviewer_id),
-        json={"mode": "individual", "lead_user_id": employee_id},
+    my_requests_resp = client.get(
+        "/claims/overdue-approvals/mine",
+        headers=_headers(employee_id),
+        params={"status": "pending"},
     )
-    assert approved_claim_resp.status_code == 200
-    assert approved_claim_resp.json()["status"] == "active"
+    assert my_requests_resp.status_code == 200
+    pending_rows = my_requests_resp.json()
+    target_request = next(item for item in pending_rows if item["task_id"] == second_task_id)
+    request_id = target_request["id"]
+
+    reviewer_pending_resp = client.get(
+        "/claims/overdue-approvals/pending",
+        headers=_headers(reviewer_id),
+        params={"status": "pending"},
+    )
+    assert reviewer_pending_resp.status_code == 200
+    assert any(item["id"] == request_id for item in reviewer_pending_resp.json())
+
+    approve_resp = client.post(
+        f"/claims/overdue-approvals/{request_id}/approve",
+        headers=_headers(reviewer_id),
+        json={"comment": "approved by reviewer"},
+    )
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["status"] == "approved"
+    assert approve_resp.json()["task_id"] == second_task_id
+
+    approved_list_resp = client.get(
+        "/claims/overdue-approvals/pending",
+        headers=_headers(reviewer_id),
+        params={"status": "approved"},
+    )
+    assert approved_list_resp.status_code == 200
+    assert any(item["id"] == request_id for item in approved_list_resp.json())
+
+    third_problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "overdue policy third task",
+            "scenario": "support",
+            "background": "verify reject flow",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "self claim should create request then reviewer rejects",
+            "value_reduce_effort": True,
+            "value_statement": "validate reject strategy",
+        },
+    )
+    assert third_problem_resp.status_code == 200
+    third_problem_id = third_problem_resp.json()["id"]
+    third_review_resp = client.post(
+        f"/problems/{third_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "approval reject task",
+                "goal": "reject overdue request",
+                "scope": "single task",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 500,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "request can be rejected", "type": "quantified"}],
+            },
+        },
+    )
+    assert third_review_resp.status_code == 200
+    third_task_id = third_review_resp.json()["id"]
+
+    blocked_third_resp = client.post(
+        f"/tasks/{third_task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert blocked_third_resp.status_code == 403
+
+    third_request_resp = client.get(
+        "/claims/overdue-approvals/mine",
+        headers=_headers(employee_id),
+        params={"status": "pending"},
+    )
+    assert third_request_resp.status_code == 200
+    third_request = next(item for item in third_request_resp.json() if item["task_id"] == third_task_id)
+    third_request_id = third_request["id"]
+
+    reject_resp = client.post(
+        f"/claims/overdue-approvals/{third_request_id}/reject",
+        headers=_headers(reviewer_id),
+        json={"comment": "rejected by reviewer"},
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["status"] == "rejected"
 
     app.dependency_overrides.clear()
 
@@ -841,5 +951,41 @@ def test_abandon_claim_flow(tmp_path: Path) -> None:
     reopen_tasks_resp = client.get("/tasks", headers=_headers(employee_a_id), params={"status": "open"})
     assert reopen_tasks_resp.status_code == 200
     assert any(item["id"] == task_id for item in reopen_tasks_resp.json())
+
+    app.dependency_overrides.clear()
+
+
+def test_system_config_overview_and_operation_logs(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "LogReviewer",
+            "employee_no": "R050",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    overview_resp = client.get("/system/config/overview", headers=_headers(reviewer_id))
+    assert overview_resp.status_code == 200
+    overview = overview_resp.json()
+    assert overview["feishu_sync_frequency_minutes"] >= 5
+    assert overview["release_overdue_frequency_minutes"] >= 5
+    assert overview["claim_approval_overdue_threshold"] >= 1
+    assert "acceptance_templates" in overview
+
+    logs_resp = client.get(
+        "/operations/logs",
+        headers=_headers(reviewer_id),
+        params={"action": "user.create", "limit": 50},
+    )
+    assert logs_resp.status_code == 200
+    rows = logs_resp.json()
+    assert any(item["action"] == "user.create" for item in rows)
 
     app.dependency_overrides.clear()

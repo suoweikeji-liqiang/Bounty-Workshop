@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.enums import (
     AcceptanceResult,
+    ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
@@ -25,6 +26,7 @@ from app.attachments import bind_attachments
 from app.models import (
     Acceptance,
     Claim,
+    ClaimApprovalRequest,
     ClaimMember,
     Deliverable,
     Knowledge,
@@ -39,6 +41,8 @@ from app.models import (
 from app.schemas import (
     AcceptanceHistoryItem,
     ClaimCreate,
+    ClaimApprovalRequestRead,
+    OperationLogRead,
     PersonalRewardStats,
     PersonalSummaryRead,
     ClaimExecutionDetailRead,
@@ -655,6 +659,142 @@ def get_claim_execution_detail(
     )
 
 
+def _approval_request_to_read(session: Session, row: ClaimApprovalRequest) -> ClaimApprovalRequestRead:
+    task = session.get(Task, row.task_id)
+    applicant = session.get(User, row.applicant_user_id)
+    return ClaimApprovalRequestRead(
+        id=row.id,
+        task_id=row.task_id,
+        task_title=task.title if task else f"task #{row.task_id}",
+        applicant_user_id=row.applicant_user_id,
+        applicant_user_name=applicant.name if applicant else f"user #{row.applicant_user_id}",
+        applicant_overdue_count=applicant.overdue_count if applicant else 0,
+        status=row.status.value,
+        reason=row.reason,
+        reviewed_by_user_id=row.reviewed_by_user_id,
+        reviewed_at=row.reviewed_at,
+        created_at=row.created_at,
+    )
+
+
+def _create_or_get_pending_approval_request(
+    session: Session,
+    task_id: int,
+    applicant_user_id: int,
+    reason: str | None = None,
+) -> ClaimApprovalRequest:
+    existing = session.exec(
+        select(ClaimApprovalRequest).where(
+            ClaimApprovalRequest.task_id == task_id,
+            ClaimApprovalRequest.applicant_user_id == applicant_user_id,
+            ClaimApprovalRequest.status == ClaimApprovalStatus.PENDING,
+        )
+    ).first()
+    if existing is not None:
+        return existing
+    record = ClaimApprovalRequest(
+        task_id=task_id,
+        applicant_user_id=applicant_user_id,
+        status=ClaimApprovalStatus.PENDING,
+        reason=reason,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
+def list_claim_approval_requests(
+    session: Session,
+    actor_id: int,
+    mine_only: bool = False,
+    status: ClaimApprovalStatus | None = None,
+) -> list[ClaimApprovalRequestRead]:
+    statement = select(ClaimApprovalRequest)
+    if mine_only:
+        statement = statement.where(ClaimApprovalRequest.applicant_user_id == actor_id)
+    if status is not None:
+        statement = statement.where(ClaimApprovalRequest.status == status)
+    rows = session.exec(statement.order_by(ClaimApprovalRequest.created_at.desc())).all()
+    return [_approval_request_to_read(session, row) for row in rows]
+
+
+def approve_claim_approval_request(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    request_id: int,
+    comment: str | None = None,
+) -> dict:
+    row = session.get(ClaimApprovalRequest, request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="approval request not found")
+    if row.status != ClaimApprovalStatus.PENDING:
+        raise HTTPException(status_code=400, detail="approval request already reviewed")
+
+    claim_result = claim_task(
+        session=session,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        task_id=row.task_id,
+        payload=ClaimCreate(mode=ClaimMode.INDIVIDUAL, lead_user_id=row.applicant_user_id, members=[]),
+    )
+
+    row.status = ClaimApprovalStatus.APPROVED
+    row.reviewed_by_user_id = actor_id
+    row.reviewed_at = datetime.utcnow()
+    if comment and comment.strip():
+        base = (row.reason or "").strip()
+        suffix = f"[review] {comment.strip()}"
+        row.reason = f"{base}\n{suffix}".strip()
+    _log(
+        session,
+        actor_id,
+        "task.claim.approval.approve",
+        "claim_approval_request",
+        row.id,
+        {"task_id": row.task_id, "applicant_user_id": row.applicant_user_id, "claim_id": claim_result["claim_id"]},
+    )
+    session.commit()
+    return {
+        "request_id": row.id,
+        "status": row.status.value,
+        "claim_id": claim_result["claim_id"],
+        "task_id": row.task_id,
+    }
+
+
+def reject_claim_approval_request(
+    session: Session,
+    actor_id: int,
+    request_id: int,
+    comment: str | None = None,
+) -> dict:
+    row = session.get(ClaimApprovalRequest, request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="approval request not found")
+    if row.status != ClaimApprovalStatus.PENDING:
+        raise HTTPException(status_code=400, detail="approval request already reviewed")
+
+    row.status = ClaimApprovalStatus.REJECTED
+    row.reviewed_by_user_id = actor_id
+    row.reviewed_at = datetime.utcnow()
+    if comment and comment.strip():
+        base = (row.reason or "").strip()
+        suffix = f"[review] {comment.strip()}"
+        row.reason = f"{base}\n{suffix}".strip()
+
+    _log(
+        session,
+        actor_id,
+        "task.claim.approval.reject",
+        "claim_approval_request",
+        row.id,
+        {"task_id": row.task_id, "applicant_user_id": row.applicant_user_id},
+    )
+    session.commit()
+    return {"request_id": row.id, "status": row.status.value, "task_id": row.task_id}
+
+
 def claim_task(
     session: Session,
     actor_id: int,
@@ -679,11 +819,34 @@ def claim_task(
     overdue_threshold = get_claim_approval_overdue_threshold(session)
     if lead_user.overdue_count >= overdue_threshold:
         if actor_id == lead_user_id:
+            approval_request = _create_or_get_pending_approval_request(
+                session=session,
+                task_id=task_id,
+                applicant_user_id=lead_user_id,
+                reason=(
+                    f"overdue_count={lead_user.overdue_count}, "
+                    f"threshold={overdue_threshold}, waiting admin/reviewer approval"
+                ),
+            )
+            _log(
+                session,
+                actor_id,
+                "task.claim.overdue_blocked",
+                "claim_approval_request",
+                approval_request.id,
+                {
+                    "task_id": task_id,
+                    "lead_user_id": lead_user_id,
+                    "overdue_count": lead_user.overdue_count,
+                    "overdue_threshold": overdue_threshold,
+                },
+            )
+            session.commit()
             raise HTTPException(
                 status_code=403,
                 detail=(
                     "claim requires approval: overdue count reached threshold, "
-                    "ask admin/reviewer to claim on behalf"
+                    f"ask admin/reviewer to claim on behalf, request_id={approval_request.id}"
                 ),
             )
         if not can_approve_for_others:
@@ -1052,6 +1215,52 @@ def get_knowledge_detail(session: Session, knowledge_id: int) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="知识条目不存在")
     return _knowledge_to_dict(item)
+
+
+def list_operation_logs(
+    session: Session,
+    action: str | None = None,
+    actor_user_id: int | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    limit: int = 200,
+) -> list[OperationLogRead]:
+    statement = select(OperationLog)
+    if action:
+        statement = statement.where(OperationLog.action == action)
+    if actor_user_id is not None:
+        statement = statement.where(OperationLog.actor_user_id == actor_user_id)
+    if created_from is not None:
+        statement = statement.where(
+            OperationLog.created_at >= datetime.combine(created_from, datetime.min.time())
+        )
+    if created_to is not None:
+        statement = statement.where(
+            OperationLog.created_at < datetime.combine(created_to + timedelta(days=1), datetime.min.time())
+        )
+
+    rows = session.exec(statement.order_by(OperationLog.created_at.desc()).limit(max(1, min(limit, 1000)))).all()
+    output: list[OperationLogRead] = []
+    for row in rows:
+        detail: dict = {}
+        try:
+            parsed = _from_json(row.detail)
+            if isinstance(parsed, dict):
+                detail = parsed
+        except Exception:
+            detail = {}
+        output.append(
+            OperationLogRead(
+                id=row.id,
+                actor_user_id=row.actor_user_id,
+                action=row.action,
+                target_type=row.target_type,
+                target_id=row.target_id,
+                detail=detail,
+                created_at=row.created_at,
+            )
+        )
+    return output
 
 
 def release_overdue_claims(session: Session, actor_id: int | None = None) -> dict:

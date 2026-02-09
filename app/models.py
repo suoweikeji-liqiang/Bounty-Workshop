@@ -6,6 +6,7 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 from app.enums import (
+    ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
@@ -85,6 +86,17 @@ class Claim(SQLModel, table=True):
     mode: ClaimMode
     status: ClaimStatus = Field(default=ClaimStatus.ACTIVE, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ClaimApprovalRequest(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    applicant_user_id: int = Field(foreign_key="user.id", index=True)
+    status: ClaimApprovalStatus = Field(default=ClaimApprovalStatus.PENDING, index=True)
+    reason: Optional[str] = None
+    reviewed_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    reviewed_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class ClaimMember(SQLModel, table=True):

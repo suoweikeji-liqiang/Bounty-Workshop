@@ -8,6 +8,8 @@ test('main workflow: problem -> review -> claim -> deliverable -> acceptance -> 
   const taskTitle = `E2E-task-${suffix}`
 
   await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible()
+  await page.getByRole('button', { name: 'sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Bounty Task Console' })).toBeVisible()
 
   await page.getByRole('link', { name: 'Problems' }).click()

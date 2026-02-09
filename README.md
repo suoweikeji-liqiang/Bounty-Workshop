@@ -150,3 +150,26 @@ npm run e2e
 - Claim strategy rule:
   - When `user.overdue_count >= threshold`, the user cannot self-claim tasks.
   - `admin/reviewer` can approve by claiming on behalf (`lead_user_id`).
+
+## Latest Additions (2026-02-09, Sprint Next)
+
+- Authentication/session:
+  - `POST /auth/login` (returns Bearer access token)
+  - `GET /me` and all protected APIs now support `Authorization: Bearer <token>`
+  - Legacy `X-User-Id` is still backward-compatible for tests/internal scripts.
+  - `GET /auth/feishu/callback` now also returns token fields.
+
+- Overdue claim approval workbench:
+  - `GET /claims/overdue-approvals/mine`
+  - `GET /claims/overdue-approvals/pending`
+  - `POST /claims/overdue-approvals/{request_id}/approve`
+  - `POST /claims/overdue-approvals/{request_id}/reject`
+  - When self-claim is blocked by overdue threshold, system auto-creates a pending approval request.
+
+- Config center:
+  - `GET /system/config/overview` (aggregated config snapshot)
+  - Frontend page: centralized management for frequencies, threshold, acceptance templates.
+
+- Audit logs:
+  - `GET /operations/logs` with filters (`action`, `actor_user_id`, `created_from`, `created_to`, `limit`)
+  - Frontend operation log page for admin/reviewer.

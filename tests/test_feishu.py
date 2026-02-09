@@ -95,6 +95,9 @@ def test_feishu_oauth_and_sync(tmp_path: Path) -> None:
     login_result = callback_resp.json()
     assert login_result["external_id"] == "ou_abc123"
     assert login_result["is_new_user"] is True
+    assert login_result["token_type"] == "Bearer"
+    assert login_result["expires_in"] > 0
+    assert login_result["access_token"]
 
     callback_resp_again = client.get("/auth/feishu/callback", params={"code": "abc123"})
     assert callback_resp_again.status_code == 200
