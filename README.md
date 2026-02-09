@@ -139,3 +139,14 @@ pytest -q
 cd web
 npm run e2e
 ```
+
+## Latest Additions (2026-02-09)
+
+- Personal center API:
+  - `GET /me/summary`: returns user profile + reward stats + badges + personal reward history.
+- Claim approval policy API:
+  - `GET /system/config/claim-approval-overdue-threshold` (`admin/reviewer`)
+  - `PUT /system/config/claim-approval-overdue-threshold` (`admin`)
+- Claim strategy rule:
+  - When `user.overdue_count >= threshold`, the user cannot self-claim tasks.
+  - `admin/reviewer` can approve by claiming on behalf (`lead_user_id`).

@@ -120,6 +120,25 @@ export type UserProfile = {
   roles: string[]
 }
 
+export type PersonalRewardStats = {
+  total_records: number
+  confirmed_records: number
+  confirmed_reward_amount: number
+  total_points: number
+  confirmed_points: number
+}
+
+export type PersonalSummary = {
+  user: UserProfile
+  stats: PersonalRewardStats
+  badges: string[]
+  rewards: Reward[]
+}
+
+export type ClaimApprovalThresholdConfig = {
+  threshold: number
+}
+
 export type ClaimExecution = {
   claim_id: number
   claim_status: string

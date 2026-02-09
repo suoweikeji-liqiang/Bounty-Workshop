@@ -214,6 +214,21 @@ class RewardRead(BaseModel):
     confirmed_at: Optional[datetime]
 
 
+class PersonalRewardStats(BaseModel):
+    total_records: int
+    confirmed_records: int
+    confirmed_reward_amount: float
+    total_points: int
+    confirmed_points: int
+
+
+class PersonalSummaryRead(BaseModel):
+    user: UserRead
+    stats: PersonalRewardStats
+    badges: list[str]
+    rewards: list[RewardRead]
+
+
 class DashboardOverview(BaseModel):
     problem_total: int
     problem_approved: int
@@ -281,6 +296,10 @@ class FeishuLoginResult(BaseModel):
 
 class SyncFrequencyConfig(BaseModel):
     frequency_minutes: int = Field(ge=5, le=10080)
+
+
+class ClaimApprovalThresholdConfig(BaseModel):
+    threshold: int = Field(ge=1, le=100)
 
 
 class AcceptanceTemplatesConfig(BaseModel):

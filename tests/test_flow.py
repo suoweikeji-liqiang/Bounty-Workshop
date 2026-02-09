@@ -223,10 +223,21 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     rewards = rewards_resp.json()
     assert len(rewards) == 2
 
-    first_reward_id = rewards[0]["id"]
-    confirm_resp = client.post(f"/rewards/{first_reward_id}/confirm", headers=_headers(reviewer_id))
-    assert confirm_resp.status_code == 200
-    assert confirm_resp.json()["status"] == "confirmed"
+    for reward in rewards:
+        confirm_resp = client.post(f"/rewards/{reward['id']}/confirm", headers=_headers(reviewer_id))
+        assert confirm_resp.status_code == 200
+        assert confirm_resp.json()["status"] == "confirmed"
+
+    me_summary_resp = client.get("/me/summary", headers=_headers(employee_id))
+    assert me_summary_resp.status_code == 200
+    me_summary = me_summary_resp.json()
+    assert me_summary["user"]["id"] == employee_id
+    assert me_summary["stats"]["total_records"] == 2
+    assert me_summary["stats"]["confirmed_records"] == 2
+    assert me_summary["stats"]["confirmed_reward_amount"] > 0
+    assert me_summary["stats"]["confirmed_points"] >= 20
+    assert isinstance(me_summary["badges"], list)
+    assert len(me_summary["rewards"]) == 2
 
     knowledge_resp = client.get("/knowledge", headers=_headers(employee_id))
     assert knowledge_resp.status_code == 200
@@ -361,6 +372,155 @@ def test_release_overdue_claims(tmp_path: Path) -> None:
     job_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
     assert job_resp.status_code == 200
     assert job_resp.json()["released_claims"] >= 1
+
+    app.dependency_overrides.clear()
+
+
+def test_claim_overdue_approval_policy(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReviewerPolicy",
+            "employee_no": "R040",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "OverdueUser", "employee_no": "E040", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    get_threshold_resp = client.get(
+        "/system/config/claim-approval-overdue-threshold",
+        headers=_headers(reviewer_id),
+    )
+    assert get_threshold_resp.status_code == 200
+    assert get_threshold_resp.json()["threshold"] >= 1
+
+    set_threshold_resp = client.put(
+        "/system/config/claim-approval-overdue-threshold",
+        headers=_headers(1),
+        json={"threshold": 1},
+    )
+    assert set_threshold_resp.status_code == 200
+    assert set_threshold_resp.json()["threshold"] == 1
+
+    first_problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "overdue policy first task",
+            "scenario": "ops",
+            "background": "prepare overdue count",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "claim first task and let it overdue",
+            "value_reduce_effort": True,
+            "value_statement": "exercise overdue path",
+        },
+    )
+    assert first_problem_resp.status_code == 200
+    first_problem_id = first_problem_resp.json()["id"]
+
+    first_review_resp = client.post(
+        f"/problems/{first_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "overdue seed task",
+                "goal": "seed overdue counter",
+                "scope": "single task",
+                "due_date": (date.today() - timedelta(days=1)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "create overdue claim", "type": "quantified"}],
+            },
+        },
+    )
+    assert first_review_resp.status_code == 200
+    first_task_id = first_review_resp.json()["id"]
+
+    first_claim_resp = client.post(
+        f"/tasks/{first_task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert first_claim_resp.status_code == 200
+
+    release_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
+    assert release_resp.status_code == 200
+    assert release_resp.json()["released_claims"] >= 1
+
+    employee_detail_resp = client.get(f"/users/{employee_id}", headers=_headers(1))
+    assert employee_detail_resp.status_code == 200
+    assert employee_detail_resp.json()["overdue_count"] >= 1
+
+    second_problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "overdue policy second task",
+            "scenario": "rd",
+            "background": "verify approval gate",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "self claim should be blocked after overdue threshold",
+            "value_reduce_effort": True,
+            "value_statement": "validate approval strategy",
+        },
+    )
+    assert second_problem_resp.status_code == 200
+    second_problem_id = second_problem_resp.json()["id"]
+
+    second_review_resp = client.post(
+        f"/problems/{second_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "approval required task",
+                "goal": "enforce approval for overdue users",
+                "scope": "single task",
+                "due_date": (date.today() + timedelta(days=2)).isoformat(),
+                "level": "C",
+                "reward_total": 400,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "self claim blocked", "type": "quantified"}],
+            },
+        },
+    )
+    assert second_review_resp.status_code == 200
+    second_task_id = second_review_resp.json()["id"]
+
+    blocked_claim_resp = client.post(
+        f"/tasks/{second_task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert blocked_claim_resp.status_code == 403
+    assert "approval" in blocked_claim_resp.text.lower()
+
+    approved_claim_resp = client.post(
+        f"/tasks/{second_task_id}/claims",
+        headers=_headers(reviewer_id),
+        json={"mode": "individual", "lead_user_id": employee_id},
+    )
+    assert approved_claim_resp.status_code == 200
+    assert approved_claim_resp.json()["status"] == "active"
 
     app.dependency_overrides.clear()
 

@@ -31,6 +31,7 @@ from app.models import (
     OperationLog,
     Problem,
     Reward,
+    SystemConfig,
     Task,
     User,
     UserRole,
@@ -38,6 +39,8 @@ from app.models import (
 from app.schemas import (
     AcceptanceHistoryItem,
     ClaimCreate,
+    PersonalRewardStats,
+    PersonalSummaryRead,
     ClaimExecutionDetailRead,
     ClaimExecutionRead,
     DashboardOverview,
@@ -98,6 +101,11 @@ def _ensure_role(session: Session, user_id: int, role: Role) -> None:
     ).first()
     if exists is None:
         raise HTTPException(status_code=400, detail=f"鐢ㄦ埛 {user_id} 鏈鎺堜簣 {role.value} 瑙掕壊")
+
+
+CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY = "claim_approval_overdue_threshold"
+DEFAULT_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 2
+MIN_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 1
 
 
 def create_user(session: Session, actor_id: int, payload: UserCreate) -> UserRead:
@@ -211,6 +219,59 @@ def list_acceptor_candidates(session: Session) -> list[UserRead]:
 def get_my_profile(session: Session, user_id: int) -> UserRead:
     user = _ensure_user_exists(session, user_id, allow_disabled=True)
     return user_to_read(session, user)
+
+
+def get_my_summary(session: Session, user_id: int) -> PersonalSummaryRead:
+    user = _ensure_user_exists(session, user_id, allow_disabled=True)
+    rewards = list_rewards(session, user_id=user_id)
+    confirmed_rewards = [item for item in rewards if item.status == RewardStatus.CONFIRMED.value]
+    badges = sorted({item.badge for item in confirmed_rewards if item.badge})
+    stats = PersonalRewardStats(
+        total_records=len(rewards),
+        confirmed_records=len(confirmed_rewards),
+        confirmed_reward_amount=round(sum(item.amount for item in confirmed_rewards), 2),
+        total_points=sum(item.points for item in rewards),
+        confirmed_points=sum(item.points for item in confirmed_rewards),
+    )
+    return PersonalSummaryRead(
+        user=user_to_read(session, user),
+        stats=stats,
+        badges=badges,
+        rewards=rewards,
+    )
+
+
+def get_claim_approval_overdue_threshold(session: Session) -> int:
+    row = session.get(SystemConfig, CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY)
+    if row is None:
+        value = DEFAULT_CLAIM_APPROVAL_OVERDUE_THRESHOLD
+        session.add(SystemConfig(key=CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY, value=str(value)))
+        session.commit()
+        return value
+    try:
+        value = int(row.value)
+    except ValueError:
+        value = DEFAULT_CLAIM_APPROVAL_OVERDUE_THRESHOLD
+    return max(value, MIN_CLAIM_APPROVAL_OVERDUE_THRESHOLD)
+
+
+def set_claim_approval_overdue_threshold(session: Session, threshold: int) -> int:
+    value = max(threshold, MIN_CLAIM_APPROVAL_OVERDUE_THRESHOLD)
+    row = session.get(SystemConfig, CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY)
+    now = datetime.utcnow()
+    if row is None:
+        session.add(
+            SystemConfig(
+                key=CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY,
+                value=str(value),
+                updated_at=now,
+            )
+        )
+    else:
+        row.value = str(value)
+        row.updated_at = now
+    session.commit()
+    return value
 
 
 def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> ProblemRead:
@@ -594,7 +655,13 @@ def get_claim_execution_detail(
     )
 
 
-def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCreate) -> dict:
+def claim_task(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    task_id: int,
+    payload: ClaimCreate,
+) -> dict:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="浠诲姟涓嶅瓨鍦?")
@@ -602,8 +669,25 @@ def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCrea
         raise HTTPException(status_code=400, detail="褰撳墠浠诲姟涓嶅彲鎻")
 
     lead_user_id = payload.lead_user_id or actor_id
-    _ensure_user_exists(session, lead_user_id)
+    lead_user = _ensure_user_exists(session, lead_user_id)
     _ensure_user_exists(session, actor_id)
+
+    can_approve_for_others = Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles
+    if lead_user_id != actor_id and not can_approve_for_others:
+        raise HTTPException(status_code=403, detail="only admin/reviewer can claim for another user")
+
+    overdue_threshold = get_claim_approval_overdue_threshold(session)
+    if lead_user.overdue_count >= overdue_threshold:
+        if actor_id == lead_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "claim requires approval: overdue count reached threshold, "
+                    "ask admin/reviewer to claim on behalf"
+                ),
+            )
+        if not can_approve_for_others:
+            raise HTTPException(status_code=403, detail="only admin/reviewer can approve overdue claims")
 
     existing_active = session.exec(
         select(Claim).where(
@@ -636,8 +720,28 @@ def claim_task(session: Session, actor_id: int, task_id: int, payload: ClaimCrea
         "task.claim",
         "task",
         task_id,
-        {"claim_id": claim.id, "mode": claim.mode.value},
+        {
+            "claim_id": claim.id,
+            "mode": claim.mode.value,
+            "lead_user_id": lead_user_id,
+            "overdue_count": lead_user.overdue_count,
+            "overdue_threshold": overdue_threshold,
+        },
     )
+    if lead_user.overdue_count >= overdue_threshold and lead_user_id != actor_id:
+        _log(
+            session,
+            actor_id,
+            "task.claim.overdue_approved",
+            "task",
+            task_id,
+            {
+                "claim_id": claim.id,
+                "lead_user_id": lead_user_id,
+                "overdue_count": lead_user.overdue_count,
+                "overdue_threshold": overdue_threshold,
+            },
+        )
     session.commit()
     return {"claim_id": claim.id, "task_id": task_id, "status": claim.status.value}
 

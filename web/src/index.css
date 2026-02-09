@@ -447,6 +447,89 @@ button:hover {
   border-bottom: 1px dashed var(--line);
 }
 
+.personal-page {
+  position: relative;
+  overflow: hidden;
+}
+
+.personal-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, rgba(14, 106, 96, 0.08), transparent 40%),
+    linear-gradient(-120deg, rgba(213, 74, 47, 0.08), transparent 55%);
+}
+
+.personal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.personal-hero {
+  border: 1px solid rgba(14, 106, 96, 0.3);
+  border-radius: 16px;
+  padding: 18px;
+  background:
+    linear-gradient(145deg, rgba(14, 106, 96, 0.18), rgba(255, 255, 255, 0.72)),
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.03) 0, rgba(0, 0, 0, 0.03) 1px, transparent 1px, transparent 12px);
+  position: relative;
+  z-index: 1;
+}
+
+.personal-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.personal-hero h3 {
+  margin: 4px 0 8px;
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 0.05em;
+  font-size: 44px;
+}
+
+.personal-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.personal-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.personal-kpi {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(255, 248, 228, 0.76));
+}
+
+.personal-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.personal-badge {
+  border: 1px solid rgba(14, 106, 96, 0.35);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(14, 106, 96, 0.09);
+}
+
+.personal-row {
+  grid-template-columns: 80px 80px 1fr 130px 90px 1fr 110px 180px;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -478,6 +561,9 @@ button:hover {
   .kpi-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .personal-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .panel-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -502,5 +588,12 @@ button:hover {
   .row.head,
   .row.wide-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .personal-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .personal-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -44,6 +44,7 @@ from app.jobs import (
 from app.models import User, UserRole
 from app.schemas import (
     AcceptanceCreate,
+    ClaimApprovalThresholdConfig,
     AcceptanceTemplatesConfig,
     ClaimCreate,
     ClaimExecutionDetailRead,
@@ -58,6 +59,7 @@ from app.schemas import (
     FeishuLoginResult,
     FeishuLoginUrlResponse,
     FeishuSyncResult,
+    PersonalSummaryRead,
     PendingAcceptanceRead,
     ProblemCreate,
     ProblemRead,
@@ -93,7 +95,9 @@ from app.services import (
     dashboard_overview,
     get_knowledge_detail,
     get_my_profile,
+    get_my_summary,
     get_claim_execution_detail,
+    get_claim_approval_overdue_threshold,
     get_user_detail,
     get_task_detail,
     list_acceptor_candidates,
@@ -109,6 +113,7 @@ from app.services import (
     review_problem,
     set_user_roles,
     set_user_status,
+    set_claim_approval_overdue_threshold,
     submit_deliverable,
 )
 
@@ -173,6 +178,14 @@ def get_me(
     actor_id: int = Depends(get_current_user_id),
 ) -> UserRead:
     return get_my_profile(session, actor_id)
+
+
+@app.get("/me/summary", response_model=PersonalSummaryRead)
+def get_me_summary(
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> PersonalSummaryRead:
+    return get_my_summary(session, actor_id)
 
 
 @app.post("/attachments/upload", response_model=AttachmentRead)
@@ -424,7 +437,14 @@ def post_claim_task(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
-    return claim_task(session, actor_id=actor_id, task_id=task_id, payload=payload)
+    actor_roles = get_user_roles(session, actor_id)
+    return claim_task(
+        session,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        task_id=task_id,
+        payload=payload,
+    )
 
 
 @app.post("/claims/{claim_id}/abandon")
@@ -702,6 +722,28 @@ def put_release_overdue_frequency(
 ) -> SyncFrequencyConfig:
     value = set_release_overdue_frequency_minutes(session, payload.frequency_minutes)
     return SyncFrequencyConfig(frequency_minutes=value)
+
+
+@app.get(
+    "/system/config/claim-approval-overdue-threshold",
+    response_model=ClaimApprovalThresholdConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def get_claim_approval_threshold(session: Session = Depends(get_session)) -> ClaimApprovalThresholdConfig:
+    return ClaimApprovalThresholdConfig(threshold=get_claim_approval_overdue_threshold(session))
+
+
+@app.put(
+    "/system/config/claim-approval-overdue-threshold",
+    response_model=ClaimApprovalThresholdConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def put_claim_approval_threshold(
+    payload: ClaimApprovalThresholdConfig,
+    session: Session = Depends(get_session),
+) -> ClaimApprovalThresholdConfig:
+    value = set_claim_approval_overdue_threshold(session, payload.threshold)
+    return ClaimApprovalThresholdConfig(threshold=value)
 
 
 @app.get(

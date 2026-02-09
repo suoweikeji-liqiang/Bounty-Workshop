@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { requestJson } from '../lib/http'
-import type { Task, TaskDetail, UserProfile } from '../types'
+import type { ClaimApprovalThresholdConfig, Task, TaskDetail, UserProfile } from '../types'
 
 type Props = {
   userId: number
+  profile: UserProfile | null
 }
 
 type ClaimMode = 'individual' | 'team'
@@ -47,7 +48,14 @@ function buildDefaultMembers(userId: number): TeamMemberDraft[] {
   ]
 }
 
-export function TaskHallPage({ userId }: Props) {
+function hasAnyRole(profile: UserProfile | null, allowedRoles: string[]) {
+  if (!profile) {
+    return false
+  }
+  return profile.roles.some((role) => allowedRoles.includes(role))
+}
+
+export function TaskHallPage({ userId, profile }: Props) {
   const [openTasks, setOpenTasks] = useState<Task[]>([])
   const [inProgressTasks, setInProgressTasks] = useState<Task[]>([])
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([])
@@ -66,8 +74,23 @@ export function TaskHallPage({ userId }: Props) {
     rewardMin: '',
     rewardMax: '',
   })
+  const [policyThreshold, setPolicyThreshold] = useState<number | null>(null)
+  const [policyDraft, setPolicyDraft] = useState('')
+  const [savingPolicy, setSavingPolicy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const canApproveForOthers = useMemo(
+    () => hasAnyRole(profile, ['admin', 'reviewer']),
+    [profile],
+  )
+  const canEditPolicy = useMemo(() => hasAnyRole(profile, ['admin']), [profile])
+  const visibleLeadUsers = useMemo(() => {
+    if (canApproveForOthers) {
+      return activeUsers
+    }
+    return activeUsers.filter((item) => item.id === userId)
+  }, [activeUsers, canApproveForOthers, userId])
 
   const load = useCallback(async () => {
     const buildTaskQuery = (status: 'open' | 'in_progress') => {
@@ -87,6 +110,7 @@ export function TaskHallPage({ userId }: Props) {
       }
       return `/tasks?${query.toString()}`
     }
+
     try {
       setError(null)
       const [open, progress, users] = await Promise.all([
@@ -98,16 +122,42 @@ export function TaskHallPage({ userId }: Props) {
       setInProgressTasks(progress)
       setActiveUsers(users)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败')
+      setError(err instanceof Error ? err.message : 'failed to load task hall data')
     }
-  }, [userId, filters.level, filters.rewardMax, filters.rewardMin, filters.scenario])
+  }, [filters.level, filters.rewardMax, filters.rewardMin, filters.scenario, userId])
+
+  const loadPolicyThreshold = useCallback(async () => {
+    if (!canApproveForOthers) {
+      setPolicyThreshold(null)
+      setPolicyDraft('')
+      return
+    }
+    try {
+      const payload = await requestJson<ClaimApprovalThresholdConfig>(
+        '/system/config/claim-approval-overdue-threshold',
+        { userId },
+      )
+      setPolicyThreshold(payload.threshold)
+      setPolicyDraft(String(payload.threshold))
+    } catch (err) {
+      setPolicyThreshold(null)
+      setPolicyDraft('')
+      setError(err instanceof Error ? err.message : 'failed to load claim approval policy')
+    }
+  }, [canApproveForOthers, userId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load()
+      void loadPolicyThreshold()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [load])
+  }, [load, loadPolicyThreshold])
+
+  useEffect(() => {
+    setLeadUserId(String(userId))
+    setMembers(buildDefaultMembers(userId))
+  }, [userId])
 
   const addMemberRow = () => {
     setMembers((prev) => [...prev, { user_id: '', ratio: '' }])
@@ -121,27 +171,34 @@ export function TaskHallPage({ userId }: Props) {
     event.preventDefault()
     const taskId = Number(selectedTaskId)
     if (!Number.isInteger(taskId) || taskId <= 0) {
-      setError('请选择待揭榜任务')
+      setError('please choose a task to claim')
       return
     }
 
     try {
       setError(null)
+
       if (claimMode === 'individual') {
+        const leadId = Number(leadUserId)
+        const body: { mode: 'individual'; lead_user_id?: number } = { mode: 'individual' }
+        if (Number.isInteger(leadId) && leadId > 0 && (canApproveForOthers || leadId === userId)) {
+          body.lead_user_id = leadId
+        }
+
         const res = await requestJson<{ claim_id: number }>(`/tasks/${taskId}/claims`, {
           method: 'POST',
           userId,
-          body: { mode: 'individual' },
+          body,
         })
         saveClaimRecord(taskId, res.claim_id)
-        setMessage(`任务 #${taskId} 揭榜成功，claim_id=${res.claim_id}`)
+        setMessage(`task #${taskId} claim submitted, claim_id=${res.claim_id}`)
         await load()
         return
       }
 
       const leadId = Number(leadUserId)
       if (!Number.isInteger(leadId) || leadId <= 0) {
-        setError('请选择联合揭榜负责人')
+        setError('please choose team lead user')
         return
       }
 
@@ -159,17 +216,17 @@ export function TaskHallPage({ userId }: Props) {
         )
 
       if (parsedMembers.length < 2) {
-        setError('联合揭榜至少需要两名成员')
+        setError('team claim requires at least 2 members')
         return
       }
       if (!parsedMembers.some((item) => item.user_id === leadId)) {
-        setError('成员列表必须包含负责人')
+        setError('team members must include the lead user')
         return
       }
 
       const ratioTotal = parsedMembers.reduce((acc, item) => acc + item.ratio, 0)
       if (Math.abs(ratioTotal - 1) > 0.0001) {
-        setError('成员比例总和必须等于 1')
+        setError('member ratios must sum to 1')
         return
       }
 
@@ -183,11 +240,42 @@ export function TaskHallPage({ userId }: Props) {
         },
       })
       saveClaimRecord(taskId, res.claim_id)
-      setMessage(`任务 #${taskId} 联合揭榜成功，claim_id=${res.claim_id}`)
+      setMessage(`task #${taskId} team claim submitted, claim_id=${res.claim_id}`)
       setMembers(buildDefaultMembers(userId))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '揭榜失败')
+      setError(err instanceof Error ? err.message : 'claim failed')
+    }
+  }
+
+  const savePolicy = async () => {
+    if (!canEditPolicy) {
+      return
+    }
+    const threshold = Number(policyDraft)
+    if (!Number.isInteger(threshold) || threshold < 1) {
+      setError('threshold must be an integer >= 1')
+      return
+    }
+
+    try {
+      setSavingPolicy(true)
+      setError(null)
+      const payload = await requestJson<ClaimApprovalThresholdConfig>(
+        '/system/config/claim-approval-overdue-threshold',
+        {
+          method: 'PUT',
+          userId,
+          body: { threshold },
+        },
+      )
+      setPolicyThreshold(payload.threshold)
+      setPolicyDraft(String(payload.threshold))
+      setMessage(`claim approval threshold updated to ${payload.threshold}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'policy update failed')
+    } finally {
+      setSavingPolicy(false)
     }
   }
 
@@ -199,23 +287,24 @@ export function TaskHallPage({ userId }: Props) {
         .split(',')
         .map((item) => Number(item.trim()))
         .filter((item) => Number.isInteger(item) && item > 0)
+
       await requestJson(`/claims/${claimId}/deliverables`, {
         method: 'POST',
         userId,
         body: {
           summary,
-          criteria_results: ['前端提交'],
+          criteria_results: ['submitted from task hall page'],
           evidence_attachment_ids: attachmentIds,
           evidence_urls: [],
         },
       })
-      setMessage('成果提交成功')
+      setMessage('deliverable submitted')
       setClaimId('')
       setSummary('')
       setAttachments('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '成果提交失败')
+      setError(err instanceof Error ? err.message : 'deliverable submit failed')
     }
   }
 
@@ -226,18 +315,49 @@ export function TaskHallPage({ userId }: Props) {
       setTaskDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载任务详情失败')
+      setError(err instanceof Error ? err.message : 'failed to load task detail')
     }
   }
 
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>任务大厅</h2>
-        <p>公开揭榜、联合协作与执行反馈。</p>
+        <h2>Task Hall</h2>
+        <p>Open claims, team collaboration, execution submission, and overdue-approval policy.</p>
       </header>
       {message && <p className="ok-text">{message}</p>}
       {error && <p className="error-text">{error}</p>}
+
+      {canApproveForOthers && (
+        <article className="panel form-grid">
+          <h3>Claim Approval Policy</h3>
+          <p className="wide muted">
+            When overdue count reaches threshold, the user cannot self-claim. Admin/reviewer can approve by claiming on behalf.
+          </p>
+          <label>
+            current threshold
+            <input value={policyThreshold ?? '-'} disabled />
+          </label>
+          <label>
+            new threshold
+            <input
+              type="number"
+              min={1}
+              value={policyDraft}
+              onChange={(event) => setPolicyDraft(event.target.value)}
+              disabled={!canEditPolicy}
+            />
+          </label>
+          {canEditPolicy && (
+            <div className="button-row wide">
+              <button type="button" className="primary-btn" onClick={() => void savePolicy()} disabled={savingPolicy}>
+                {savingPolicy ? 'saving...' : 'save policy'}
+              </button>
+            </div>
+          )}
+        </article>
+      )}
+
       <form
         className="panel form-grid"
         onSubmit={(event) => {
@@ -245,14 +365,14 @@ export function TaskHallPage({ userId }: Props) {
           void load()
         }}
       >
-        <h3>任务筛选</h3>
+        <h3>Task Filters</h3>
         <label>
-          等级
+          level
           <select
             value={filters.level}
             onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
           >
-            <option value="">全部</option>
+            <option value="">all</option>
             <option value="S">S</option>
             <option value="A">A</option>
             <option value="B">B</option>
@@ -260,21 +380,21 @@ export function TaskHallPage({ userId }: Props) {
           </select>
         </label>
         <label>
-          场景
+          scenario
           <select
             value={filters.scenario}
             onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="">全部</option>
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
+            <option value="">all</option>
+            <option value="rd">rd</option>
+            <option value="ops">ops</option>
+            <option value="delivery">delivery</option>
+            <option value="support">support</option>
+            <option value="other">other</option>
           </select>
         </label>
         <label>
-          最小激励
+          min reward
           <input
             type="number"
             value={filters.rewardMin}
@@ -282,7 +402,7 @@ export function TaskHallPage({ userId }: Props) {
           />
         </label>
         <label>
-          最大激励
+          max reward
           <input
             type="number"
             value={filters.rewardMax}
@@ -291,7 +411,7 @@ export function TaskHallPage({ userId }: Props) {
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit">
-            应用筛选
+            apply filters
           </button>
           <button
             type="button"
@@ -299,27 +419,28 @@ export function TaskHallPage({ userId }: Props) {
               setFilters({ level: '', scenario: '', rewardMin: '', rewardMax: '' })
             }}
           >
-            重置
+            reset
           </button>
         </div>
       </form>
+
       <article className="panel">
         <div className="panel-headline">
-          <h3>待揭榜任务</h3>
+          <h3>Open Tasks</h3>
           <button type="button" onClick={() => void load()}>
-            刷新
+            refresh
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>标题</span>
-            <span>场景</span>
-            <span>等级</span>
-            <span>激励</span>
-            <span>截止</span>
-            <span>揭榜数</span>
-            <span>动作</span>
+            <span>title</span>
+            <span>scenario</span>
+            <span>level</span>
+            <span>reward</span>
+            <span>due</span>
+            <span>claims</span>
+            <span>actions</span>
           </div>
           {openTasks.map((task) => (
             <div className="row wide-row" key={task.id}>
@@ -327,15 +448,15 @@ export function TaskHallPage({ userId }: Props) {
               <span>{task.title}</span>
               <span>{task.scenario}</span>
               <span>{task.level}</span>
-              <span>¥{task.reward_total.toFixed(0)}</span>
+              <span>CNY {task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
               <span>{task.active_claim_count}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>
-                  详情
+                  detail
                 </button>
                 <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>
-                  选择
+                  choose
                 </button>
                 <button
                   type="button"
@@ -344,7 +465,7 @@ export function TaskHallPage({ userId }: Props) {
                     setSelectedTaskId(String(task.id))
                   }}
                 >
-                  个人揭榜
+                  quick claim
                 </button>
               </span>
             </div>
@@ -353,11 +474,11 @@ export function TaskHallPage({ userId }: Props) {
       </article>
 
       <form className="panel form-grid" onSubmit={submitClaim}>
-        <h3>揭榜配置</h3>
+        <h3>Claim Setup</h3>
         <label>
           task_id
           <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} required>
-            <option value="">请选择任务</option>
+            <option value="">select task</option>
             {openTasks.map((task) => (
               <option key={`claim-task-${task.id}`} value={task.id}>
                 #{task.id} {task.title}
@@ -367,95 +488,94 @@ export function TaskHallPage({ userId }: Props) {
         </label>
         <label>
           mode
-          <select
-            value={claimMode}
-            onChange={(event) => setClaimMode(event.target.value as ClaimMode)}
-          >
+          <select value={claimMode} onChange={(event) => setClaimMode(event.target.value as ClaimMode)}>
             <option value="individual">individual</option>
             <option value="team">team</option>
           </select>
         </label>
 
+        {(claimMode === 'team' || canApproveForOthers) && (
+          <label>
+            lead user
+            <select value={leadUserId} onChange={(event) => setLeadUserId(event.target.value)} required>
+              {visibleLeadUsers.map((user) => (
+                <option key={`lead-${user.id}`} value={user.id}>
+                  #{user.id} {user.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         {claimMode === 'team' && (
-          <>
-            <label>
-              负责人
-              <select value={leadUserId} onChange={(event) => setLeadUserId(event.target.value)} required>
-                {activeUsers.map((user) => (
-                  <option key={`lead-${user.id}`} value={user.id}>
-                    #{user.id} {user.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="wide">
-              <div className="panel-headline">
-                <h3>成员比例（总和=1）</h3>
-                <button type="button" onClick={addMemberRow}>
-                  添加成员
+          <div className="wide">
+            <div className="panel-headline">
+              <h3>Team Member Ratios (sum = 1)</h3>
+              <button type="button" onClick={addMemberRow}>
+                add member
+              </button>
+            </div>
+            {members.map((item, idx) => (
+              <div className="acceptance-editor" key={`member-${idx}`}>
+                <label>
+                  member
+                  <select
+                    value={item.user_id}
+                    onChange={(event) =>
+                      setMembers((prev) =>
+                        prev.map((row, rowIdx) =>
+                          rowIdx === idx ? { ...row, user_id: event.target.value } : row,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">select user</option>
+                    {activeUsers.map((user) => (
+                      <option key={`member-${idx}-${user.id}`} value={user.id}>
+                        #{user.id} {user.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  ratio
+                  <input
+                    type="number"
+                    min="0.01"
+                    max="1"
+                    step="0.01"
+                    value={item.ratio}
+                    onChange={(event) =>
+                      setMembers((prev) =>
+                        prev.map((row, rowIdx) =>
+                          rowIdx === idx ? { ...row, ratio: event.target.value } : row,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>
+                  remove
                 </button>
               </div>
-              {members.map((item, idx) => (
-                <div className="acceptance-editor" key={`member-${idx}`}>
-                  <label>
-                    成员
-                    <select
-                      value={item.user_id}
-                      onChange={(event) =>
-                        setMembers((prev) =>
-                          prev.map((row, rowIdx) =>
-                            rowIdx === idx ? { ...row, user_id: event.target.value } : row,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="">请选择</option>
-                      {activeUsers.map((user) => (
-                        <option key={`member-${idx}-${user.id}`} value={user.id}>
-                          #{user.id} {user.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    ratio
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="1"
-                      step="0.01"
-                      value={item.ratio}
-                      onChange={(event) =>
-                        setMembers((prev) =>
-                          prev.map((row, rowIdx) =>
-                            rowIdx === idx ? { ...row, ratio: event.target.value } : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>
-                    删除
-                  </button>
-                </div>
-              ))}
-            </div>
-          </>
+            ))}
+          </div>
         )}
+
         <button className="primary-btn" type="submit">
-          提交揭榜
+          submit claim
         </button>
       </form>
 
       <article className="panel">
-        <h3>进行中任务（含本地记录 claim_id）</h3>
+        <h3>In-progress Tasks (with local claim id mapping)</h3>
         <div className="table">
           <div className="row head">
             <span>ID</span>
-            <span>标题</span>
-            <span>场景</span>
-            <span>状态</span>
-            <span>揭榜数</span>
+            <span>title</span>
+            <span>scenario</span>
+            <span>status</span>
+            <span>claims</span>
             <span>claim_id</span>
           </div>
           {inProgressTasks.map((task) => (
@@ -470,65 +590,67 @@ export function TaskHallPage({ userId }: Props) {
           ))}
         </div>
       </article>
+
       <form className="panel form-grid" onSubmit={submitDeliverable}>
-        <h3>提交成果</h3>
+        <h3>Submit Deliverable</h3>
         <label>
           claim_id
           <input value={claimId} onChange={(event) => setClaimId(event.target.value)} required />
         </label>
         <label className="wide">
-          成果说明
+          summary
           <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
         </label>
         <label className="wide">
-          证据附件 ID（逗号分隔）
+          evidence attachment IDs (comma separated)
           <input
             value={attachments}
             onChange={(event) => setAttachments(event.target.value)}
-            placeholder="例如: 8,9"
+            placeholder="e.g. 8,9"
           />
         </label>
         <button className="primary-btn" type="submit">
-          提交成果
+          submit deliverable
         </button>
       </form>
+
       {detailOpen && taskDetail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-headline">
-              <h3>任务 #{taskDetail.id} 详情</h3>
+              <h3>Task #{taskDetail.id} detail</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                关闭
+                close
               </button>
             </div>
             <p className="line-metric">
-              <span>标题</span>
+              <span>title</span>
               <strong>{taskDetail.title}</strong>
             </p>
             <p className="line-metric">
-              <span>目标</span>
+              <span>goal</span>
               <strong>{taskDetail.goal}</strong>
             </p>
             <p className="line-metric">
-              <span>范围</span>
+              <span>scope</span>
               <strong>{taskDetail.scope}</strong>
             </p>
             <p className="line-metric">
-              <span>等级/状态</span>
+              <span>level/status</span>
               <strong>
                 {taskDetail.level} / {taskDetail.status}
               </strong>
             </p>
             <p className="line-metric">
-              <span>截止</span>
+              <span>due</span>
               <strong>{taskDetail.due_date}</strong>
             </p>
             <article className="modal-section">
-              <h4>验收标准</h4>
+              <h4>acceptance criteria</h4>
               <ul>
                 {taskDetail.acceptance_criteria.map((item, idx) => (
                   <li key={`${item.description ?? 'criteria'}-${idx}`}>
-                    {item.description ?? '未命名标准'} ({item.type ?? 'unknown'})
+                    {item.description ?? 'unnamed criteria'} ({item.type ?? 'unknown'})
                   </li>
                 ))}
               </ul>

@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
 import { FeishuPage } from './pages/FeishuPage'
 import { KnowledgePage } from './pages/KnowledgePage'
+import { PersonalCenterPage } from './pages/PersonalCenterPage'
 import { ProblemsPage } from './pages/ProblemsPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { TaskHallPage } from './pages/TaskHallPage'
@@ -41,8 +42,8 @@ function Guard({ profile, roles, children }: GuardProps) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>权限不足</h2>
-        <p>当前账号没有访问该页面的角色权限。</p>
+        <h2>Permission denied</h2>
+        <p>The current account does not have permission to access this page.</p>
       </header>
     </section>
   )
@@ -53,7 +54,7 @@ function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Pr
     <header className="topbar">
       <div>
         <p className="kicker">Bounty Workshop</p>
-        <h1>揭榜挂帅前端控制台</h1>
+        <h1>Bounty Task Console</h1>
       </div>
       <div className="topbar-controls">
         <p className="muted">API: {apiBaseUrl}</p>
@@ -66,7 +67,7 @@ function TopBar({ userId, setUserId, profile, loadingProfile, profileError }: Pr
             min={1}
           />
         </label>
-        {loadingProfile && <p className="muted">读取用户中...</p>}
+        {loadingProfile && <p className="muted">Loading user profile...</p>}
         {profile && (
           <p className="muted">
             {profile.name} ({profile.roles.join(', ')})
@@ -90,20 +91,22 @@ export default function App(props: Props) {
       <div className="content-shell">
         <aside className="sidenav">
           <NavLink to="/" end>
-            仪表盘
+            Dashboard
           </NavLink>
-          <NavLink to="/problems">问题池</NavLink>
-          {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核立项</NavLink>}
-          <NavLink to="/tasks">任务大厅</NavLink>
-          <NavLink to="/execution">执行闭环</NavLink>
-          <NavLink to="/knowledge">知识库</NavLink>
-          <NavLink to="/attachments">附件中心</NavLink>
-          {isAdmin && <NavLink to="/users">用户管理</NavLink>}
-          {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
+          <NavLink to="/personal">Personal</NavLink>
+          <NavLink to="/problems">Problems</NavLink>
+          {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">Review</NavLink>}
+          <NavLink to="/tasks">Task Hall</NavLink>
+          <NavLink to="/execution">Execution</NavLink>
+          <NavLink to="/knowledge">Knowledge</NavLink>
+          <NavLink to="/attachments">Attachments</NavLink>
+          {isAdmin && <NavLink to="/users">Users</NavLink>}
+          {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">Feishu</NavLink>}
         </aside>
         <main className="main-area">
           <Routes>
             <Route path="/" element={<DashboardPage userId={userId} />} />
+            <Route path="/personal" element={<PersonalCenterPage userId={userId} />} />
             <Route path="/problems" element={<ProblemsPage userId={userId} />} />
             <Route
               path="/review"
@@ -113,7 +116,7 @@ export default function App(props: Props) {
                 </Guard>
               }
             />
-            <Route path="/tasks" element={<TaskHallPage userId={userId} />} />
+            <Route path="/tasks" element={<TaskHallPage userId={userId} profile={profile} />} />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
