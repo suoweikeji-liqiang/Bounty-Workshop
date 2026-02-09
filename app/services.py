@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -16,6 +16,8 @@ from app.enums import (
     RewardRoleType,
     RewardStatus,
     Role,
+    Scenario,
+    TaskLevel,
     TaskStatus,
     UserStatus,
 )
@@ -259,12 +261,25 @@ def list_problems(
     user_id: int,
     mine_only: bool = False,
     status: ProblemStatus | None = None,
+    scenario: Scenario | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> list[ProblemRead]:
     statement = select(Problem)
     if mine_only:
         statement = statement.where(Problem.submitter_id == user_id)
     if status is not None:
         statement = statement.where(Problem.status == status)
+    if scenario is not None:
+        statement = statement.where(Problem.scenario == scenario)
+    if created_from is not None:
+        statement = statement.where(
+            Problem.created_at >= datetime.combine(created_from, datetime.min.time())
+        )
+    if created_to is not None:
+        statement = statement.where(
+            Problem.created_at < datetime.combine(created_to + timedelta(days=1), datetime.min.time())
+        )
     problems = session.exec(statement.order_by(Problem.created_at.desc())).all()
     return [
         ProblemRead(
@@ -345,31 +360,61 @@ def review_problem(session: Session, actor_id: int, problem_id: int, payload: Pr
         id=task.id,
         problem_id=task.problem_id,
         title=task.title,
+        scenario=problem.scenario,
         level=task.level,
         reward_total=task.reward_total,
+        active_claim_count=0,
         due_date=task.due_date,
         status=task.status.value,
         created_at=task.created_at,
     )
 
 
-def list_tasks(session: Session, status: TaskStatus | None = None) -> list[TaskRead]:
-    statement = select(Task)
+def list_tasks(
+    session: Session,
+    status: TaskStatus | None = None,
+    level: TaskLevel | None = None,
+    scenario: Scenario | None = None,
+    reward_min: float | None = None,
+    reward_max: float | None = None,
+) -> list[TaskRead]:
+    statement = select(Task, Problem.scenario).join(Problem, Problem.id == Task.problem_id)
     if status is not None:
         statement = statement.where(Task.status == status)
-    tasks = session.exec(statement.order_by(Task.created_at.desc())).all()
+    if level is not None:
+        statement = statement.where(Task.level == level)
+    if scenario is not None:
+        statement = statement.where(Problem.scenario == scenario)
+    if reward_min is not None:
+        statement = statement.where(Task.reward_total >= reward_min)
+    if reward_max is not None:
+        statement = statement.where(Task.reward_total <= reward_max)
+
+    rows = session.exec(statement.order_by(Task.created_at.desc())).all()
+    task_ids = [task.id for task, _ in rows]
+    active_claim_map: dict[int, int] = {}
+    if task_ids:
+        claim_rows = session.exec(
+            select(Claim.task_id, func.count(Claim.id))
+            .where(Claim.task_id.in_(task_ids), Claim.status == ClaimStatus.ACTIVE)
+            .group_by(Claim.task_id)
+        ).all()
+        active_claim_map = {int(task_id): int(count) for task_id, count in claim_rows}
+
     return [
         TaskRead(
-            id=item.id,
-            problem_id=item.problem_id,
-            title=item.title,
-            level=item.level,
-            reward_total=item.reward_total,
-            due_date=item.due_date,
-            status=item.status.value,
-            created_at=item.created_at,
+            id=task.id,
+            problem_id=task.problem_id,
+            title=task.title,
+            scenario=task_scenario,
+            level=task.level,
+            reward_total=task.reward_total,
+            active_claim_count=active_claim_map.get(task.id, 0),
+            due_date=task.due_date,
+            status=task.status.value,
+            created_at=task.created_at,
         )
-        for item in tasks
+        for task, task_scenario in rows
     ]
 
 
@@ -841,20 +886,63 @@ def confirm_reward(session: Session, actor_id: int, reward_id: int) -> RewardRea
     )
 
 
-def list_knowledge(session: Session) -> list[dict]:
+def _knowledge_to_dict(item: Knowledge) -> dict:
+    tags: list[str] = []
+    try:
+        parsed = _from_json(item.tags)
+        if isinstance(parsed, list):
+            tags = [str(tag) for tag in parsed]
+    except Exception:
+        tags = []
+    scenario = tags[0] if len(tags) > 0 else None
+    level = tags[1] if len(tags) > 1 else None
+    return {
+        "id": item.id,
+        "task_id": item.task_id,
+        "problem_summary": item.problem_summary,
+        "solution_summary": item.solution_summary,
+        "tags": tags,
+        "scenario": scenario,
+        "level": level,
+        "recommended": item.recommended,
+        "archived_at": item.archived_at,
+    }
+
+
+def list_knowledge(
+    session: Session,
+    keyword: str | None = None,
+    scenario: str | None = None,
+    level: str | None = None,
+    recommended: bool | None = None,
+) -> list[dict]:
     rows = session.exec(select(Knowledge).order_by(Knowledge.archived_at.desc())).all()
-    return [
-        {
-            "id": item.id,
-            "task_id": item.task_id,
-            "problem_summary": item.problem_summary,
-            "solution_summary": item.solution_summary,
-            "tags": _from_json(item.tags),
-            "recommended": item.recommended,
-            "archived_at": item.archived_at,
-        }
-        for item in rows
-    ]
+    items = [_knowledge_to_dict(item) for item in rows]
+
+    if keyword:
+        needle = keyword.strip().lower()
+        if needle:
+            items = [
+                item
+                for item in items
+                if needle in item["problem_summary"].lower()
+                or needle in item["solution_summary"].lower()
+                or any(needle in tag.lower() for tag in item["tags"])
+            ]
+    if scenario:
+        items = [item for item in items if item["scenario"] == scenario]
+    if level:
+        items = [item for item in items if item["level"] == level]
+    if recommended is not None:
+        items = [item for item in items if item["recommended"] is recommended]
+    return items
+
+
+def get_knowledge_detail(session: Session, knowledge_id: int) -> dict:
+    item = session.get(Knowledge, knowledge_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="知识条目不存在")
+    return _knowledge_to_dict(item)
 
 
 def release_overdue_claims(session: Session, actor_id: int | None = None) -> dict:

@@ -15,6 +15,13 @@ type TeamMemberDraft = {
   ratio: string
 }
 
+type TaskFilters = {
+  level: string
+  scenario: string
+  rewardMin: string
+  rewardMax: string
+}
+
 const claimStorageKey = 'bw_claim_records'
 
 function saveClaimRecord(taskId: number, claimId: number) {
@@ -53,15 +60,38 @@ export function TaskHallPage({ userId }: Props) {
   const [attachments, setAttachments] = useState('')
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [filters, setFilters] = useState<TaskFilters>({
+    level: '',
+    scenario: '',
+    rewardMin: '',
+    rewardMax: '',
+  })
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    const buildTaskQuery = (status: 'open' | 'in_progress') => {
+      const query = new URLSearchParams()
+      query.set('status', status)
+      if (filters.level) {
+        query.set('level', filters.level)
+      }
+      if (filters.scenario) {
+        query.set('scenario', filters.scenario)
+      }
+      if (filters.rewardMin.trim()) {
+        query.set('reward_min', filters.rewardMin.trim())
+      }
+      if (filters.rewardMax.trim()) {
+        query.set('reward_max', filters.rewardMax.trim())
+      }
+      return `/tasks?${query.toString()}`
+    }
     try {
       setError(null)
       const [open, progress, users] = await Promise.all([
-        requestJson<Task[]>('/tasks?status=open', { userId }),
-        requestJson<Task[]>('/tasks?status=in_progress', { userId }),
+        requestJson<Task[]>(buildTaskQuery('open'), { userId }),
+        requestJson<Task[]>(buildTaskQuery('in_progress'), { userId }),
         requestJson<UserProfile[]>('/users/active', { userId }),
       ])
       setOpenTasks(open)
@@ -70,7 +100,7 @@ export function TaskHallPage({ userId }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     }
-  }, [userId])
+  }, [userId, filters.level, filters.rewardMax, filters.rewardMin, filters.scenario])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -208,6 +238,71 @@ export function TaskHallPage({ userId }: Props) {
       </header>
       {message && <p className="ok-text">{message}</p>}
       {error && <p className="error-text">{error}</p>}
+      <form
+        className="panel form-grid"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void load()
+        }}
+      >
+        <h3>任务筛选</h3>
+        <label>
+          等级
+          <select
+            value={filters.level}
+            onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
+          >
+            <option value="">全部</option>
+            <option value="S">S</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+          </select>
+        </label>
+        <label>
+          场景
+          <select
+            value={filters.scenario}
+            onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
+          >
+            <option value="">全部</option>
+            <option value="rd">研发</option>
+            <option value="ops">运维</option>
+            <option value="delivery">交付</option>
+            <option value="support">支持</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label>
+          最小激励
+          <input
+            type="number"
+            value={filters.rewardMin}
+            onChange={(event) => setFilters((prev) => ({ ...prev, rewardMin: event.target.value }))}
+          />
+        </label>
+        <label>
+          最大激励
+          <input
+            type="number"
+            value={filters.rewardMax}
+            onChange={(event) => setFilters((prev) => ({ ...prev, rewardMax: event.target.value }))}
+          />
+        </label>
+        <div className="button-row wide">
+          <button className="primary-btn" type="submit">
+            应用筛选
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFilters({ level: '', scenario: '', rewardMin: '', rewardMax: '' })
+            }}
+          >
+            重置
+          </button>
+        </div>
+      </form>
       <article className="panel">
         <div className="panel-headline">
           <h3>待揭榜任务</h3>
@@ -219,18 +314,22 @@ export function TaskHallPage({ userId }: Props) {
           <div className="row head wide-row">
             <span>ID</span>
             <span>标题</span>
+            <span>场景</span>
             <span>等级</span>
             <span>激励</span>
             <span>截止</span>
+            <span>揭榜数</span>
             <span>动作</span>
           </div>
           {openTasks.map((task) => (
             <div className="row wide-row" key={task.id}>
               <span>#{task.id}</span>
               <span>{task.title}</span>
+              <span>{task.scenario}</span>
               <span>{task.level}</span>
               <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
+              <span>{task.active_claim_count}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>
                   详情
@@ -354,14 +453,18 @@ export function TaskHallPage({ userId }: Props) {
           <div className="row head">
             <span>ID</span>
             <span>标题</span>
+            <span>场景</span>
             <span>状态</span>
+            <span>揭榜数</span>
             <span>claim_id</span>
           </div>
           {inProgressTasks.map((task) => (
             <div className="row" key={task.id}>
               <span>#{task.id}</span>
               <span>{task.title}</span>
+              <span>{task.scenario}</span>
               <span>{task.status}</span>
+              <span>{task.active_claim_count}</span>
               <span>{getClaimByTask(task.id) ?? '-'}</span>
             </div>
           ))}

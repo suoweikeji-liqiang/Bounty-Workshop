@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import suppress
 from contextlib import asynccontextmanager
+from datetime import date
 import os
 
 from fastapi import Depends, FastAPI, File, Query, UploadFile
@@ -19,7 +20,7 @@ from app.attachments import (
 )
 from app.auth import get_current_user_id, get_user_roles, require_roles
 from app.db import engine, get_session, init_db
-from app.enums import ProblemStatus, Role, TaskStatus
+from app.enums import ProblemStatus, Role, Scenario, TaskLevel, TaskStatus
 from app.feishu import (
     consume_oauth_state,
     create_oauth_state,
@@ -88,6 +89,7 @@ from app.services import (
     create_problem,
     create_user,
     dashboard_overview,
+    get_knowledge_detail,
     get_my_profile,
     get_claim_execution_detail,
     get_task_detail,
@@ -342,10 +344,21 @@ def post_problem(
 def get_problems(
     mine_only: bool = Query(default=False),
     status: ProblemStatus | None = Query(default=None),
+    scenario: Scenario | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[ProblemRead]:
-    return list_problems(session, user_id=actor_id, mine_only=mine_only, status=status)
+    return list_problems(
+        session,
+        user_id=actor_id,
+        mine_only=mine_only,
+        status=status,
+        scenario=scenario,
+        created_from=created_from,
+        created_to=created_to,
+    )
 
 
 @app.post(
@@ -365,9 +378,20 @@ def post_problem_review(
 @app.get("/tasks", response_model=list[TaskRead])
 def get_tasks(
     status: TaskStatus | None = Query(default=None),
+    level: TaskLevel | None = Query(default=None),
+    scenario: Scenario | None = Query(default=None),
+    reward_min: float | None = Query(default=None),
+    reward_max: float | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> list[TaskRead]:
-    return list_tasks(session, status=status)
+    return list_tasks(
+        session,
+        status=status,
+        level=level,
+        scenario=scenario,
+        reward_min=reward_min,
+        reward_max=reward_max,
+    )
 
 
 @app.get("/tasks/{task_id}", response_model=TaskDetailRead)
@@ -488,8 +512,28 @@ def post_reward_confirm(
 
 
 @app.get("/knowledge")
-def get_knowledge(session: Session = Depends(get_session)) -> list[dict]:
-    return list_knowledge(session)
+def get_knowledge(
+    keyword: str | None = Query(default=None),
+    scenario: str | None = Query(default=None),
+    level: str | None = Query(default=None),
+    recommended: bool | None = Query(default=None),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    return list_knowledge(
+        session,
+        keyword=keyword,
+        scenario=scenario,
+        level=level,
+        recommended=recommended,
+    )
+
+
+@app.get("/knowledge/{knowledge_id}")
+def get_knowledge_item(
+    knowledge_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    return get_knowledge_detail(session, knowledge_id)
 
 
 @app.get("/departments", response_model=list[DepartmentRead])

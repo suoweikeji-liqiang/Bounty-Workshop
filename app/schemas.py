@@ -126,8 +126,10 @@ class TaskRead(BaseModel):
     id: int
     problem_id: int
     title: str
+    scenario: Scenario
     level: TaskLevel
     reward_total: float
+    active_claim_count: int = 0
     due_date: date
     status: str
     created_at: datetime

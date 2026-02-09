@@ -56,8 +56,10 @@ export type Task = {
   id: number
   problem_id: number
   title: string
+  scenario: string
   level: string
   reward_total: number
+  active_claim_count: number
   due_date: string
   status: string
   created_at: string
@@ -184,4 +186,16 @@ export type Reward = {
   badge: string | null
   status: string
   confirmed_at: string | null
+}
+
+export type KnowledgeItem = {
+  id: number
+  task_id: number
+  problem_summary: string
+  solution_summary: string
+  tags: string[]
+  scenario: string | null
+  level: string | null
+  recommended: boolean
+  archived_at: string
 }

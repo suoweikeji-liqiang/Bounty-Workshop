@@ -88,6 +88,20 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
+    filtered_problem_resp = client.get(
+        "/problems",
+        headers=_headers(employee_id),
+        params={
+            "mine_only": "true",
+            "status": "pending_review",
+            "scenario": "rd",
+            "created_from": date.today().isoformat(),
+            "created_to": date.today().isoformat(),
+        },
+    )
+    assert filtered_problem_resp.status_code == 200
+    assert any(item["id"] == problem_id for item in filtered_problem_resp.json())
+
     task_due_date = (date.today() + timedelta(days=7)).isoformat()
     review_resp = client.post(
         f"/problems/{problem_id}/review",
@@ -115,6 +129,23 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert review_resp.status_code == 200
     task_id = review_resp.json()["id"]
 
+    filtered_task_resp = client.get(
+        "/tasks",
+        headers=_headers(employee_id),
+        params={
+            "status": "open",
+            "level": "C",
+            "scenario": "rd",
+            "reward_min": 500,
+            "reward_max": 700,
+        },
+    )
+    assert filtered_task_resp.status_code == 200
+    task_rows = filtered_task_resp.json()
+    target_task = next(item for item in task_rows if item["id"] == task_id)
+    assert target_task["scenario"] == "rd"
+    assert target_task["active_claim_count"] == 0
+
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(employee_id))
     assert task_detail_resp.status_code == 200
     assert task_detail_resp.json()["id"] == task_id
@@ -127,6 +158,15 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     )
     assert claim_resp.status_code == 200
     claim_id = claim_resp.json()["claim_id"]
+
+    task_in_progress_resp = client.get(
+        "/tasks",
+        headers=_headers(employee_id),
+        params={"status": "in_progress", "scenario": "rd"},
+    )
+    assert task_in_progress_resp.status_code == 200
+    in_progress_task = next(item for item in task_in_progress_resp.json() if item["id"] == task_id)
+    assert in_progress_task["active_claim_count"] >= 1
 
     detail_owner_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(employee_id))
     assert detail_owner_resp.status_code == 200
@@ -187,7 +227,45 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
 
     knowledge_resp = client.get("/knowledge", headers=_headers(employee_id))
     assert knowledge_resp.status_code == 200
-    assert len(knowledge_resp.json()) == 1
+    knowledge_rows = knowledge_resp.json()
+    assert len(knowledge_rows) == 1
+    knowledge_id = knowledge_rows[0]["id"]
+
+    knowledge_keyword_resp = client.get(
+        "/knowledge",
+        headers=_headers(employee_id),
+        params={"keyword": "减少发布手工步骤"},
+    )
+    assert knowledge_keyword_resp.status_code == 200
+    assert any(item["id"] == knowledge_id for item in knowledge_keyword_resp.json())
+
+    knowledge_scenario_resp = client.get(
+        "/knowledge",
+        headers=_headers(employee_id),
+        params={"scenario": "rd"},
+    )
+    assert knowledge_scenario_resp.status_code == 200
+    assert any(item["id"] == knowledge_id for item in knowledge_scenario_resp.json())
+
+    knowledge_level_resp = client.get(
+        "/knowledge",
+        headers=_headers(employee_id),
+        params={"level": "C"},
+    )
+    assert knowledge_level_resp.status_code == 200
+    assert any(item["id"] == knowledge_id for item in knowledge_level_resp.json())
+
+    knowledge_recommended_resp = client.get(
+        "/knowledge",
+        headers=_headers(employee_id),
+        params={"recommended": "false"},
+    )
+    assert knowledge_recommended_resp.status_code == 200
+    assert any(item["id"] == knowledge_id for item in knowledge_recommended_resp.json())
+
+    knowledge_detail_resp = client.get(f"/knowledge/{knowledge_id}", headers=_headers(employee_id))
+    assert knowledge_detail_resp.status_code == 200
+    assert knowledge_detail_resp.json()["id"] == knowledge_id
 
     dashboard_resp = client.get("/dashboard/overview", headers=_headers(employee_id))
     assert dashboard_resp.status_code == 200

@@ -6,6 +6,7 @@ import { AttachmentsPage } from './pages/AttachmentsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
 import { FeishuPage } from './pages/FeishuPage'
+import { KnowledgePage } from './pages/KnowledgePage'
 import { ProblemsPage } from './pages/ProblemsPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { TaskHallPage } from './pages/TaskHallPage'
@@ -95,6 +96,7 @@ export default function App(props: Props) {
           {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核立项</NavLink>}
           <NavLink to="/tasks">任务大厅</NavLink>
           <NavLink to="/execution">执行闭环</NavLink>
+          <NavLink to="/knowledge">知识库</NavLink>
           <NavLink to="/attachments">附件中心</NavLink>
           {isAdmin && <NavLink to="/users">用户管理</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
@@ -113,6 +115,7 @@ export default function App(props: Props) {
             />
             <Route path="/tasks" element={<TaskHallPage userId={userId} />} />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
+            <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
             <Route
               path="/users"
@@ -137,4 +140,3 @@ export default function App(props: Props) {
     </div>
   )
 }
-

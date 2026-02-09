@@ -22,6 +22,13 @@ type ProblemForm = {
   attachment_ids_text: string
 }
 
+type ProblemFilters = {
+  status: string
+  scenario: string
+  created_from: string
+  created_to: string
+}
+
 const defaultForm: ProblemForm = {
   title: '',
   scenario: 'rd',
@@ -36,8 +43,16 @@ const defaultForm: ProblemForm = {
   attachment_ids_text: '',
 }
 
+const defaultFilters: ProblemFilters = {
+  status: '',
+  scenario: '',
+  created_from: '',
+  created_to: '',
+}
+
 export function ProblemsPage({ userId }: Props) {
   const [form, setForm] = useState<ProblemForm>(defaultForm)
+  const [filters, setFilters] = useState<ProblemFilters>(defaultFilters)
   const [list, setList] = useState<Problem[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -52,10 +67,28 @@ export function ProblemsPage({ userId }: Props) {
     [form.attachment_ids_text],
   )
 
+  const buildMineQuery = useCallback(() => {
+    const params = new URLSearchParams()
+    params.set('mine_only', 'true')
+    if (filters.status) {
+      params.set('status', filters.status)
+    }
+    if (filters.scenario) {
+      params.set('scenario', filters.scenario)
+    }
+    if (filters.created_from) {
+      params.set('created_from', filters.created_from)
+    }
+    if (filters.created_to) {
+      params.set('created_to', filters.created_to)
+    }
+    return `/problems?${params.toString()}`
+  }, [filters.created_from, filters.created_to, filters.scenario, filters.status])
+
   const loadMine = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await requestJson<Problem[]>('/problems?mine_only=true', { userId })
+      const rows = await requestJson<Problem[]>(buildMineQuery(), { userId })
       setList(rows)
       setError(null)
     } catch (err) {
@@ -63,7 +96,7 @@ export function ProblemsPage({ userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [userId, buildMineQuery])
 
   useEffect(() => {
     void loadMine()
@@ -224,6 +257,72 @@ export function ProblemsPage({ userId }: Props) {
       </form>
       {message && <p className="ok-text">{message}</p>}
       {error && <p className="error-text">{error}</p>}
+      <form
+        className="panel form-grid"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void loadMine()
+        }}
+      >
+        <h3>我的问题筛选</h3>
+        <label>
+          状态
+          <select
+            value={filters.status}
+            onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+          >
+            <option value="">全部</option>
+            <option value="pending_review">待审核</option>
+            <option value="approved">已立项</option>
+            <option value="rejected">不立项</option>
+            <option value="archived">已归档</option>
+          </select>
+        </label>
+        <label>
+          场景
+          <select
+            value={filters.scenario}
+            onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
+          >
+            <option value="">全部</option>
+            <option value="rd">研发</option>
+            <option value="ops">运维</option>
+            <option value="delivery">交付</option>
+            <option value="support">支持</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label>
+          起始日期
+          <input
+            type="date"
+            value={filters.created_from}
+            onChange={(event) => setFilters((prev) => ({ ...prev, created_from: event.target.value }))}
+          />
+        </label>
+        <label>
+          截止日期
+          <input
+            type="date"
+            value={filters.created_to}
+            onChange={(event) => setFilters((prev) => ({ ...prev, created_to: event.target.value }))}
+          />
+        </label>
+        <div className="button-row wide">
+          <button className="primary-btn" type="submit" disabled={loading}>
+            筛选
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFilters(defaultFilters)
+            }}
+            disabled={loading}
+          >
+            重置
+          </button>
+        </div>
+      </form>
       <article className="panel">
         <div className="panel-headline">
           <h3>我的问题</h3>

@@ -93,9 +93,9 @@ npm run dev
   - `PUT /system/config/release-overdue-frequency`
 - 问题与任务
   - `POST /problems`
-  - `GET /problems`
+  - `GET /problems`（支持 `mine_only/status/scenario/created_from/created_to`）
   - `POST /problems/{problem_id}/review`
-  - `GET /tasks`
+  - `GET /tasks`（支持 `status/level/scenario/reward_min/reward_max`）
   - `GET /tasks/{task_id}`
   - `POST /tasks/{task_id}/claims`
   - `GET /claims/mine`
@@ -106,7 +106,8 @@ npm run dev
 - 激励与知识
   - `GET /rewards`
   - `POST /rewards/{reward_id}/confirm`
-  - `GET /knowledge`
+  - `GET /knowledge`（支持 `keyword/scenario/level/recommended` 筛选）
+  - `GET /knowledge/{knowledge_id}`
 - 看板
   - `GET /dashboard/overview`
   - `GET /dashboard/rankings`
