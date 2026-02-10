@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import os
@@ -9,7 +9,12 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from app.enums import Role
 from app.models import Attachment
+from app.models import Claim
+from app.models import Deliverable
+from app.models import Problem
+from app.models import Task
 from app.schemas import AttachmentRead
 
 
@@ -31,7 +36,7 @@ class SavedObject:
 def _storage_backend() -> str:
     backend = os.getenv("ATTACHMENT_STORAGE_BACKEND", DEFAULT_STORAGE_BACKEND).strip().lower()
     if backend not in {"local", "s3"}:
-        raise HTTPException(status_code=500, detail="ATTACHMENT_STORAGE_BACKEND 仅支持 local 或 s3")
+        raise HTTPException(status_code=500, detail="ATTACHMENT_STORAGE_BACKEND supports only local or s3")
     return backend
 
 
@@ -59,7 +64,7 @@ def _checksum(content: bytes) -> str:
 def _s3_bucket() -> str:
     bucket = os.getenv("ATTACHMENT_S3_BUCKET")
     if not bucket:
-        raise HTTPException(status_code=500, detail="缺少 ATTACHMENT_S3_BUCKET 配置")
+        raise HTTPException(status_code=500, detail="missing ATTACHMENT_S3_BUCKET")
     return bucket
 
 
@@ -67,7 +72,7 @@ def _create_s3_client():
     try:
         import boto3
     except ImportError as exc:
-        raise HTTPException(status_code=500, detail="未安装 boto3，无法使用 s3 存储") from exc
+        raise HTTPException(status_code=500, detail="boto3 is required for s3 attachment storage") from exc
 
     return boto3.client(
         "s3",
@@ -107,7 +112,7 @@ def _save_s3_file(filename: str, content_type: str | None, content: bytes) -> Sa
             ContentType=content_type or "application/octet-stream",
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"S3 上传失败: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"s3 upload failed: {exc}") from exc
     return SavedObject(
         object_key=key,
         content_type=content_type or "application/octet-stream",
@@ -131,7 +136,7 @@ def local_file_path(object_key: str) -> Path:
 
 def get_presigned_download_url(attachment: Attachment, expires_in: int = DEFAULT_PRESIGNED_EXPIRES) -> str:
     if attachment.storage_backend != "s3":
-        raise HTTPException(status_code=400, detail="仅 s3 附件支持预签名链接")
+        raise HTTPException(status_code=400, detail="presigned urls are only available for s3 attachments")
     bucket = attachment.bucket or _s3_bucket()
     client = _create_s3_client()
     try:
@@ -141,7 +146,7 @@ def get_presigned_download_url(attachment: Attachment, expires_in: int = DEFAULT
             ExpiresIn=expires_in,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"S3 预签名生成失败: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"s3 presign failed: {exc}") from exc
 
 
 def attachment_to_read(attachment: Attachment) -> AttachmentRead:
@@ -169,9 +174,9 @@ def create_attachment(
     content: bytes,
 ) -> AttachmentRead:
     if not filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
+        raise HTTPException(status_code=400, detail="filename is required")
     if not content:
-        raise HTTPException(status_code=400, detail="空文件不允许上传")
+        raise HTTPException(status_code=400, detail="empty file is not allowed")
     saved = save_file(filename=filename, content_type=content_type, content=content)
     attachment = Attachment(
         object_key=saved.object_key,
@@ -192,8 +197,85 @@ def create_attachment(
 def get_attachment_or_404(session: Session, attachment_id: int) -> Attachment:
     attachment = session.get(Attachment, attachment_id)
     if attachment is None:
-        raise HTTPException(status_code=404, detail="附件不存在")
+        raise HTTPException(status_code=404, detail="attachment not found")
     return attachment
+
+
+def _can_access_problem(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    problem_id: int,
+) -> bool:
+    problem = session.get(Problem, problem_id)
+    if problem is None:
+        return False
+    return actor_id == problem.submitter_id or Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles
+
+
+def _can_access_deliverable(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    deliverable_id: int,
+) -> bool:
+    deliverable = session.get(Deliverable, deliverable_id)
+    if deliverable is None:
+        return False
+    claim = session.get(Claim, deliverable.claim_id)
+    if claim is None:
+        return False
+    task = session.get(Task, claim.task_id)
+    if task is None:
+        return False
+    return (
+        actor_id == claim.lead_user_id
+        or actor_id == task.accepter_id
+        or Role.ADMIN in actor_roles
+        or Role.REVIEWER in actor_roles
+    )
+
+
+def ensure_entity_attachment_access(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    entity_type: str,
+    entity_id: int,
+) -> None:
+    if entity_type == "problem":
+        if _can_access_problem(session, actor_id, actor_roles, entity_id):
+            return
+        raise HTTPException(status_code=403, detail="permission denied for problem attachments")
+    if entity_type == "deliverable":
+        if _can_access_deliverable(session, actor_id, actor_roles, entity_id):
+            return
+        raise HTTPException(status_code=403, detail="permission denied for deliverable attachments")
+    raise HTTPException(status_code=400, detail="unsupported attachment entity_type")
+
+
+def ensure_attachment_access(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    attachment: Attachment,
+) -> None:
+    if attachment.entity_type is None or attachment.entity_id is None:
+        if (
+            actor_id == attachment.uploader_user_id
+            or Role.ADMIN in actor_roles
+            or Role.REVIEWER in actor_roles
+        ):
+            return
+        raise HTTPException(status_code=403, detail="permission denied for unbound attachment")
+
+    ensure_entity_attachment_access(
+        session=session,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        entity_type=attachment.entity_type,
+        entity_id=attachment.entity_id,
+    )
 
 
 def list_attachments_by_entity(
@@ -220,11 +302,10 @@ def bind_attachments(
     deduplicated = list(dict.fromkeys(attachment_ids))
     rows = session.exec(select(Attachment).where(Attachment.id.in_(deduplicated))).all()
     if len(rows) != len(deduplicated):
-        raise HTTPException(status_code=400, detail="部分附件不存在")
+        raise HTTPException(status_code=400, detail="some attachments do not exist")
     urls: list[str] = []
     for item in rows:
         item.entity_type = entity_type
         item.entity_id = entity_id
         urls.append(f"/attachments/{item.id}/download")
     return urls
-

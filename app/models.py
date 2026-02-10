@@ -6,10 +6,13 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 from app.enums import (
+    BaselineResponsibilityStatus,
     ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
+    IncidentSeverity,
+    PerformanceLevel,
     ProblemFrequency,
     ProblemStatus,
     RewardRoleType,
@@ -122,6 +125,33 @@ class Acceptance(SQLModel, table=True):
     result: str
     comment: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PerformanceReviewSnapshot(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    claim_id: int = Field(foreign_key="claim.id", index=True, unique=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    deliverable_id: Optional[int] = Field(default=None, foreign_key="deliverable.id", index=True)
+    reviewed_by_user_id: int = Field(foreign_key="user.id", index=True)
+    baseline_responsibility_status: BaselineResponsibilityStatus = Field(
+        default=BaselineResponsibilityStatus.GOOD,
+        index=True,
+    )
+    baseline_reasons: str = Field(default="[]")
+    incident_severity: IncidentSeverity = Field(default=IncidentSeverity.NONE)
+    incident_count: int = Field(default=0)
+    missed_deadline_count: int = Field(default=0)
+    unjustified_delay_count: int = Field(default=0)
+    process_violation_count: int = Field(default=0)
+    known_risk_unreported: bool = Field(default=False)
+    repeated_issue_count: int = Field(default=0)
+    critical_task_missed_without_reason: bool = Field(default=False)
+    repeated_issue_without_improvement: bool = Field(default=False)
+    has_t3_plus_task: bool = Field(default=False)
+    initial_r_level: PerformanceLevel = Field(default=PerformanceLevel.R3)
+    final_r_level: PerformanceLevel = Field(default=PerformanceLevel.R3)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class Reward(SQLModel, table=True):

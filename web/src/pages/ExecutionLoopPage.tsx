@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { hasAnyRole, hasRole } from '../lib/roles'
 import type {
   AcceptanceTemplatesConfig,
   ClaimExecution,
   ClaimExecutionDetail,
   PendingAcceptance,
+  PerformanceLevel,
+  PerformanceReview,
+  PerformanceReviewSignalInput,
   Reward,
   UserProfile,
 } from '../types'
@@ -30,10 +34,34 @@ type TemplateDraft = {
   rejected: string
 }
 
+type PerformanceReviewDraft = {
+  has_t3_plus_task: boolean
+  initial_r_level: PerformanceLevel
+  signals: PerformanceReviewSignalInput
+}
+
 const defaultTemplates: AcceptanceTemplatesConfig = {
-  approved: ['验收通过：已满足任务目标和验收标准。'],
-  rework: ['需要整改：请补充关键证据后重新提交。'],
-  rejected: ['不通过：未达到核心验收标准。'],
+  approved: ['Accepted: delivery meets all acceptance criteria.'],
+  rework: ['Needs rework: please address gaps and resubmit.'],
+  rejected: ['Rejected: core acceptance criteria were not met.'],
+}
+
+const defaultPerformanceSignals: PerformanceReviewSignalInput = {
+  incident_severity: 'none',
+  incident_count: 0,
+  missed_deadline_count: 0,
+  unjustified_delay_count: 0,
+  process_violation_count: 0,
+  known_risk_unreported: false,
+  repeated_issue_count: 0,
+  critical_task_missed_without_reason: false,
+  repeated_issue_without_improvement: false,
+}
+
+const defaultPerformanceReviewDraft: PerformanceReviewDraft = {
+  has_t3_plus_task: false,
+  initial_r_level: 'R3',
+  signals: defaultPerformanceSignals,
 }
 
 function normalizeTemplates(payload: AcceptanceTemplatesConfig): AcceptanceTemplatesConfig {
@@ -69,12 +97,12 @@ function defaultComment(templates: AcceptanceTemplatesConfig, result: Acceptance
 
 function formatAcceptanceResult(result: AcceptanceResult) {
   if (result === 'approved') {
-    return '通过'
+    return '閫氳繃'
   }
   if (result === 'rework') {
-    return '整改'
+    return '鏁存敼'
   }
-  return '不通过'
+  return '涓嶉€氳繃'
 }
 
 function formatCommonStatus(status: string | null | undefined) {
@@ -82,36 +110,85 @@ function formatCommonStatus(status: string | null | undefined) {
     return '-'
   }
   if (status === 'active') {
-    return '进行中'
+    return 'Active'
   }
   if (status === 'in_progress') {
-    return '执行中'
+    return 'In Progress'
   }
   if (status === 'submitted') {
-    return '已提交'
+    return 'Submitted'
   }
   if (status === 'approved') {
-    return '已通过'
+    return 'Approved'
   }
   if (status === 'rework') {
-    return '待整改'
+    return 'Needs Rework'
   }
   if (status === 'rejected') {
-    return '未通过'
+    return 'Rejected'
   }
   if (status === 'generated') {
-    return '待确认'
+    return 'Generated'
   }
   if (status === 'confirmed') {
-    return '已确认'
+    return 'Confirmed'
   }
   if (status === 'completed') {
-    return '已完成'
+    return 'Completed'
   }
   if (status === 'abandoned') {
-    return '已放弃'
+    return 'Abandoned'
   }
   return status
+}
+
+function formatBaselineStatus(status: string | null | undefined) {
+  if (!status) {
+    return '-'
+  }
+  if (status === 'good') {
+    return 'good锛堝饱璐ｈ壇濂斤級'
+  }
+  if (status === 'normal') {
+    return 'normal锛堝瓨鍦ㄥ彲鏀硅繘椤癸級'
+  }
+  if (status === 'fault') {
+    return 'fault锛堟槑纭け鑱岋級'
+  }
+  return status
+}
+
+function toNonNegativeInteger(value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    return 0
+  }
+  return Math.floor(value)
+}
+
+function toPerformanceReviewDraft(payload: ClaimExecutionDetail): PerformanceReviewDraft {
+  const review = payload.performance_review
+  if (!review) {
+    return {
+      has_t3_plus_task: defaultPerformanceReviewDraft.has_t3_plus_task,
+      initial_r_level: defaultPerformanceReviewDraft.initial_r_level,
+      signals: { ...defaultPerformanceReviewDraft.signals },
+    }
+  }
+  return {
+    has_t3_plus_task: review.has_t3_plus_task,
+    initial_r_level: review.initial_r_level,
+    signals: {
+      incident_severity: review.incident_severity,
+      incident_count: review.incident_count,
+      missed_deadline_count: review.missed_deadline_count,
+      unjustified_delay_count: review.unjustified_delay_count,
+      process_violation_count: review.process_violation_count,
+      known_risk_unreported: review.known_risk_unreported,
+      repeated_issue_count: review.repeated_issue_count,
+      critical_task_missed_without_reason: review.critical_task_missed_without_reason,
+      repeated_issue_without_improvement: review.repeated_issue_without_improvement,
+    },
+  }
 }
 
 export function ExecutionLoopPage({ userId, profile }: Props) {
@@ -126,6 +203,12 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<ClaimExecutionDetail | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [performanceDraft, setPerformanceDraft] = useState<PerformanceReviewDraft>({
+    has_t3_plus_task: defaultPerformanceReviewDraft.has_t3_plus_task,
+    initial_r_level: defaultPerformanceReviewDraft.initial_r_level,
+    signals: { ...defaultPerformanceReviewDraft.signals },
+  })
+  const [savingPerformance, setSavingPerformance] = useState(false)
   const [activeAcceptanceId, setActiveAcceptanceId] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, AcceptanceDraft>>({})
   const [templates, setTemplates] = useState<AcceptanceTemplatesConfig>(defaultTemplates)
@@ -133,13 +216,14 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const [savingTemplates, setSavingTemplates] = useState(false)
 
   const canAccept = useMemo(
-    () => Boolean(profile?.roles.includes('admin') || profile?.roles.includes('acceptor')),
+    () => hasAnyRole(profile, ['admin', 'acceptor']),
     [profile],
   )
   const canConfirmReward = useMemo(
-    () => Boolean(profile?.roles.includes('admin') || profile?.roles.includes('reviewer')),
+    () => hasAnyRole(profile, ['admin', 'reviewer']),
     [profile],
   )
+  const isAdmin = useMemo(() => hasRole(profile, 'admin'), [profile])
   const canSubmitDeliverable = useMemo(
     () =>
       Boolean(
@@ -149,7 +233,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       ),
     [profile],
   )
-  const canManageTemplates = useMemo(() => Boolean(profile?.roles.includes('admin')), [profile])
+  const canManageTemplates = useMemo(() => hasRole(profile, 'admin'), [profile])
+  const canEditPerformance = useMemo(
+    () => hasAnyRole(profile, ['admin', 'reviewer', 'acceptor']),
+    [profile],
+  )
 
   const loadTemplates = useCallback(async () => {
     if (!canAccept) {
@@ -194,7 +282,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         setRewards([])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载执行闭环数据失败')
+      setError(err instanceof Error ? err.message : '鍔犺浇鎵ц闂幆鏁版嵁澶辫触')
     }
   }, [canAccept, canConfirmReward, userId])
 
@@ -216,18 +304,18 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         userId,
         body: {
           summary,
-          criteria_results: ['来自执行闭环页面提交'],
+          criteria_results: [],
           evidence_attachment_ids: evidenceAttachmentIds,
           evidence_urls: [],
         },
       })
-      setMessage('成果提交成功')
+      setMessage('鎴愭灉鎻愪氦鎴愬姛')
       setClaimId('')
       setSummary('')
       setAttachmentIds('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '成果提交失败')
+      setError(err instanceof Error ? err.message : '鎴愭灉鎻愪氦澶辫触')
     }
   }
 
@@ -236,9 +324,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       setError(null)
       const payload = await requestJson<ClaimExecutionDetail>(`/claims/${targetClaimId}/detail`, { userId })
       setDetail(payload)
+      setPerformanceDraft(toPerformanceReviewDraft(payload))
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载详情失败')
+      setError(err instanceof Error ? err.message : '鍔犺浇璇︽儏澶辫触')
     }
   }
 
@@ -265,11 +354,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         userId,
         body: { result: draft.result, comment: draft.comment },
       })
-      setMessage(`验收已提交：${formatAcceptanceResult(draft.result)}`)
+      setMessage(`楠屾敹宸叉彁浜わ細${formatAcceptanceResult(draft.result)}`)
       setActiveAcceptanceId(null)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '验收提交失败')
+      setError(err instanceof Error ? err.message : '楠屾敹鎻愪氦澶辫触')
     }
   }
 
@@ -279,10 +368,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`激励 #${rewardId} 已确认`)
+      setMessage(`Reward #${rewardId} confirmed`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '激励确认失败')
+      setError(err instanceof Error ? err.message : 'Reward confirmation failed')
     }
   }
 
@@ -292,10 +381,62 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`揭榜 #${targetClaimId} 已放弃`)
+      setMessage(`Claim #${targetClaimId} abandoned`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '放弃揭榜失败')
+      setError(err instanceof Error ? err.message : '鏀惧純鎻澶辫触')
+    }
+  }
+
+  const updatePerformanceSignal = <K extends keyof PerformanceReviewSignalInput>(
+    key: K,
+    value: PerformanceReviewSignalInput[K],
+  ) => {
+    setPerformanceDraft((prev) => ({
+      ...prev,
+      signals: {
+        ...prev.signals,
+        [key]: value,
+      },
+    }))
+  }
+
+  const savePerformanceReview = async () => {
+    if (!detail || !canEditPerformance) {
+      return
+    }
+    const payload = {
+      has_t3_plus_task: performanceDraft.has_t3_plus_task,
+      initial_r_level: performanceDraft.initial_r_level,
+      signals: {
+        incident_severity: performanceDraft.signals.incident_severity,
+        incident_count: toNonNegativeInteger(performanceDraft.signals.incident_count),
+        missed_deadline_count: toNonNegativeInteger(performanceDraft.signals.missed_deadline_count),
+        unjustified_delay_count: toNonNegativeInteger(performanceDraft.signals.unjustified_delay_count),
+        process_violation_count: toNonNegativeInteger(performanceDraft.signals.process_violation_count),
+        known_risk_unreported: performanceDraft.signals.known_risk_unreported,
+        repeated_issue_count: toNonNegativeInteger(performanceDraft.signals.repeated_issue_count),
+        critical_task_missed_without_reason: performanceDraft.signals.critical_task_missed_without_reason,
+        repeated_issue_without_improvement: performanceDraft.signals.repeated_issue_without_improvement,
+      },
+    }
+    try {
+      setSavingPerformance(true)
+      setError(null)
+      const result = await requestJson<PerformanceReview>(
+        `/claims/${detail.claim_id}/performance-review`,
+        {
+          method: 'PUT',
+          userId,
+          body: payload,
+        },
+      )
+      setDetail((prev) => (prev ? { ...prev, performance_review: result } : prev))
+      setMessage('Performance review saved')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '缁堣瘎蹇収淇濆瓨澶辫触')
+    } finally {
+      setSavingPerformance(false)
     }
   }
 
@@ -311,7 +452,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     }
 
     if (payload.approved.length === 0 || payload.rework.length === 0 || payload.rejected.length === 0) {
-      setError('每种结果至少要配置一条模板')
+      setError('Each result type requires at least one template')
       return
     }
 
@@ -329,9 +470,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       const normalized = normalizeTemplates(result)
       setTemplates(normalized)
       setTemplateDraft(templatesToDraft(normalized))
-      setMessage('模板更新成功')
+      setMessage('妯℃澘鏇存柊鎴愬姛')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '模板保存失败')
+      setError(err instanceof Error ? err.message : '妯℃澘淇濆瓨澶辫触')
     } finally {
       setSavingTemplates(false)
     }
@@ -354,15 +495,15 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>执行闭环</h2>
-        <p>跟踪揭榜执行、提交成果、完成验收并确认激励。</p>
+        <h2>鎵ц闂幆</h2>
+        <p>璺熻釜鎻鎵ц銆佹彁浜ゆ垚鏋溿€佸畬鎴愰獙鏀跺苟纭婵€鍔便€</p>
       </header>
 
       {canManageTemplates && (
         <article className="panel form-grid">
-          <h3>验收评论模板配置</h3>
+          <h3>楠屾敹璇勮妯℃澘閰嶇疆</h3>
           <label className="wide">
-            通过模板（每行一条）
+            閫氳繃妯℃澘锛堟瘡琛屼竴鏉★級
             <textarea
               value={templateDraft.approved}
               onChange={(event) =>
@@ -371,7 +512,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             />
           </label>
           <label className="wide">
-            整改模板（每行一条）
+            鏁存敼妯℃澘锛堟瘡琛屼竴鏉★級
             <textarea
               value={templateDraft.rework}
               onChange={(event) =>
@@ -380,7 +521,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             />
           </label>
           <label className="wide">
-            不通过模板（每行一条）
+            涓嶉€氳繃妯℃澘锛堟瘡琛屼竴鏉★級
             <textarea
               value={templateDraft.rejected}
               onChange={(event) =>
@@ -389,26 +530,26 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             />
           </label>
           <button type="button" onClick={() => void saveTemplates()} disabled={savingTemplates}>
-            {savingTemplates ? '保存中...' : '保存模板'}
+            {savingTemplates ? '淇濆瓨涓?..' : '淇濆瓨妯℃澘'}
           </button>
         </article>
       )}
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>我的揭榜记录</h3>
+          <h3>鎴戠殑鎻璁板綍</h3>
           <button type="button" onClick={() => void load()}>
-            刷新
+            鍒锋柊
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
-            <span>揭榜</span>
-            <span>任务</span>
-            <span>揭榜状态</span>
-            <span>任务状态</span>
-            <span>成果状态</span>
-            <span>操作</span>
+            <span>鎻</span>
+            <span>浠诲姟</span>
+            <span>鎻鐘舵€</span>
+            <span>浠诲姟鐘舵€</span>
+            <span>鎴愭灉鐘舵€</span>
+            <span>鎿嶄綔</span>
           </div>
           {claims.map((item) => (
             <div className="row wide-row" key={item.claim_id}>
@@ -425,11 +566,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                     void openDetail(item.claim_id)
                   }}
                 >
-                  详情
+                  璇︽儏
                 </button>
                 {item.claim_status === 'active' && (
                   <button type="button" onClick={() => void abandonClaim(item.claim_id)}>
-                    放弃
+                    鏀惧純
                   </button>
                 )}
               </span>
@@ -440,40 +581,38 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
 
       {canSubmitDeliverable && (
         <form className="panel form-grid" onSubmit={submitDeliverable}>
-          <h3>提交成果</h3>
+          <h3>鎻愪氦鎴愭灉</h3>
           <label>
-            揭榜 ID（claim_id）
-            <input value={claimId} onChange={(event) => setClaimId(event.target.value)} required />
+            鎻 ID锛坈laim_id锛?            <input value={claimId} onChange={(event) => setClaimId(event.target.value)} required />
           </label>
           <label className="wide">
-            成果说明
+            鎴愭灉璇存槑
             <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
           </label>
           <label className="wide">
-            证据附件 ID（逗号分隔）
-            <input
+            璇佹嵁闄勪欢 ID锛堥€楀彿鍒嗛殧锛?            <input
               value={attachmentIds}
               onChange={(event) => setAttachmentIds(event.target.value)}
-              placeholder="例如：12,13"
+              placeholder="渚嬪锛?2,13"
             />
           </label>
           <button className="primary-btn" type="submit">
-            提交成果
+            鎻愪氦鎴愭灉
           </button>
         </form>
       )}
 
       {canAccept && (
         <article className="panel">
-          <h3>待我验收</h3>
+          <h3>寰呮垜楠屾敹</h3>
           <div className="table">
             <div className="row head wide-row">
-              <span>成果</span>
-              <span>揭榜</span>
-              <span>任务</span>
-              <span>提交人</span>
-              <span>提交时间</span>
-              <span>操作</span>
+              <span>鎴愭灉</span>
+              <span>鎻</span>
+              <span>浠诲姟</span>
+              <span>鎻愪氦浜</span>
+              <span>鎻愪氦鏃堕棿</span>
+              <span>鎿嶄綔</span>
             </div>
             {pendingAcceptance.map((item) => {
               const draft = ensureDraft(item.deliverable_id)
@@ -488,29 +627,29 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                     <span>{new Date(item.submitted_at).toLocaleString()}</span>
                     <span className="actions">
                       <button type="button" onClick={() => void openDetail(item.claim_id)}>
-                        详情
+                        璇︽儏
                       </button>
                       <button
                         type="button"
                         onClick={() => setActiveAcceptanceId(openEditor ? null : item.deliverable_id)}
                       >
-                        {openEditor ? '收起' : '验收面板'}
+                        {openEditor ? '鏀惰捣' : '楠屾敹闈㈡澘'}
                       </button>
                     </span>
                   </div>
                   {openEditor && (
                     <div className="acceptance-editor">
                       <label>
-                        验收结果
+                        楠屾敹缁撴灉
                         <select
                           value={draft.result}
                           onChange={(event) =>
                             handleResultChange(item.deliverable_id, event.target.value as AcceptanceResult)
                           }
                         >
-                          <option value="approved">通过</option>
-                          <option value="rework">整改</option>
-                          <option value="rejected">不通过</option>
+                          <option value="approved">閫氳繃</option>
+                          <option value="rework">鏁存敼</option>
+                          <option value="rejected">涓嶉€氳繃</option>
                         </select>
                       </label>
                       <div className="template-row">
@@ -526,7 +665,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                         ))}
                       </div>
                       <label>
-                        验收意见
+                        楠屾敹鎰忚
                         <textarea
                           value={draft.comment}
                           onChange={(event) =>
@@ -540,7 +679,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                           type="button"
                           onClick={() => void submitAcceptance(item.deliverable_id)}
                         >
-                          提交验收
+                          鎻愪氦楠屾敹
                         </button>
                       </div>
                     </div>
@@ -554,30 +693,40 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
 
       {canConfirmReward && (
         <article className="panel">
-          <h3>激励确认</h3>
+          <h3>婵€鍔辩‘璁</h3>
           <div className="table">
             <div className="row head wide-row">
               <span>ID</span>
-              <span>任务</span>
-              <span>用户</span>
-              <span>金额</span>
-              <span>状态</span>
-              <span>操作</span>
+              <span>浠诲姟</span>
+              <span>鐢ㄦ埛</span>
+              <span>閲戦</span>
+              <span>缁堣瘎</span>
+              <span>鐘舵€</span>
+              <span>绛栫暐</span>
+              <span>鎿嶄綔</span>
             </div>
             {rewards.map((item) => (
               <div className="row wide-row" key={item.id}>
                 <span>#{item.id}</span>
                 <span>#{item.task_id}</span>
                 <span>#{item.user_id}</span>
-                <span>¥{item.amount.toFixed(2)}</span>
+                <span>楼{item.amount.toFixed(2)}</span>
+                <span>
+                  {item.performance_baseline_status ?? '-'} / {item.performance_final_r_level ?? '-'}
+                </span>
                 <span>{formatCommonStatus(item.status)}</span>
+                <span>{item.hold_reason ?? '-'}</span>
                 <span>
                   {item.status === 'generated' ? (
-                    <button type="button" onClick={() => void confirmReward(item.id)}>
-                      确认
-                    </button>
+                    item.held_by_performance_policy && !isAdmin ? (
+                      <span className="muted">闇€绠＄悊鍛樺鏍</span>
+                    ) : (
+                      <button type="button" onClick={() => void confirmReward(item.id)}>
+                        纭
+                      </button>
+                    )
                   ) : (
-                    '已确认'
+                    'Confirmed'
                   )}
                 </span>
               </div>
@@ -590,48 +739,48 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-headline">
-              <h3>揭榜 #{detail.claim_id} 详情</h3>
+              <h3>鎻 #{detail.claim_id} 璇︽儏</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                关闭
+                鍏抽棴
               </button>
             </div>
             <p className="line-metric">
-              <span>任务</span>
+              <span>浠诲姟</span>
               <strong>{detail.task_title}</strong>
             </p>
             <p className="line-metric">
-              <span>目标</span>
+              <span>鐩爣</span>
               <strong>{detail.task_goal}</strong>
             </p>
             <p className="line-metric">
-              <span>范围</span>
+              <span>鑼冨洿</span>
               <strong>{detail.task_scope}</strong>
             </p>
             <p className="line-metric">
-              <span>状态</span>
+              <span>鐘舵€</span>
               <strong>
                 {formatCommonStatus(detail.claim_status)} / {formatCommonStatus(detail.task_status)}
               </strong>
             </p>
             <p className="line-metric">
-              <span>截止日期</span>
+              <span>鎴鏃ユ湡</span>
               <strong>{detail.due_date}</strong>
             </p>
 
             <article className="modal-section">
-              <h4>验收标准</h4>
+              <h4>楠屾敹鏍囧噯</h4>
               <ul>
                 {detail.acceptance_criteria.map((item, idx) => (
                   <li key={`${item.description ?? 'item'}-${idx}`}>
-                    {item.description ?? '未命名验收项'} ({item.type ?? '未知'})
+                    {item.description ?? '鏈懡鍚嶉獙鏀堕」'} ({item.type ?? '鏈煡'})
                   </li>
                 ))}
               </ul>
             </article>
 
             <article className="modal-section">
-              <h4>成果内容</h4>
-              <p>{detail.deliverable_summary ?? '暂无成果提交'}</p>
+              <h4>鎴愭灉鍐呭</h4>
+              <p>{detail.deliverable_summary ?? '鏆傛棤鎴愭灉鎻愪氦'}</p>
               {detail.criteria_results.length > 0 && (
                 <ul>
                   {detail.criteria_results.map((item) => (
@@ -642,15 +791,15 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             </article>
 
             <article className="modal-section">
-              <h4>证据链接</h4>
+              <h4>璇佹嵁閾炬帴</h4>
               {detail.evidence_urls.length === 0 ? (
-                <p className="muted">暂无证据链接</p>
+                <p className="muted">鏆傛棤璇佹嵁閾炬帴</p>
               ) : (
                 <ul>
                   {detail.evidence_urls.map((url, idx) => (
                     <li key={`${url}-${idx}`}>
                       <a href={url} target="_blank" rel="noreferrer">
-                        打开证据 #{idx + 1}
+                        鎵撳紑璇佹嵁 #{idx + 1}
                       </a>
                     </li>
                   ))}
@@ -659,9 +808,171 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             </article>
 
             <article className="modal-section">
-              <h4>验收历史</h4>
+              <h4>鍩虹灞ヨ矗缁堣瘎</h4>
+              {detail.performance_review ? (
+                <div>
+                  <p className="line-metric">
+                    <span>鍩虹灞ヨ矗鐘舵€</span>
+                    <strong>{formatBaselineStatus(detail.performance_review.baseline_responsibility_status)}</strong>
+                  </p>
+                  <p className="line-metric">
+                    <span>R 绛夌骇锛堝垵璇?{'->'} 缁堣瘎锛</span>
+                    <strong>
+                      {detail.performance_review.initial_r_level} {'->'} {detail.performance_review.final_r_level}
+                    </strong>
+                  </p>
+                  {detail.performance_review.baseline_reasons.length > 0 && (
+                    <ul>
+                      {detail.performance_review.baseline_reasons.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {detail.performance_review.has_fault_warning && (
+                    <p style={{ color: '#b00020', fontWeight: 700 }}>
+                      瀛樺湪鍩虹灞ヨ矗澶辫亴琛屼负锛岃鐘舵€佸皢涓嬭皟鏈€缁堢哗鏁堢瓑绾с€?                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="muted">鏆傛棤缁堣瘎蹇収</p>
+              )}
+
+              {canEditPerformance && (
+                <div className="form-grid">
+                  <label>
+                    鏄惁鏈?T3+ 浠诲姟
+                    <select
+                      value={performanceDraft.has_t3_plus_task ? 'yes' : 'no'}
+                      onChange={(event) =>
+                        setPerformanceDraft((prev) => ({
+                          ...prev,
+                          has_t3_plus_task: event.target.value === 'yes',
+                        }))
+                      }
+                    >
+                      <option value="no">鍚</option>
+                      <option value="yes">鏄</option>
+                    </select>
+                  </label>
+                  <label>
+                    鍒濊瘎 R 绛夌骇
+                    <select
+                      value={performanceDraft.initial_r_level}
+                      onChange={(event) =>
+                        setPerformanceDraft((prev) => ({
+                          ...prev,
+                          initial_r_level: event.target.value as PerformanceLevel,
+                        }))
+                      }
+                    >
+                      <option value="R1">R1</option>
+                      <option value="R2">R2</option>
+                      <option value="R3">R3</option>
+                      <option value="R4">R4</option>
+                      <option value="R5">R5</option>
+                    </select>
+                  </label>
+                  <label>
+                    浜嬫晠绛夌骇
+                    <select
+                      value={performanceDraft.signals.incident_severity}
+                      onChange={(event) => updatePerformanceSignal('incident_severity', event.target.value as PerformanceReviewSignalInput['incident_severity'])}
+                    >
+                      <option value="none">none</option>
+                      <option value="minor">minor</option>
+                      <option value="major">major</option>
+                    </select>
+                  </label>
+                  <label>
+                    浜嬫晠娆℃暟
+                    <input
+                      type="number"
+                      min={0}
+                      value={performanceDraft.signals.incident_count}
+                      onChange={(event) => updatePerformanceSignal('incident_count', toNonNegativeInteger(Number(event.target.value)))}
+                    />
+                  </label>
+                  <label>
+                    鑱岃矗閬楁紡/寤舵湡娆℃暟
+                    <input
+                      type="number"
+                      min={0}
+                      value={performanceDraft.signals.missed_deadline_count}
+                      onChange={(event) =>
+                        updatePerformanceSignal('missed_deadline_count', toNonNegativeInteger(Number(event.target.value)))
+                      }
+                    />
+                  </label>
+                  <label>
+                    鏃犵悊鐢卞欢鏈熸鏁?                    <input
+                      type="number"
+                      min={0}
+                      value={performanceDraft.signals.unjustified_delay_count}
+                      onChange={(event) =>
+                        updatePerformanceSignal('unjustified_delay_count', toNonNegativeInteger(Number(event.target.value)))
+                      }
+                    />
+                  </label>
+                  <label>
+                    娴佺▼杩濊娆℃暟
+                    <input
+                      type="number"
+                      min={0}
+                      value={performanceDraft.signals.process_violation_count}
+                      onChange={(event) =>
+                        updatePerformanceSignal('process_violation_count', toNonNegativeInteger(Number(event.target.value)))
+                      }
+                    />
+                  </label>
+                  <label>
+                    閲嶅闂娆℃暟
+                    <input
+                      type="number"
+                      min={0}
+                      value={performanceDraft.signals.repeated_issue_count}
+                      onChange={(event) =>
+                        updatePerformanceSignal('repeated_issue_count', toNonNegativeInteger(Number(event.target.value)))
+                      }
+                    />
+                  </label>
+                  <label>
+                    宸茬煡椋庨櫓鏈笂鎶?                    <input
+                      type="checkbox"
+                      checked={performanceDraft.signals.known_risk_unreported}
+                      onChange={(event) => updatePerformanceSignal('known_risk_unreported', event.target.checked)}
+                    />
+                  </label>
+                  <label>
+                    鍏抽敭浠诲姟閬楁紡涓旀棤鐞嗙敱
+                    <input
+                      type="checkbox"
+                      checked={performanceDraft.signals.critical_task_missed_without_reason}
+                      onChange={(event) =>
+                        updatePerformanceSignal('critical_task_missed_without_reason', event.target.checked)
+                      }
+                    />
+                  </label>
+                  <label>
+                    閲嶅闂涓旀棤鏀硅繘
+                    <input
+                      type="checkbox"
+                      checked={performanceDraft.signals.repeated_issue_without_improvement}
+                      onChange={(event) =>
+                        updatePerformanceSignal('repeated_issue_without_improvement', event.target.checked)
+                      }
+                    />
+                  </label>
+                  <button type="button" onClick={() => void savePerformanceReview()} disabled={savingPerformance}>
+                    {savingPerformance ? '淇濆瓨涓?..' : '淇濆瓨缁堣瘎蹇収'}
+                  </button>
+                </div>
+              )}
+            </article>
+
+            <article className="modal-section">
+              <h4>楠屾敹鍘嗗彶</h4>
               {detail.acceptance_history.length === 0 ? (
-                <p className="muted">暂无验收历史</p>
+                <p className="muted">鏆傛棤楠屾敹鍘嗗彶</p>
               ) : (
                 <ul>
                   {detail.acceptance_history.map((item) => (
@@ -678,3 +989,4 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     </section>
   )
 }
+

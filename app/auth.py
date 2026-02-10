@@ -15,6 +15,29 @@ from app.models import User, UserRole
 DEFAULT_AUTH_TOKEN_TTL_MINUTES = 24 * 60
 
 
+def _is_production_env() -> bool:
+    return os.getenv('APP_ENV', '').strip().lower() in {'prod', 'production'}
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def is_passwordless_login_enabled() -> bool:
+    # In production, disable by default unless explicitly turned on.
+    default = not _is_production_env()
+    return _env_flag('AUTH_ENABLE_PASSWORDLESS_LOGIN', default)
+
+
+def is_header_user_auth_enabled() -> bool:
+    # In production, disable by default unless explicitly turned on.
+    default = not _is_production_env()
+    return _env_flag('AUTH_ENABLE_HEADER_USER_ID', default)
+
+
 def _token_secret() -> bytes:
     return os.getenv('AUTH_TOKEN_SECRET', 'bounty-workshop-dev-secret').encode('utf-8')
 
@@ -92,6 +115,9 @@ def get_current_user_id(
             if token:
                 return parse_access_token(token)
         raise HTTPException(status_code=401, detail='invalid Authorization header')
+
+    if not is_header_user_auth_enabled():
+        raise HTTPException(status_code=401, detail='Authorization header required')
 
     if x_user_id is None:
         raise HTTPException(status_code=401, detail='missing X-User-Id header')

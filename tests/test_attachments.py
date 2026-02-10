@@ -161,6 +161,156 @@ def test_attachment_upload_bind_and_download(tmp_path: Path) -> None:
     os.environ.pop("ATTACHMENT_STORAGE_DIR", None)
 
 
+def test_attachment_access_control_by_entity(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReviewerACL",
+            "employee_no": "R301",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    owner_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Owner", "employee_no": "E301", "department": "RD", "roles": ["employee"]},
+    )
+    assert owner_resp.status_code == 200
+    owner_id = owner_resp.json()["id"]
+
+    outsider_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Outsider", "employee_no": "E302", "department": "RD", "roles": ["employee"]},
+    )
+    assert outsider_resp.status_code == 200
+    outsider_id = outsider_resp.json()["id"]
+
+    upload_problem_attachment = client.post(
+        "/attachments/upload",
+        headers=_headers(owner_id),
+        files={"file": ("problem-acl.txt", b"acl-problem", "text/plain")},
+    )
+    assert upload_problem_attachment.status_code == 200
+    problem_attachment_id = upload_problem_attachment.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(owner_id),
+        json={
+            "title": "acl problem",
+            "scenario": "rd",
+            "background": "acl background",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "acl description",
+            "value_reduce_effort": True,
+            "value_statement": "acl value",
+            "attachment_ids": [problem_attachment_id],
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    blocked_problem_download = client.get(
+        f"/attachments/{problem_attachment_id}/download",
+        headers=_headers(outsider_id),
+    )
+    assert blocked_problem_download.status_code == 403
+
+    blocked_problem_list = client.get(
+        f"/entities/problem/{problem_id}/attachments",
+        headers=_headers(outsider_id),
+    )
+    assert blocked_problem_list.status_code == 403
+
+    reviewer_problem_download = client.get(
+        f"/attachments/{problem_attachment_id}/download",
+        headers=_headers(reviewer_id),
+    )
+    assert reviewer_problem_download.status_code == 200
+    assert reviewer_problem_download.content == b"acl-problem"
+
+    task_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "acl task",
+                "goal": "acl goal",
+                "scope": "acl scope",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "acl check", "type": "quantified"}],
+            },
+        },
+    )
+    assert task_resp.status_code == 200
+    task_id = task_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(owner_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    upload_deliverable_attachment = client.post(
+        "/attachments/upload",
+        headers=_headers(owner_id),
+        files={"file": ("deliverable-acl.txt", b"acl-deliverable", "text/plain")},
+    )
+    assert upload_deliverable_attachment.status_code == 200
+    deliverable_attachment_id = upload_deliverable_attachment.json()["id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(owner_id),
+        json={
+            "summary": "acl deliverable",
+            "criteria_results": ["ok"],
+            "evidence_attachment_ids": [deliverable_attachment_id],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    blocked_deliverable_download = client.get(
+        f"/attachments/{deliverable_attachment_id}/download",
+        headers=_headers(outsider_id),
+    )
+    assert blocked_deliverable_download.status_code == 403
+
+    blocked_deliverable_list = client.get(
+        f"/entities/deliverable/{deliverable_id}/attachments",
+        headers=_headers(outsider_id),
+    )
+    assert blocked_deliverable_list.status_code == 403
+
+    reviewer_deliverable_download = client.get(
+        f"/attachments/{deliverable_attachment_id}/download",
+        headers=_headers(reviewer_id),
+    )
+    assert reviewer_deliverable_download.status_code == 200
+    assert reviewer_deliverable_download.content == b"acl-deliverable"
+
+    app.dependency_overrides.clear()
+    os.environ.pop("ATTACHMENT_STORAGE_BACKEND", None)
+    os.environ.pop("ATTACHMENT_STORAGE_DIR", None)
+
+
 def test_attachment_s3_presign_flow(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 

@@ -1,3 +1,4 @@
+import os
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -7,6 +8,7 @@ from openpyxl import load_workbook
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.db import get_session
+from app.auth import create_access_token
 from app.enums import Role
 from app.main import app
 from app.models import User, UserRole
@@ -57,6 +59,29 @@ def test_auth_login_and_bearer_access(tmp_path: Path) -> None:
     assert me_resp.json()["id"] == 1
 
     app.dependency_overrides.clear()
+
+
+def test_prod_auth_disables_passwordless_and_header_auth(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+    os.environ["APP_ENV"] = "production"
+    os.environ.pop("AUTH_ENABLE_PASSWORDLESS_LOGIN", None)
+    os.environ.pop("AUTH_ENABLE_HEADER_USER_ID", None)
+    try:
+        login_resp = client.post("/auth/login", json={"user_id": 1})
+        assert login_resp.status_code == 403
+
+        me_header_resp = client.get("/me", headers=_headers(1))
+        assert me_header_resp.status_code == 401
+
+        token, _ = create_access_token(1)
+        me_bearer_resp = client.get("/me", headers=_bearer_headers(token))
+        assert me_bearer_resp.status_code == 200
+        assert me_bearer_resp.json()["id"] == 1
+    finally:
+        os.environ.pop("APP_ENV", None)
+        os.environ.pop("AUTH_ENABLE_PASSWORDLESS_LOGIN", None)
+        os.environ.pop("AUTH_ENABLE_HEADER_USER_ID", None)
+        app.dependency_overrides.clear()
 
 
 def test_end_to_end_flow(tmp_path: Path) -> None:
@@ -725,6 +750,26 @@ def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
         headers=_headers(reviewer_id),
         json={"result": "approved", "comment": "ok"},
     )
+    perf_resp = client.put(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(reviewer_id),
+        json={
+            "has_t3_plus_task": True,
+            "initial_r_level": "R4",
+            "signals": {
+                "incident_severity": "minor",
+                "incident_count": 2,
+                "missed_deadline_count": 0,
+                "unjustified_delay_count": 0,
+                "process_violation_count": 0,
+                "known_risk_unreported": False,
+                "repeated_issue_count": 0,
+                "critical_task_missed_without_reason": False,
+                "repeated_issue_without_improvement": False,
+            },
+        },
+    )
+    assert perf_resp.status_code == 200
 
     rewards_resp = client.get("/rewards", headers=_headers(1))
     reward_id = rewards_resp.json()[0]["id"]
@@ -745,11 +790,21 @@ def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
     dist_resp = client.get("/dashboard/distribution", headers=_headers(1), params={"time_range": "all"})
     assert dist_resp.status_code == 200
     assert "scenario_distribution" in dist_resp.json()
+    assert "baseline_responsibility_distribution" in dist_resp.json()
+    assert "final_r_level_distribution" in dist_resp.json()
 
     tasks_export = client.get("/exports/tasks.xlsx", headers=_headers(1))
     assert tasks_export.status_code == 200
     tasks_wb = load_workbook(BytesIO(tasks_export.content))
     assert "Tasks" in tasks_wb.sheetnames
+    assert "PerformanceReviews" in tasks_wb.sheetnames
+
+    rewards_export = client.get("/exports/rewards.xlsx", headers=_headers(1))
+    assert rewards_export.status_code == 200
+    rewards_wb = load_workbook(BytesIO(rewards_export.content))
+    rewards_headers = [cell.value for cell in rewards_wb["Rewards"][1]]
+    assert "performance_final_r_level" in rewards_headers
+    assert "hold_reason" in rewards_headers
 
     dashboard_export = client.get(
         "/exports/dashboard.xlsx",
@@ -987,5 +1042,670 @@ def test_system_config_overview_and_operation_logs(tmp_path: Path) -> None:
     assert logs_resp.status_code == 200
     rows = logs_resp.json()
     assert any(item["action"] == "user.create" for item in rows)
+
+    app.dependency_overrides.clear()
+
+
+def test_performance_review_snapshot_and_fusion_rules(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "PerfReviewer",
+            "employee_no": "R901",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "PerfDev", "employee_no": "E901", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "performance review baseline case",
+            "scenario": "rd",
+            "background": "validate supplemental requirements",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "need verify baseline responsibility and R fusion",
+            "value_reduce_effort": True,
+            "value_statement": "add auditable snapshot and fusion logic",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "performance review task",
+                "goal": "verify baseline/fault integration",
+                "scope": "single workflow",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "B",
+                "reward_total": 1500,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "workflow completed", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+    assert isinstance(claim_id, int)
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(employee_id),
+        json={
+            "summary": "submitted for performance review",
+            "evidence_urls": ["https://example.com/perf-review"],
+            "criteria_results": ["done"],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+
+    pre_detail_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(reviewer_id))
+    assert pre_detail_resp.status_code == 200, pre_detail_resp.text
+
+    fault_snapshot_resp = client.put(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(reviewer_id),
+        json={
+            "has_t3_plus_task": False,
+            "initial_r_level": "R5",
+            "signals": {
+                "incident_severity": "major",
+                "incident_count": 1,
+                "missed_deadline_count": 0,
+                "unjustified_delay_count": 0,
+                "process_violation_count": 0,
+                "known_risk_unreported": False,
+                "repeated_issue_count": 0,
+                "critical_task_missed_without_reason": False,
+                "repeated_issue_without_improvement": False,
+            },
+        },
+    )
+    assert fault_snapshot_resp.status_code == 200
+    fault_snapshot = fault_snapshot_resp.json()
+    assert fault_snapshot["baseline_responsibility_status"] == "fault"
+    assert fault_snapshot["final_r_level"] == "R2"
+    assert fault_snapshot["has_fault_warning"] is True
+    assert len(fault_snapshot["baseline_reasons"]) >= 1
+
+    get_snapshot_resp = client.get(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(employee_id),
+    )
+    assert get_snapshot_resp.status_code == 200
+    assert get_snapshot_resp.json()["baseline_responsibility_status"] == "fault"
+
+    accept_resp = client.post(
+        f"/deliverables/{deliverable_resp.json()['deliverable_id']}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "approve for reward policy test"},
+    )
+    assert accept_resp.status_code == 200
+
+    rewards_resp = client.get("/rewards", headers=_headers(reviewer_id), params={"user_id": employee_id})
+    assert rewards_resp.status_code == 200
+    reward_rows = rewards_resp.json()
+    executor_reward = next(item for item in reward_rows if item["role_type"] == "executor")
+    proposer_reward = next(item for item in reward_rows if item["role_type"] == "proposer")
+    assert executor_reward["held_by_performance_policy"] is True
+    assert executor_reward["performance_final_r_level"] == "R2"
+    assert executor_reward["hold_reason"]
+    assert proposer_reward["held_by_performance_policy"] is False
+
+    held_only_resp = client.get("/rewards", headers=_headers(reviewer_id), params={"held_only": "true"})
+    assert held_only_resp.status_code == 200
+    held_rows = held_only_resp.json()
+    assert any(item["id"] == executor_reward["id"] for item in held_rows)
+    assert all(item["held_by_performance_policy"] is True for item in held_rows)
+
+    generated_only_resp = client.get("/rewards", headers=_headers(reviewer_id), params={"status": "generated"})
+    assert generated_only_resp.status_code == 200
+    assert any(item["id"] == executor_reward["id"] for item in generated_only_resp.json())
+
+    invalid_status_resp = client.get("/rewards", headers=_headers(reviewer_id), params={"status": "bad"})
+    assert invalid_status_resp.status_code == 400
+
+    reviewer_confirm_blocked = client.post(
+        f"/rewards/{executor_reward['id']}/confirm",
+        headers=_headers(reviewer_id),
+    )
+    assert reviewer_confirm_blocked.status_code == 403
+
+    admin_confirm_override = client.post(
+        f"/rewards/{executor_reward['id']}/confirm",
+        headers=_headers(1),
+    )
+    assert admin_confirm_override.status_code == 200
+    assert admin_confirm_override.json()["status"] == "confirmed"
+
+    normal_snapshot_resp = client.put(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(reviewer_id),
+        json={
+            "has_t3_plus_task": True,
+            "initial_r_level": "R4",
+            "signals": {
+                "incident_severity": "minor",
+                "incident_count": 2,
+                "missed_deadline_count": 0,
+                "unjustified_delay_count": 1,
+                "process_violation_count": 0,
+                "known_risk_unreported": False,
+                "repeated_issue_count": 1,
+                "critical_task_missed_without_reason": False,
+                "repeated_issue_without_improvement": False,
+            },
+        },
+    )
+    assert normal_snapshot_resp.status_code == 200
+    normal_snapshot = normal_snapshot_resp.json()
+    assert normal_snapshot["baseline_responsibility_status"] == "normal"
+    assert normal_snapshot["final_r_level"] == "R3"
+    assert normal_snapshot["has_fault_warning"] is False
+
+    good_snapshot_resp = client.put(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(reviewer_id),
+        json={
+            "has_t3_plus_task": False,
+            "initial_r_level": "R5",
+            "signals": {
+                "incident_severity": "none",
+                "incident_count": 0,
+                "missed_deadline_count": 0,
+                "unjustified_delay_count": 0,
+                "process_violation_count": 0,
+                "known_risk_unreported": False,
+                "repeated_issue_count": 0,
+                "critical_task_missed_without_reason": False,
+                "repeated_issue_without_improvement": False,
+            },
+        },
+    )
+    assert good_snapshot_resp.status_code == 200
+    good_snapshot = good_snapshot_resp.json()
+    assert good_snapshot["baseline_responsibility_status"] == "good"
+    assert good_snapshot["final_r_level"] == "R3"
+
+    detail_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(employee_id))
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["performance_review"]["baseline_responsibility_status"] == "good"
+    assert detail_resp.json()["performance_review"]["final_r_level"] == "R3"
+
+    dashboard_resp = client.get("/dashboard/overview", headers=_headers(employee_id))
+    assert dashboard_resp.status_code == 200
+    dashboard = dashboard_resp.json()
+    assert dashboard["performance_review_count"] >= 1
+    assert dashboard["performance_fault_count"] >= 0
+    assert "reward_hold_count" in dashboard
+
+    distribution_resp = client.get("/dashboard/distribution", headers=_headers(employee_id), params={"time_range": "all"})
+    assert distribution_resp.status_code == 200
+    distribution = distribution_resp.json()
+    assert "baseline_responsibility_distribution" in distribution
+    assert "final_r_level_distribution" in distribution
+
+    outsider_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "PerfOutsider", "employee_no": "E902", "department": "RD", "roles": ["employee"]},
+    )
+    assert outsider_resp.status_code == 200
+    outsider_id = outsider_resp.json()["id"]
+    forbidden_put_resp = client.put(
+        f"/claims/{claim_id}/performance-review",
+        headers=_headers(outsider_id),
+        json={
+            "has_t3_plus_task": False,
+            "initial_r_level": "R3",
+            "signals": {
+                "incident_severity": "none",
+                "incident_count": 0,
+                "missed_deadline_count": 0,
+                "unjustified_delay_count": 0,
+                "process_violation_count": 0,
+                "known_risk_unreported": False,
+                "repeated_issue_count": 0,
+                "critical_task_missed_without_reason": False,
+                "repeated_issue_without_improvement": False,
+            },
+        },
+    )
+    assert forbidden_put_resp.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_problem_review_concurrent_guard(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReviewGuard",
+            "employee_no": "R801",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "GuardDev", "employee_no": "E801", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "review guard problem",
+            "scenario": "rd",
+            "background": "guard",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "review once only",
+            "value_reduce_effort": True,
+            "value_statement": "guard duplicated review",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    first_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "review guard task",
+                "goal": "guard",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert first_review_resp.status_code == 200
+
+    second_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={"approve": False, "reject_reason": "second review should fail"},
+    )
+    assert second_review_resp.status_code == 409
+
+    app.dependency_overrides.clear()
+
+
+def test_rejected_deliverable_keeps_task_in_progress_with_other_active_claims(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "RejectReviewer",
+            "employee_no": "R811",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    owner_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Owner811", "employee_no": "E811", "department": "RD", "roles": ["employee"]},
+    )
+    assert owner_resp.status_code == 200
+    owner_id = owner_resp.json()["id"]
+
+    peer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Peer811", "employee_no": "E812", "department": "RD", "roles": ["employee"]},
+    )
+    assert peer_resp.status_code == 200
+    peer_id = peer_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(owner_id),
+        json={
+            "title": "reject keep progress",
+            "scenario": "rd",
+            "background": "reject one claim",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "task should remain in progress when another claim is active",
+            "value_reduce_effort": True,
+            "value_statement": "status transition guard",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "reject status task",
+                "goal": "test status",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_owner_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(owner_id),
+        json={"mode": "individual"},
+    )
+    assert claim_owner_resp.status_code == 200
+    claim_owner_id = claim_owner_resp.json()["claim_id"]
+
+    claim_peer_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(peer_id),
+        json={"mode": "individual"},
+    )
+    assert claim_peer_resp.status_code == 200
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_owner_id}/deliverables",
+        headers=_headers(owner_id),
+        json={
+            "summary": "to be rejected",
+            "criteria_results": ["not enough"],
+            "evidence_urls": [],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    reject_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "rejected", "comment": "reject this claim"},
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["task_status"] == "in_progress"
+
+    in_progress_resp = client.get("/tasks", headers=_headers(owner_id), params={"status": "in_progress"})
+    assert in_progress_resp.status_code == 200
+    assert any(item["id"] == task_id for item in in_progress_resp.json())
+
+    app.dependency_overrides.clear()
+
+
+def test_release_overdue_boundary_due_today_is_not_overdue(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "BoundaryReviewer",
+            "employee_no": "R821",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "BoundaryDev", "employee_no": "E821", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "overdue boundary problem",
+            "scenario": "ops",
+            "background": "boundary",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "due today should not be overdue",
+            "value_reduce_effort": True,
+            "value_statement": "boundary test",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "boundary task",
+                "goal": "boundary",
+                "scope": "single",
+                "due_date": date.today().isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+
+    release_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
+    assert release_resp.status_code == 200
+    assert release_resp.json()["released_claims"] == 0
+
+    claims_resp = client.get("/claims/mine", headers=_headers(employee_id), params={"status": "active"})
+    assert claims_resp.status_code == 200
+    assert any(item["task_id"] == task_id for item in claims_resp.json())
+
+    app.dependency_overrides.clear()
+
+
+def test_pagination_and_like_escape_for_lists(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "PagerReviewer",
+            "employee_no": "R831",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "PagerDev", "employee_no": "E831", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    created_problem_ids: list[int] = []
+    created_task_ids: list[int] = []
+    for idx in range(1, 3):
+        problem_resp = client.post(
+            "/problems",
+            headers=_headers(employee_id),
+            json={
+                "title": f"pager problem {idx}",
+                "scenario": "rd",
+                "background": "pager",
+                "frequency": "weekly",
+                "impact_scope": "team",
+                "description": "pager problem",
+                "value_reduce_effort": True,
+                "value_statement": "pager value",
+            },
+        )
+        assert problem_resp.status_code == 200
+        problem_id = problem_resp.json()["id"]
+        created_problem_ids.append(problem_id)
+
+        review_resp = client.post(
+            f"/problems/{problem_id}/review",
+            headers=_headers(reviewer_id),
+            json={
+                "approve": True,
+                "task": {
+                    "title": f"pager task {idx}",
+                    "goal": "pager",
+                    "scope": "single",
+                    "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                    "level": "C",
+                    "reward_total": 300,
+                    "proposer_ratio": 0.2,
+                    "accepter_id": reviewer_id,
+                    "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+                },
+            },
+        )
+        assert review_resp.status_code == 200
+        created_task_ids.append(review_resp.json()["id"])
+
+    problems_page_1 = client.get(
+        "/problems",
+        headers=_headers(employee_id),
+        params={"mine_only": "true", "limit": 1, "offset": 0},
+    )
+    assert problems_page_1.status_code == 200
+    assert len(problems_page_1.json()) == 1
+
+    problems_page_2 = client.get(
+        "/problems",
+        headers=_headers(employee_id),
+        params={"mine_only": "true", "limit": 1, "offset": 1},
+    )
+    assert problems_page_2.status_code == 200
+    assert len(problems_page_2.json()) == 1
+    assert problems_page_1.json()[0]["id"] != problems_page_2.json()[0]["id"]
+
+    tasks_page_1 = client.get("/tasks", headers=_headers(employee_id), params={"limit": 1, "offset": 0})
+    assert tasks_page_1.status_code == 200
+    assert len(tasks_page_1.json()) == 1
+    tasks_page_2 = client.get("/tasks", headers=_headers(employee_id), params={"limit": 1, "offset": 1})
+    assert tasks_page_2.status_code == 200
+    assert len(tasks_page_2.json()) == 1
+    assert tasks_page_1.json()[0]["id"] != tasks_page_2.json()[0]["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{created_task_ids[0]}/claims",
+        headers=_headers(employee_id),
+        json={
+            "mode": "team",
+            "lead_user_id": employee_id,
+            "members": [
+                {"user_id": employee_id, "ratio": 0.3333},
+                {"user_id": reviewer_id, "ratio": 0.3333},
+                {"user_id": 1, "ratio": 0.3334},
+            ],
+        },
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(employee_id),
+        json={
+            "summary": "pager deliverable",
+            "criteria_results": ["ok"],
+            "evidence_urls": [],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "ok"},
+    )
+    assert accept_resp.status_code == 200
+
+    rewards_page = client.get("/rewards", headers=_headers(employee_id), params={"limit": 1, "offset": 0})
+    assert rewards_page.status_code == 200
+    assert len(rewards_page.json()) == 1
+
+    all_rewards = client.get("/rewards", headers=_headers(employee_id))
+    assert all_rewards.status_code == 200
+    related_rewards = [item for item in all_rewards.json() if item["task_id"] == created_task_ids[0]]
+    assert len(related_rewards) == 4
+    assert round(sum(item["amount"] for item in related_rewards), 2) == 300.00
+
+    escaped_keyword_resp = client.get("/knowledge", headers=_headers(employee_id), params={"keyword": "%"})
+    assert escaped_keyword_resp.status_code == 200
+    assert escaped_keyword_resp.json() == []
 
     app.dependency_overrides.clear()

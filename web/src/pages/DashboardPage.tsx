@@ -110,6 +110,18 @@ export function DashboardPage({ userId }: Props) {
           <h4>已发放激励</h4>
           <strong>¥{overview?.reward_total_confirmed_amount?.toFixed(2) ?? '-'}</strong>
         </article>
+        <article className="kpi-card">
+          <h4>终评快照数</h4>
+          <strong>{overview?.performance_review_count ?? '-'}</strong>
+        </article>
+        <article className="kpi-card">
+          <h4>失职快照数</h4>
+          <strong>{overview?.performance_fault_count ?? '-'}</strong>
+        </article>
+        <article className="kpi-card">
+          <h4>激励冻结数</h4>
+          <strong>{overview?.reward_hold_count ?? '-'}</strong>
+        </article>
       </div>
       <div className="panel-grid">
         <RankingList title="揭榜排行" items={rankings?.claim_count_ranking ?? []} />
@@ -161,6 +173,24 @@ export function DashboardPage({ userId }: Props) {
         <article className="panel">
           <h3>部门分布</h3>
           {(distribution?.department_distribution ?? []).map((item) => (
+            <p key={item.name} className="line-metric">
+              <span>{item.name}</span>
+              <strong>{item.count}</strong>
+            </p>
+          ))}
+        </article>
+        <article className="panel">
+          <h3>基础履责分布</h3>
+          {(distribution?.baseline_responsibility_distribution ?? []).map((item) => (
+            <p key={item.name} className="line-metric">
+              <span>{item.name}</span>
+              <strong>{item.count}</strong>
+            </p>
+          ))}
+        </article>
+        <article className="panel">
+          <h3>终评 R 分布</h3>
+          {(distribution?.final_r_level_distribution ?? []).map((item) => (
             <p key={item.name} className="line-metric">
               <span>{item.name}</span>
               <strong>{item.count}</strong>

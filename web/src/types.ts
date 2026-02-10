@@ -7,6 +7,9 @@ export type Overview = {
   task_completion_rate: number
   task_overdue_rate: number
   reward_total_confirmed_amount: number
+  performance_review_count: number
+  performance_fault_count: number
+  reward_hold_count: number
 }
 
 export type RankingItem = {
@@ -43,6 +46,8 @@ export type Distribution = {
   scenario_distribution: DistributionItem[]
   level_distribution: DistributionItem[]
   department_distribution: DistributionItem[]
+  baseline_responsibility_distribution: DistributionItem[]
+  final_r_level_distribution: DistributionItem[]
 }
 
 export type Problem = {
@@ -202,6 +207,46 @@ export type AcceptanceHistoryItem = {
   created_at: string
 }
 
+export type BaselineResponsibilityStatus = 'good' | 'normal' | 'fault'
+export type IncidentSeverity = 'none' | 'minor' | 'major'
+export type PerformanceLevel = 'R1' | 'R2' | 'R3' | 'R4' | 'R5'
+
+export type PerformanceReviewSignalInput = {
+  incident_severity: IncidentSeverity
+  incident_count: number
+  missed_deadline_count: number
+  unjustified_delay_count: number
+  process_violation_count: number
+  known_risk_unreported: boolean
+  repeated_issue_count: number
+  critical_task_missed_without_reason: boolean
+  repeated_issue_without_improvement: boolean
+}
+
+export type PerformanceReview = {
+  claim_id: number
+  task_id: number
+  deliverable_id: number | null
+  reviewed_by_user_id: number
+  baseline_responsibility_status: BaselineResponsibilityStatus
+  baseline_reasons: string[]
+  incident_severity: IncidentSeverity
+  incident_count: number
+  missed_deadline_count: number
+  unjustified_delay_count: number
+  process_violation_count: number
+  known_risk_unreported: boolean
+  repeated_issue_count: number
+  critical_task_missed_without_reason: boolean
+  repeated_issue_without_improvement: boolean
+  has_t3_plus_task: boolean
+  initial_r_level: PerformanceLevel
+  final_r_level: PerformanceLevel
+  has_fault_warning: boolean
+  created_at: string
+  updated_at: string
+}
+
 export type AcceptanceTemplatesConfig = {
   approved: string[]
   rework: string[]
@@ -227,6 +272,7 @@ export type ClaimExecutionDetail = {
   criteria_results: string[]
   submitted_at: string | null
   acceptance_history: AcceptanceHistoryItem[]
+  performance_review: PerformanceReview | null
 }
 
 export type Reward = {
@@ -239,6 +285,10 @@ export type Reward = {
   badge: string | null
   status: string
   confirmed_at: string | null
+  held_by_performance_policy: boolean
+  performance_baseline_status: BaselineResponsibilityStatus | null
+  performance_final_r_level: PerformanceLevel | null
+  hold_reason: string | null
 }
 
 export type KnowledgeItem = {

@@ -2,18 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { hasAnyRole } from '../lib/roles'
 import type { ClaimApprovalRequest, UserProfile } from '../types'
 
 type Props = {
   userId: number
   profile: UserProfile | null
-}
-
-function hasAnyRole(profile: UserProfile | null, roles: string[]) {
-  if (!profile) {
-    return false
-  }
-  return profile.roles.some((role) => roles.includes(role))
 }
 
 export function ClaimApprovalPage({ userId, profile }: Props) {

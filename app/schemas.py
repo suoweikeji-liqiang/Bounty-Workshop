@@ -5,7 +5,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.enums import (
     AcceptanceResult,
+    BaselineResponsibilityStatus,
     ClaimMode,
+    IncidentSeverity,
+    PerformanceLevel,
     ProblemFrequency,
     ProblemStatus,
     Role,
@@ -248,6 +251,10 @@ class RewardRead(BaseModel):
     badge: Optional[str]
     status: str
     confirmed_at: Optional[datetime]
+    held_by_performance_policy: bool = False
+    performance_baseline_status: Optional[BaselineResponsibilityStatus] = None
+    performance_final_r_level: Optional[PerformanceLevel] = None
+    hold_reason: Optional[str] = None
 
 
 class PersonalRewardStats(BaseModel):
@@ -274,6 +281,9 @@ class DashboardOverview(BaseModel):
     task_completion_rate: float
     task_overdue_rate: float
     reward_total_confirmed_amount: float
+    performance_review_count: int = 0
+    performance_fault_count: int = 0
+    reward_hold_count: int = 0
 
 
 TimeRange = Literal["this_month", "this_quarter", "this_year", "all"]
@@ -314,6 +324,8 @@ class DashboardDistribution(BaseModel):
     scenario_distribution: list[DistributionItem]
     level_distribution: list[DistributionItem]
     department_distribution: list[DistributionItem]
+    baseline_responsibility_distribution: list[DistributionItem] = Field(default_factory=list)
+    final_r_level_distribution: list[DistributionItem] = Field(default_factory=list)
 
 
 class FeishuLoginUrlResponse(BaseModel):
@@ -456,6 +468,49 @@ class ClaimExecutionDetailRead(BaseModel):
     criteria_results: list[str] = Field(default_factory=list)
     submitted_at: Optional[datetime] = None
     acceptance_history: list[AcceptanceHistoryItem] = Field(default_factory=list)
+    performance_review: Optional["PerformanceReviewRead"] = None
+
+
+class PerformanceReviewSignalInput(BaseModel):
+    incident_severity: IncidentSeverity = IncidentSeverity.NONE
+    incident_count: int = Field(default=0, ge=0)
+    missed_deadline_count: int = Field(default=0, ge=0)
+    unjustified_delay_count: int = Field(default=0, ge=0)
+    process_violation_count: int = Field(default=0, ge=0)
+    known_risk_unreported: bool = False
+    repeated_issue_count: int = Field(default=0, ge=0)
+    critical_task_missed_without_reason: bool = False
+    repeated_issue_without_improvement: bool = False
+
+
+class PerformanceReviewUpsert(BaseModel):
+    has_t3_plus_task: bool
+    initial_r_level: PerformanceLevel
+    signals: PerformanceReviewSignalInput = Field(default_factory=PerformanceReviewSignalInput)
+
+
+class PerformanceReviewRead(BaseModel):
+    claim_id: int
+    task_id: int
+    deliverable_id: Optional[int]
+    reviewed_by_user_id: int
+    baseline_responsibility_status: BaselineResponsibilityStatus
+    baseline_reasons: list[str] = Field(default_factory=list)
+    incident_severity: IncidentSeverity
+    incident_count: int
+    missed_deadline_count: int
+    unjustified_delay_count: int
+    process_violation_count: int
+    known_risk_unreported: bool
+    repeated_issue_count: int
+    critical_task_missed_without_reason: bool
+    repeated_issue_without_improvement: bool
+    has_t3_plus_task: bool
+    initial_r_level: PerformanceLevel
+    final_r_level: PerformanceLevel
+    has_fault_warning: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class OperationLogRead(BaseModel):
@@ -466,3 +521,6 @@ class OperationLogRead(BaseModel):
     target_id: Optional[int]
     detail: dict
     created_at: datetime
+
+
+ClaimExecutionDetailRead.model_rebuild()

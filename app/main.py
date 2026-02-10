@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from contextlib import suppress
 from contextlib import asynccontextmanager
 from datetime import date
@@ -13,14 +13,31 @@ from sqlmodel import Session, select
 from app.attachments import (
     attachment_to_read,
     create_attachment,
+    ensure_attachment_access,
+    ensure_entity_attachment_access,
     get_attachment_or_404,
     get_presigned_download_url,
     list_attachments_by_entity,
     local_file_path,
 )
-from app.auth import create_access_token, get_current_user_id, get_user_roles, require_roles
+from app.auth import (
+    create_access_token,
+    get_current_user_id,
+    get_user_roles,
+    is_passwordless_login_enabled,
+    require_roles,
+)
 from app.db import engine, get_session, init_db
-from app.enums import ClaimApprovalStatus, ProblemStatus, Role, Scenario, TaskLevel, TaskStatus, UserStatus
+from app.enums import (
+    ClaimApprovalStatus,
+    ProblemStatus,
+    RewardStatus,
+    Role,
+    Scenario,
+    TaskLevel,
+    TaskStatus,
+    UserStatus,
+)
 from app.feishu import (
     consume_oauth_state,
     create_oauth_state,
@@ -66,6 +83,8 @@ from app.schemas import (
     FeishuSyncResult,
     OperationLogRead,
     PersonalSummaryRead,
+    PerformanceReviewRead,
+    PerformanceReviewUpsert,
     PendingAcceptanceRead,
     ProblemCreate,
     ProblemRead,
@@ -105,6 +124,7 @@ from app.services import (
     get_my_profile,
     get_my_summary,
     get_claim_execution_detail,
+    get_performance_review_snapshot,
     get_claim_approval_overdue_threshold,
     get_user_detail,
     get_task_detail,
@@ -125,6 +145,7 @@ from app.services import (
     set_user_status,
     set_claim_approval_overdue_threshold,
     submit_deliverable,
+    upsert_performance_review_snapshot,
     list_claim_approval_requests,
 )
 
@@ -135,7 +156,7 @@ async def lifespan(_: FastAPI):
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.id == 1)).first()
         if existing is None:
-            admin = User(name="系统管理员", employee_no="A0001", department="平台部")
+            admin = User(name="System Admin", employee_no="A0001", department="Platform")
             session.add(admin)
             session.flush()
             for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
@@ -159,7 +180,7 @@ async def lifespan(_: FastAPI):
             await scheduler_task
 
 
-app = FastAPI(title="揭榜挂帅任务管理系统 MVP", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="鎻鎸傚竻浠诲姟绠＄悊绯荤粺 MVP", version="0.1.0", lifespan=lifespan)
 
 cors_origins = [
     item.strip()
@@ -188,6 +209,9 @@ def post_auth_login(
     payload: AuthLoginRequest,
     session: Session = Depends(get_session),
 ) -> AuthLoginResponse:
+    if not is_passwordless_login_enabled():
+        raise HTTPException(status_code=403, detail="passwordless login is disabled")
+
     user: User | None = None
     if payload.user_id is not None:
         user = session.get(User, payload.user_id)
@@ -245,28 +269,31 @@ async def post_attachment_upload(
 def get_attachment_metadata(
     attachment_id: int,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> AttachmentRead:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     return attachment_to_read(attachment)
-
 
 @app.get("/attachments/{attachment_id}/download", response_model=None)
 def get_attachment_download(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> StreamingResponse:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     if attachment.storage_backend == "s3":
         url = get_presigned_download_url(attachment, expires_in=expires_in)
         return RedirectResponse(url=url, status_code=307)
     if attachment.storage_backend != "local":
-        raise HTTPException(status_code=501, detail="不支持的存储后端")
+        raise HTTPException(status_code=501, detail="unsupported storage backend")
     file_path = local_file_path(attachment.object_key)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="附件文件不存在")
+        raise HTTPException(status_code=404, detail="attachment file not found")
     payload = file_path.read_bytes()
     return StreamingResponse(
         iter([payload]),
@@ -277,32 +304,39 @@ def get_attachment_download(
         },
     )
 
-
 @app.get("/attachments/{attachment_id}/presign", response_model=AttachmentPresignRead)
 def get_attachment_presign(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> AttachmentPresignRead:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     if attachment.storage_backend != "s3":
-        raise HTTPException(status_code=400, detail="仅 s3 附件支持预签名")
+        raise HTTPException(status_code=400, detail="presign is only available for s3 attachments")
     url = get_presigned_download_url(attachment, expires_in=expires_in)
     return AttachmentPresignRead(attachment_id=attachment_id, url=url, expires_in=expires_in)
-
 
 @app.get("/entities/{entity_type}/{entity_id}/attachments", response_model=list[AttachmentRead])
 def get_entity_attachments(
     entity_type: str,
     entity_id: int,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> list[AttachmentRead]:
     if entity_type not in {"problem", "deliverable"}:
-        raise HTTPException(status_code=400, detail="entity_type 仅支持 problem 或 deliverable")
+        raise HTTPException(status_code=400, detail="entity_type only supports problem or deliverable")
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_entity_attachment_access(
+        session,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
     return list_attachments_by_entity(session, entity_type=entity_type, entity_id=entity_id)
-
 
 @app.get("/auth/feishu/login-url", response_model=FeishuLoginUrlResponse)
 def get_feishu_login_url(
@@ -415,6 +449,8 @@ def get_problems(
     scenario: Scenario | None = Query(default=None),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[ProblemRead]:
@@ -426,6 +462,8 @@ def get_problems(
         scenario=scenario,
         created_from=created_from,
         created_to=created_to,
+        offset=offset,
+        limit=limit,
     )
 
 
@@ -450,6 +488,8 @@ def get_tasks(
     scenario: Scenario | None = Query(default=None),
     reward_min: float | None = Query(default=None),
     reward_max: float | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> list[TaskRead]:
     return list_tasks(
@@ -459,6 +499,8 @@ def get_tasks(
         scenario=scenario,
         reward_min=reward_min,
         reward_max=reward_max,
+        offset=offset,
+        limit=limit,
     )
 
 
@@ -511,7 +553,7 @@ def get_claims_mine(
         try:
             parsed_status = ClaimStatus(status)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="无效的 claim status") from exc
+            raise HTTPException(status_code=400, detail="鏃犳晥鐨?claim status") from exc
     else:
         parsed_status = None
     return list_my_claims(session, user_id=actor_id, status=parsed_status)
@@ -604,6 +646,38 @@ def get_claim_detail(
     return get_claim_execution_detail(session, actor_id=actor_id, actor_roles=roles, claim_id=claim_id)
 
 
+@app.get("/claims/{claim_id}/performance-review", response_model=PerformanceReviewRead)
+def get_claim_performance_review(
+    claim_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> PerformanceReviewRead:
+    roles = get_user_roles(session, actor_id)
+    return get_performance_review_snapshot(
+        session=session,
+        actor_id=actor_id,
+        actor_roles=roles,
+        claim_id=claim_id,
+    )
+
+
+@app.put("/claims/{claim_id}/performance-review", response_model=PerformanceReviewRead)
+def put_claim_performance_review(
+    claim_id: int,
+    payload: PerformanceReviewUpsert,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> PerformanceReviewRead:
+    roles = get_user_roles(session, actor_id)
+    return upsert_performance_review_snapshot(
+        session=session,
+        actor_id=actor_id,
+        actor_roles=roles,
+        claim_id=claim_id,
+        payload=payload,
+    )
+
+
 @app.post(
     "/claims/{claim_id}/deliverables",
     dependencies=[Depends(rate_limit("deliverable_submit", limit=20, window_seconds=60))],
@@ -651,9 +725,26 @@ def get_pending_acceptance_mine(
 @app.get("/rewards", response_model=list[RewardRead])
 def get_rewards(
     user_id: int | None = Query(default=None),
+    status: str | None = Query(default=None),
+    held_only: bool = Query(default=False),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> list[RewardRead]:
-    return list_rewards(session, user_id=user_id)
+    parsed_status = None
+    if status:
+        try:
+            parsed_status = RewardStatus(status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="鏃犳晥鐨?reward status") from exc
+    return list_rewards(
+        session,
+        user_id=user_id,
+        status=parsed_status,
+        held_only=held_only,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @app.post(
@@ -666,7 +757,8 @@ def post_reward_confirm(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> RewardRead:
-    return confirm_reward(session, actor_id=actor_id, reward_id=reward_id)
+    roles = get_user_roles(session, actor_id)
+    return confirm_reward(session, actor_id=actor_id, actor_roles=roles, reward_id=reward_id)
 
 
 @app.get("/knowledge")
@@ -953,3 +1045,4 @@ def post_release_overdue(
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
     return release_overdue_claims(session, actor_id=actor_id)
+

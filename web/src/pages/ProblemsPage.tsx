@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -29,6 +29,7 @@ type ProblemFilters = {
   created_from: string
   created_to: string
 }
+const problemsPageSize = 20
 
 const defaultForm: ProblemForm = {
   title: '',
@@ -55,10 +56,12 @@ export function ProblemsPage({ userId }: Props) {
   const toast = useToast()
   const [form, setForm] = useState<ProblemForm>(defaultForm)
   const [filters, setFilters] = useState<ProblemFilters>(defaultFilters)
+  const [page, setPage] = useState(1)
   const [list, setList] = useState<Problem[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const hasNext = useMemo(() => list.length === problemsPageSize, [list.length])
 
   const attachmentIds = useMemo(
     () =>
@@ -72,6 +75,8 @@ export function ProblemsPage({ userId }: Props) {
   const buildMineQuery = useCallback(() => {
     const params = new URLSearchParams()
     params.set('mine_only', 'true')
+    params.set('offset', String((Math.max(page, 1) - 1) * problemsPageSize))
+    params.set('limit', String(problemsPageSize))
     if (filters.status) {
       params.set('status', filters.status)
     }
@@ -85,7 +90,7 @@ export function ProblemsPage({ userId }: Props) {
       params.set('created_to', filters.created_to)
     }
     return `/problems?${params.toString()}`
-  }, [filters.created_from, filters.created_to, filters.scenario, filters.status])
+  }, [filters.created_from, filters.created_to, filters.scenario, filters.status, page])
 
   const loadMine = useCallback(async () => {
     setLoading(true)
@@ -94,7 +99,7 @@ export function ProblemsPage({ userId }: Props) {
       setList(rows)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败')
+      setError(err instanceof Error ? err.message : '鍔犺浇澶辫触')
     } finally {
       setLoading(false)
     }
@@ -118,11 +123,15 @@ export function ProblemsPage({ userId }: Props) {
           attachment_urls: [],
         },
       })
-      setMessage('问题已提交')
+      setMessage('Problem submitted')
       setForm(defaultForm)
-      await loadMine()
+      if (page !== 1) {
+        setPage(1)
+      } else {
+        await loadMine()
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '提交失败')
+      setError(err instanceof Error ? err.message : '鎻愪氦澶辫触')
     }
   }
 
@@ -143,12 +152,12 @@ export function ProblemsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>问题提交</h2>
-        <p>把痛点转化为可执行任务，推动立项。</p>
+        <h2>闂鎻愪氦</h2>
+        <p>鎶婄棝鐐硅浆鍖栦负鍙墽琛屼换鍔★紝鎺ㄥ姩绔嬮」銆</p>
       </header>
       <form className="panel form-grid" onSubmit={submit}>
         <label>
-          标题
+          鏍囬
           <input
             value={form.title}
             maxLength={50}
@@ -157,45 +166,45 @@ export function ProblemsPage({ userId }: Props) {
           />
         </label>
         <label>
-          场景
+          鍦烘櫙
           <select
             value={form.scenario}
             onChange={(event) => setForm((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
+            <option value="rd">鐮斿彂</option>
+            <option value="ops">杩愮淮</option>
+            <option value="delivery">浜や粯</option>
+            <option value="support">鏀寔</option>
+            <option value="other">鍏朵粬</option>
           </select>
         </label>
         <label>
-          频率
+          棰戠巼
           <select
             value={form.frequency}
             onChange={(event) => setForm((prev) => ({ ...prev, frequency: event.target.value }))}
           >
-            <option value="daily">每日</option>
-            <option value="weekly">每周</option>
-            <option value="monthly">每月</option>
-            <option value="quarterly">季度</option>
-            <option value="occasional">偶发</option>
+            <option value="daily">姣忔棩</option>
+            <option value="weekly">姣忓懆</option>
+            <option value="monthly">姣忔湀</option>
+            <option value="quarterly">瀛ｅ害</option>
+            <option value="occasional">鍋跺彂</option>
           </select>
         </label>
         <label>
-          影响范围
+          褰卞搷鑼冨洿
           <select
             value={form.impact_scope}
             onChange={(event) => setForm((prev) => ({ ...prev, impact_scope: event.target.value }))}
           >
-            <option value="individual">个人</option>
-            <option value="team">团队</option>
-            <option value="department">部门</option>
-            <option value="company">公司</option>
+            <option value="individual">涓汉</option>
+            <option value="team">鍥㈤槦</option>
+            <option value="department">閮ㄩ棬</option>
+            <option value="company">鍏徃</option>
           </select>
         </label>
         <label className="wide">
-          背景
+          鑳屾櫙
           <textarea
             value={form.background}
             onChange={(event) => setForm((prev) => ({ ...prev, background: event.target.value }))}
@@ -203,7 +212,7 @@ export function ProblemsPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          问题描述
+          闂鎻忚堪
           <textarea
             value={form.description}
             onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
@@ -211,7 +220,7 @@ export function ProblemsPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          价值说明
+          浠峰€艰鏄?
           <textarea
             value={form.value_statement}
             onChange={(event) => setForm((prev) => ({ ...prev, value_statement: event.target.value }))}
@@ -219,11 +228,11 @@ export function ProblemsPage({ userId }: Props) {
           />
         </label>
         <label className="wide">
-          附件 ID（逗号分隔）
+          闄勪欢 ID锛堥€楀彿鍒嗛殧锛?
           <input
             value={form.attachment_ids_text}
             onChange={(event) => setForm((prev) => ({ ...prev, attachment_ids_text: event.target.value }))}
-            placeholder="例如: 1,2,3"
+            placeholder="渚嬪: 1,2,3"
           />
         </label>
         <div className="wide checks">
@@ -238,7 +247,7 @@ export function ProblemsPage({ userId }: Props) {
                 }))
               }
             />
-            降低人力时间
+            闄嶄綆浜哄姏鏃堕棿
           </label>
           <label>
             <input
@@ -251,7 +260,7 @@ export function ProblemsPage({ userId }: Props) {
                 }))
               }
             />
-            降低成本返工
+            闄嶄綆鎴愭湰杩斿伐
           </label>
           <label>
             <input
@@ -264,50 +273,54 @@ export function ProblemsPage({ userId }: Props) {
                 }))
               }
             />
-            改善稳定质量
+            鏀瑰杽绋冲畾璐ㄩ噺
           </label>
         </div>
         <button className="primary-btn" type="submit">
-          提交问题
+          鎻愪氦闂
         </button>
       </form>
       <form
         className="panel form-grid"
         onSubmit={(event) => {
           event.preventDefault()
+          if (page !== 1) {
+            setPage(1)
+            return
+          }
           void loadMine()
         }}
       >
-        <h3>我的问题筛选</h3>
+        <h3>鎴戠殑闂绛涢€</h3>
         <label>
-          状态
+          鐘舵€?
           <select
             value={filters.status}
             onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
           >
-            <option value="">全部</option>
-            <option value="pending_review">待审核</option>
-            <option value="approved">已立项</option>
-            <option value="rejected">不立项</option>
-            <option value="archived">已归档</option>
+            <option value="">鍏ㄩ儴</option>
+            <option value="pending_review">寰呭鏍</option>
+            <option value="approved">宸茬珛椤</option>
+            <option value="rejected">涓嶇珛椤</option>
+            <option value="archived">宸插綊妗</option>
           </select>
         </label>
         <label>
-          场景
+          鍦烘櫙
           <select
             value={filters.scenario}
             onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="">全部</option>
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
+            <option value="">鍏ㄩ儴</option>
+            <option value="rd">鐮斿彂</option>
+            <option value="ops">杩愮淮</option>
+            <option value="delivery">浜や粯</option>
+            <option value="support">鏀寔</option>
+            <option value="other">鍏朵粬</option>
           </select>
         </label>
         <label>
-          起始日期
+          璧峰鏃ユ湡
           <input
             type="date"
             value={filters.created_from}
@@ -315,7 +328,7 @@ export function ProblemsPage({ userId }: Props) {
           />
         </label>
         <label>
-          截止日期
+          鎴鏃ユ湡
           <input
             type="date"
             value={filters.created_to}
@@ -324,33 +337,34 @@ export function ProblemsPage({ userId }: Props) {
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit" disabled={loading}>
-            筛选
+            绛涢€?
           </button>
           <button
             type="button"
             onClick={() => {
               setFilters(defaultFilters)
+              setPage(1)
             }}
             disabled={loading}
           >
-            重置
+            閲嶇疆
           </button>
         </div>
       </form>
       <article className="panel">
         <div className="panel-headline">
-          <h3>我的问题</h3>
+          <h3>鎴戠殑闂</h3>
           <button type="button" onClick={() => void loadMine()} disabled={loading}>
-            刷新
+            鍒锋柊
           </button>
         </div>
         <div className="table">
           <div className="row head">
             <span>ID</span>
-            <span>标题</span>
-            <span>场景</span>
-            <span>状态</span>
-            <span>时间</span>
+            <span>鏍囬</span>
+            <span>鍦烘櫙</span>
+            <span>鐘舵€</span>
+            <span>鏃堕棿</span>
           </div>
           {list.map((item) => (
             <div className="row" key={item.id}>
@@ -362,7 +376,15 @@ export function ProblemsPage({ userId }: Props) {
             </div>
           ))}
         </div>
+        <div className="button-row">
+          <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
+            涓婁竴椤?          </button>
+          <span className="muted">绗?{page} 椤</span>
+          <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
+            涓嬩竴椤?          </button>
+        </div>
       </article>
     </section>
   )
 }
+

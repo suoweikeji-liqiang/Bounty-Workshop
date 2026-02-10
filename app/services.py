@@ -1,18 +1,23 @@
 ﻿from __future__ import annotations
 
 import json
+from decimal import Decimal
+from decimal import ROUND_HALF_UP
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from sqlmodel import Session, select
 
 from app.enums import (
     AcceptanceResult,
+    BaselineResponsibilityStatus,
     ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
+    IncidentSeverity,
+    PerformanceLevel,
     ProblemStatus,
     RewardRoleType,
     RewardStatus,
@@ -31,6 +36,7 @@ from app.models import (
     Deliverable,
     Knowledge,
     OperationLog,
+    PerformanceReviewSnapshot,
     Problem,
     Reward,
     SystemConfig,
@@ -45,6 +51,9 @@ from app.schemas import (
     OperationLogRead,
     PersonalRewardStats,
     PersonalSummaryRead,
+    PerformanceReviewRead,
+    PerformanceReviewSignalInput,
+    PerformanceReviewUpsert,
     ClaimExecutionDetailRead,
     ClaimExecutionRead,
     DashboardOverview,
@@ -67,8 +76,37 @@ def _to_json(data: object) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-def _from_json(data: str) -> list | dict:
+def _from_json(data: str) -> object:
     return json.loads(data)
+
+
+def _from_json_list(data: str) -> list:
+    try:
+        parsed = _from_json(data)
+    except Exception:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _from_json_dict(data: str) -> dict:
+    try:
+        parsed = _from_json(data)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _decimal(value: float | int | str | Decimal) -> Decimal:
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _money_to_cents(value: Decimal) -> int:
+    normalized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return int((normalized * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _cents_to_amount(value: int) -> float:
+    return float((Decimal(value) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def _log(
@@ -110,6 +148,14 @@ def _ensure_role(session: Session, user_id: int, role: Role) -> None:
 CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY = "claim_approval_overdue_threshold"
 DEFAULT_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 2
 MIN_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 1
+PERFORMANCE_LEVEL_SCORE = {
+    PerformanceLevel.R1: 1,
+    PerformanceLevel.R2: 2,
+    PerformanceLevel.R3: 3,
+    PerformanceLevel.R4: 4,
+    PerformanceLevel.R5: 5,
+}
+REWARD_HOLD_FINAL_LEVELS = {PerformanceLevel.R1, PerformanceLevel.R2}
 
 
 def create_user(session: Session, actor_id: int, payload: UserCreate) -> UserRead:
@@ -334,6 +380,8 @@ def list_problems(
     scenario: Scenario | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
+    offset: int = 0,
+    limit: int = 200,
 ) -> list[ProblemRead]:
     statement = select(Problem)
     if mine_only:
@@ -350,7 +398,11 @@ def list_problems(
         statement = statement.where(
             Problem.created_at < datetime.combine(created_to + timedelta(days=1), datetime.min.time())
         )
-    problems = session.exec(statement.order_by(Problem.created_at.desc())).all()
+    safe_offset = max(offset, 0)
+    safe_limit = max(1, min(limit, 200))
+    problems = session.exec(
+        statement.order_by(Problem.created_at.desc()).offset(safe_offset).limit(safe_limit)
+    ).all()
     return [
         ProblemRead(
             id=item.id,
@@ -368,13 +420,19 @@ def review_problem(session: Session, actor_id: int, problem_id: int, payload: Pr
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="问题不存在")
-    if problem.status != ProblemStatus.PENDING_REVIEW:
-        raise HTTPException(status_code=400, detail="仅待审核问题可评审")
 
     if not payload.approve:
-        problem.status = ProblemStatus.REJECTED
-        problem.reject_reason = payload.reject_reason
-        problem.merged_problem_id = payload.merge_to_problem_id
+        updated = session.exec(
+            update(Problem)
+            .where(Problem.id == problem_id, Problem.status == ProblemStatus.PENDING_REVIEW)
+            .values(
+                status=ProblemStatus.REJECTED,
+                reject_reason=payload.reject_reason,
+                merged_problem_id=payload.merge_to_problem_id,
+            )
+        )
+        if (updated.rowcount or 0) < 1:
+            raise HTTPException(status_code=409, detail="problem already reviewed")
         _log(
             session,
             actor_id,
@@ -388,6 +446,18 @@ def review_problem(session: Session, actor_id: int, problem_id: int, payload: Pr
 
     assert payload.task is not None
     _ensure_role(session, payload.task.accepter_id, Role.ACCEPTOR)
+
+    updated = session.exec(
+        update(Problem)
+        .where(Problem.id == problem_id, Problem.status == ProblemStatus.PENDING_REVIEW)
+        .values(
+            status=ProblemStatus.APPROVED,
+            reject_reason=None,
+            merged_problem_id=None,
+        )
+    )
+    if (updated.rowcount or 0) < 1:
+        raise HTTPException(status_code=409, detail="problem already reviewed")
 
     task = Task(
         problem_id=problem.id,
@@ -405,7 +475,6 @@ def review_problem(session: Session, actor_id: int, problem_id: int, payload: Pr
             [item.model_dump() for item in payload.task.acceptance_criteria]
         ),
     )
-    problem.status = ProblemStatus.APPROVED
     session.add(task)
     session.flush()
 
@@ -447,6 +516,8 @@ def list_tasks(
     scenario: Scenario | None = None,
     reward_min: float | None = None,
     reward_max: float | None = None,
+    offset: int = 0,
+    limit: int = 200,
 ) -> list[TaskRead]:
     statement = select(Task, Problem.scenario).join(Problem, Problem.id == Task.problem_id)
     if status is not None:
@@ -460,7 +531,11 @@ def list_tasks(
     if reward_max is not None:
         statement = statement.where(Task.reward_total <= reward_max)
 
-    rows = session.exec(statement.order_by(Task.created_at.desc())).all()
+    safe_offset = max(offset, 0)
+    safe_limit = max(1, min(limit, 200))
+    rows = session.exec(
+        statement.order_by(Task.created_at.desc()).offset(safe_offset).limit(safe_limit)
+    ).all()
     task_ids = [task.id for task, _ in rows]
     active_claim_map: dict[int, int] = {}
     if task_ids:
@@ -492,13 +567,7 @@ def get_task_detail(session: Session, task_id: int) -> TaskDetailRead:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
-    acceptance_criteria: list[dict] = []
-    try:
-        parsed = _from_json(task.acceptance_criteria_json)
-        if isinstance(parsed, list):
-            acceptance_criteria = parsed
-    except Exception:
-        acceptance_criteria = []
+    acceptance_criteria = _from_json_list(task.acceptance_criteria_json)
     return TaskDetailRead(
         id=task.id,
         problem_id=task.problem_id,
@@ -580,27 +649,283 @@ def list_my_pending_acceptance(session: Session, user_id: int) -> list[PendingAc
     return sorted(output, key=lambda item: item.submitted_at, reverse=True)
 
 
-def get_claim_execution_detail(
-    session: Session,
-    actor_id: int,
-    actor_roles: set[Role],
-    claim_id: int,
-) -> ClaimExecutionDetailRead:
+def _load_claim_and_task(session: Session, claim_id: int) -> tuple[Claim, Task]:
     claim = session.get(Claim, claim_id)
     if claim is None:
         raise HTTPException(status_code=404, detail="揭榜记录不存在")
     task = session.get(Task, claim.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
+    return claim, task
 
-    allowed = (
+
+def _has_claim_access(actor_id: int, actor_roles: set[Role], claim: Claim, task: Task) -> bool:
+    return (
         actor_id == claim.lead_user_id
         or actor_id == task.accepter_id
         or Role.ADMIN in actor_roles
         or Role.REVIEWER in actor_roles
     )
-    if not allowed:
+
+
+def _ensure_claim_access(actor_id: int, actor_roles: set[Role], claim: Claim, task: Task) -> None:
+    if not _has_claim_access(actor_id, actor_roles, claim, task):
         raise HTTPException(status_code=403, detail="无权查看该揭榜详情")
+
+
+def _min_performance_level(left: PerformanceLevel, right: PerformanceLevel) -> PerformanceLevel:
+    return left if PERFORMANCE_LEVEL_SCORE[left] <= PERFORMANCE_LEVEL_SCORE[right] else right
+
+
+def _calc_baseline_responsibility_status(
+    signals: PerformanceReviewSignalInput,
+) -> tuple[BaselineResponsibilityStatus, list[str]]:
+    reasons: list[str] = []
+    fault_reasons: list[str] = []
+    normal_reasons: list[str] = []
+
+    if signals.incident_severity == IncidentSeverity.MAJOR and signals.incident_count > 0:
+        fault_reasons.append("发生重大事故（major）")
+    if signals.critical_task_missed_without_reason:
+        fault_reasons.append("关键职责任务遗漏且无正当理由")
+    if signals.process_violation_count > 0:
+        fault_reasons.append(f"流程违规 {signals.process_violation_count} 次")
+    if signals.known_risk_unreported:
+        fault_reasons.append("已知风险未上报")
+    if signals.repeated_issue_count > 0 and signals.repeated_issue_without_improvement:
+        fault_reasons.append("重复性问题跨周期出现且无改进")
+
+    if signals.incident_severity == IncidentSeverity.MINOR and signals.incident_count >= 2:
+        normal_reasons.append(f"轻微事故累计 {signals.incident_count} 次")
+    if signals.missed_deadline_count >= 2:
+        normal_reasons.append(f"非关键任务延期/遗漏累计 {signals.missed_deadline_count} 次")
+    if signals.unjustified_delay_count > 0:
+        normal_reasons.append(f"无合理理由延期 {signals.unjustified_delay_count} 次")
+    if signals.repeated_issue_count > 0 and not signals.repeated_issue_without_improvement:
+        normal_reasons.append(f"重复性问题出现 {signals.repeated_issue_count} 次（已有改进）")
+
+    if fault_reasons:
+        reasons.extend(fault_reasons)
+        return BaselineResponsibilityStatus.FAULT, reasons
+    if normal_reasons:
+        reasons.extend(normal_reasons)
+        return BaselineResponsibilityStatus.NORMAL, reasons
+    return BaselineResponsibilityStatus.GOOD, reasons
+
+
+def _calc_final_r_level(
+    initial_r_level: PerformanceLevel,
+    baseline_status: BaselineResponsibilityStatus,
+    has_t3_plus_task: bool,
+) -> tuple[PerformanceLevel, list[str]]:
+    final_level = initial_r_level
+    fusion_reasons: list[str] = []
+
+    if baseline_status == BaselineResponsibilityStatus.FAULT:
+        final_level = _min_performance_level(final_level, PerformanceLevel.R2)
+        fusion_reasons.append("基础履责为 fault，最终 R 级别下拉至不高于 R2")
+    elif baseline_status == BaselineResponsibilityStatus.NORMAL:
+        normal_cap = PerformanceLevel.R3 if has_t3_plus_task else PerformanceLevel.R2
+        final_level = _min_performance_level(final_level, normal_cap)
+        fusion_reasons.append(f"基础履责为 normal，最终 R 级别不高于 {normal_cap.value}")
+    else:
+        good_cap = PerformanceLevel.R4 if has_t3_plus_task else PerformanceLevel.R3
+        final_level = _min_performance_level(final_level, good_cap)
+        fusion_reasons.append(f"基础履责为 good，最终 R 级别不高于 {good_cap.value}")
+
+    if not has_t3_plus_task:
+        final_level = _min_performance_level(final_level, PerformanceLevel.R3)
+        fusion_reasons.append("无 T3+ 任务，最终 R 级别不高于 R3")
+
+    return final_level, fusion_reasons
+
+
+def _performance_snapshot_to_read(row: PerformanceReviewSnapshot) -> PerformanceReviewRead:
+    baseline_reasons = [str(item) for item in _from_json_list(row.baseline_reasons)]
+
+    return PerformanceReviewRead(
+        claim_id=row.claim_id,
+        task_id=row.task_id,
+        deliverable_id=row.deliverable_id,
+        reviewed_by_user_id=row.reviewed_by_user_id,
+        baseline_responsibility_status=row.baseline_responsibility_status,
+        baseline_reasons=baseline_reasons,
+        incident_severity=row.incident_severity,
+        incident_count=row.incident_count,
+        missed_deadline_count=row.missed_deadline_count,
+        unjustified_delay_count=row.unjustified_delay_count,
+        process_violation_count=row.process_violation_count,
+        known_risk_unreported=row.known_risk_unreported,
+        repeated_issue_count=row.repeated_issue_count,
+        critical_task_missed_without_reason=row.critical_task_missed_without_reason,
+        repeated_issue_without_improvement=row.repeated_issue_without_improvement,
+        has_t3_plus_task=row.has_t3_plus_task,
+        initial_r_level=row.initial_r_level,
+        final_r_level=row.final_r_level,
+        has_fault_warning=row.baseline_responsibility_status == BaselineResponsibilityStatus.FAULT,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _latest_snapshot_by_task_ids(
+    session: Session,
+    task_ids: list[int],
+) -> dict[int, PerformanceReviewSnapshot]:
+    if not task_ids:
+        return {}
+    rows = session.exec(
+        select(PerformanceReviewSnapshot)
+        .where(PerformanceReviewSnapshot.task_id.in_(task_ids))
+        .order_by(PerformanceReviewSnapshot.updated_at.desc())
+    ).all()
+    latest: dict[int, PerformanceReviewSnapshot] = {}
+    for row in rows:
+        if row.task_id not in latest:
+            latest[row.task_id] = row
+    return latest
+
+
+def _reward_hold_reason(
+    reward_role_type: RewardRoleType,
+    snapshot: PerformanceReviewSnapshot | None,
+) -> str | None:
+    if snapshot is None:
+        return None
+    if (
+        reward_role_type == RewardRoleType.EXECUTOR
+        and snapshot.final_r_level in REWARD_HOLD_FINAL_LEVELS
+    ):
+        return (
+            f"终评等级为 {snapshot.final_r_level.value}，执行人激励进入复核冻结；"
+            "仅管理员可确认发放。"
+        )
+    return None
+
+
+def _reward_to_read(
+    reward: Reward,
+    snapshot: PerformanceReviewSnapshot | None,
+) -> RewardRead:
+    hold_reason = _reward_hold_reason(reward.role_type, snapshot)
+    return RewardRead(
+        id=reward.id,
+        task_id=reward.task_id,
+        user_id=reward.user_id,
+        role_type=reward.role_type.value,
+        amount=reward.amount,
+        points=reward.points,
+        badge=reward.badge,
+        status=reward.status.value,
+        confirmed_at=reward.confirmed_at,
+        held_by_performance_policy=hold_reason is not None and reward.status != RewardStatus.CONFIRMED,
+        performance_baseline_status=snapshot.baseline_responsibility_status if snapshot else None,
+        performance_final_r_level=snapshot.final_r_level if snapshot else None,
+        hold_reason=hold_reason,
+    )
+
+
+def get_performance_review_snapshot(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    claim_id: int,
+) -> PerformanceReviewRead:
+    claim, task = _load_claim_and_task(session, claim_id)
+    _ensure_claim_access(actor_id, actor_roles, claim, task)
+
+    row = session.exec(
+        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="终评快照不存在")
+    return _performance_snapshot_to_read(row)
+
+
+def upsert_performance_review_snapshot(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    claim_id: int,
+    payload: PerformanceReviewUpsert,
+) -> PerformanceReviewRead:
+    claim, task = _load_claim_and_task(session, claim_id)
+    if not (
+        actor_id == task.accepter_id or Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles
+    ):
+        raise HTTPException(status_code=403, detail="仅验收人/管理员/评审可录入终评快照")
+
+    baseline_status, baseline_reasons = _calc_baseline_responsibility_status(payload.signals)
+    final_r_level, fusion_reasons = _calc_final_r_level(
+        payload.initial_r_level,
+        baseline_status,
+        payload.has_t3_plus_task,
+    )
+    all_reasons = baseline_reasons + fusion_reasons
+    deliverable = session.exec(select(Deliverable).where(Deliverable.claim_id == claim_id)).first()
+
+    row = session.exec(
+        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
+    ).first()
+    now = datetime.utcnow()
+    if row is None:
+        row = PerformanceReviewSnapshot(
+            claim_id=claim_id,
+            task_id=task.id,
+            deliverable_id=deliverable.id if deliverable else None,
+            reviewed_by_user_id=actor_id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+
+    signals = payload.signals
+    row.task_id = task.id
+    row.deliverable_id = deliverable.id if deliverable else None
+    row.reviewed_by_user_id = actor_id
+    row.baseline_responsibility_status = baseline_status
+    row.baseline_reasons = _to_json(all_reasons)
+    row.incident_severity = signals.incident_severity
+    row.incident_count = signals.incident_count
+    row.missed_deadline_count = signals.missed_deadline_count
+    row.unjustified_delay_count = signals.unjustified_delay_count
+    row.process_violation_count = signals.process_violation_count
+    row.known_risk_unreported = signals.known_risk_unreported
+    row.repeated_issue_count = signals.repeated_issue_count
+    row.critical_task_missed_without_reason = signals.critical_task_missed_without_reason
+    row.repeated_issue_without_improvement = signals.repeated_issue_without_improvement
+    row.has_t3_plus_task = payload.has_t3_plus_task
+    row.initial_r_level = payload.initial_r_level
+    row.final_r_level = final_r_level
+    row.updated_at = now
+
+    _log(
+        session,
+        actor_id,
+        "performance.review.upsert",
+        "claim",
+        claim_id,
+        {
+            "task_id": task.id,
+            "baseline_status": baseline_status.value,
+            "initial_r_level": payload.initial_r_level.value,
+            "final_r_level": final_r_level.value,
+            "has_t3_plus_task": payload.has_t3_plus_task,
+        },
+    )
+    session.commit()
+    session.refresh(row)
+    return _performance_snapshot_to_read(row)
+
+
+def get_claim_execution_detail(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    claim_id: int,
+) -> ClaimExecutionDetailRead:
+    claim, task = _load_claim_and_task(session, claim_id)
+    _ensure_claim_access(actor_id, actor_roles, claim, task)
 
     deliverable = session.exec(select(Deliverable).where(Deliverable.claim_id == claim.id)).first()
     acceptance_history: list[AcceptanceHistoryItem] = []
@@ -619,23 +944,18 @@ def get_claim_execution_detail(
             for item in rows
         ]
 
-    acceptance_criteria = []
-    try:
-        acceptance_criteria = _from_json(task.acceptance_criteria_json)
-    except Exception:
-        acceptance_criteria = []
+    acceptance_criteria = _from_json_list(task.acceptance_criteria_json)
 
     evidence_urls: list[str] = []
     criteria_results: list[str] = []
     if deliverable:
-        try:
-            evidence_urls = list(_from_json(deliverable.evidence_urls))
-        except Exception:
-            evidence_urls = []
-        try:
-            criteria_results = list(_from_json(deliverable.criteria_results_json))
-        except Exception:
-            criteria_results = []
+        evidence_urls = [str(item) for item in _from_json_list(deliverable.evidence_urls)]
+        criteria_results = [str(item) for item in _from_json_list(deliverable.criteria_results_json)]
+
+    performance_row = session.exec(
+        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
+    ).first()
+    performance_review = _performance_snapshot_to_read(performance_row) if performance_row else None
 
     return ClaimExecutionDetailRead(
         claim_id=claim.id,
@@ -648,7 +968,7 @@ def get_claim_execution_detail(
         task_scope=task.scope,
         task_status=task.status.value,
         due_date=task.due_date,
-        acceptance_criteria=acceptance_criteria if isinstance(acceptance_criteria, list) else [],
+        acceptance_criteria=acceptance_criteria,
         deliverable_id=deliverable.id if deliverable else None,
         deliverable_status=deliverable.status.value if deliverable else None,
         deliverable_summary=deliverable.summary if deliverable else None,
@@ -656,6 +976,7 @@ def get_claim_execution_detail(
         criteria_results=criteria_results,
         submitted_at=deliverable.submitted_at if deliverable else None,
         acceptance_history=acceptance_history,
+        performance_review=performance_review,
     )
 
 
@@ -1015,23 +1336,57 @@ def _generate_rewards_and_knowledge(session: Session, task: Task, claim: Claim, 
     if problem is None:
         raise HTTPException(status_code=404, detail="问题不存在")
 
-    proposer_amount = round(task.reward_total * task.proposer_ratio, 2)
-    executors_amount = round(task.reward_total - proposer_amount, 2)
+    total_reward = _decimal(task.reward_total)
+    proposer_ratio = _decimal(task.proposer_ratio)
+    total_cents = _money_to_cents(total_reward)
+    proposer_cents = _money_to_cents(total_reward * proposer_ratio)
+    proposer_cents = max(0, min(proposer_cents, total_cents))
+    executors_total_cents = total_cents - proposer_cents
 
     session.add(
         Reward(
             task_id=task.id,
             user_id=problem.submitter_id,
             role_type=RewardRoleType.PROPOSER,
-            amount=proposer_amount,
+            amount=_cents_to_amount(proposer_cents),
         )
     )
 
     members = session.exec(select(ClaimMember).where(ClaimMember.claim_id == claim.id)).all()
     if not members:
         members = [ClaimMember(claim_id=claim.id, user_id=claim.lead_user_id, ratio=1.0)]
+
+    ordered_indexes = sorted(
+        range(len(members)),
+        key=lambda idx: (
+            _decimal(members[idx].ratio),
+            -int(members[idx].user_id or 0),
+        ),
+        reverse=True,
+    )
+    member_cents: list[int] = []
     for member in members:
-        amount = round(executors_amount * member.ratio, 2)
+        ratio_decimal = _decimal(member.ratio)
+        raw_cents = _decimal(executors_total_cents) * ratio_decimal
+        member_cents.append(
+            int(raw_cents.to_integral_value(rounding=ROUND_HALF_UP))
+        )
+
+    diff = executors_total_cents - sum(member_cents)
+    if member_cents and diff != 0:
+        step = 1 if diff > 0 else -1
+        cursor = 0
+        while diff != 0:
+            target_idx = ordered_indexes[cursor % len(ordered_indexes)]
+            if step < 0 and member_cents[target_idx] <= 0:
+                cursor += 1
+                continue
+            member_cents[target_idx] += step
+            diff -= step
+            cursor += 1
+
+    for idx, member in enumerate(members):
+        amount = _cents_to_amount(member_cents[idx])
         session.add(
             Reward(
                 task_id=task.id,
@@ -1089,7 +1444,18 @@ def accept_deliverable(
     elif result == AcceptanceResult.REJECTED:
         deliverable.status = DeliverableStatus.REJECTED
         claim.status = ClaimStatus.ABANDONED
-        task.status = TaskStatus.OPEN
+        active_claims = int(
+            session.exec(
+                select(func.count())
+                .select_from(Claim)
+                .where(
+                    Claim.task_id == task.id,
+                    Claim.status == ClaimStatus.ACTIVE,
+                    Claim.id != claim.id,
+                )
+            ).one()
+        )
+        task.status = TaskStatus.IN_PROGRESS if active_claims > 0 else TaskStatus.OPEN
     else:
         deliverable.status = DeliverableStatus.APPROVED
         claim.status = ClaimStatus.COMPLETED
@@ -1108,31 +1474,48 @@ def accept_deliverable(
     return {"deliverable_id": deliverable_id, "result": result.value, "task_status": task.status.value}
 
 
-def list_rewards(session: Session, user_id: int | None = None) -> list[RewardRead]:
+def list_rewards(
+    session: Session,
+    user_id: int | None = None,
+    status: RewardStatus | None = None,
+    held_only: bool = False,
+    offset: int = 0,
+    limit: int = 200,
+) -> list[RewardRead]:
     statement = select(Reward)
     if user_id is not None:
         statement = statement.where(Reward.user_id == user_id)
-    rows = session.exec(statement.order_by(Reward.created_at.desc())).all()
-    return [
-        RewardRead(
-            id=row.id,
-            task_id=row.task_id,
-            user_id=row.user_id,
-            role_type=row.role_type.value,
-            amount=row.amount,
-            points=row.points,
-            badge=row.badge,
-            status=row.status.value,
-            confirmed_at=row.confirmed_at,
-        )
-        for row in rows
-    ]
+    if status is not None:
+        statement = statement.where(Reward.status == status)
+    safe_offset = max(offset, 0)
+    safe_limit = max(1, min(limit, 200))
+    rows = session.exec(
+        statement.order_by(Reward.created_at.desc()).offset(safe_offset).limit(safe_limit)
+    ).all()
+    snapshot_map = _latest_snapshot_by_task_ids(session, [row.task_id for row in rows if row.task_id is not None])
+    output = [_reward_to_read(row, snapshot_map.get(row.task_id)) for row in rows]
+    if held_only:
+        output = [row for row in output if row.held_by_performance_policy]
+    return output
 
 
-def confirm_reward(session: Session, actor_id: int, reward_id: int) -> RewardRead:
+def confirm_reward(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    reward_id: int,
+) -> RewardRead:
     reward = session.get(Reward, reward_id)
     if reward is None:
         raise HTTPException(status_code=404, detail="激励记录不存在")
+    snapshot = session.exec(
+        select(PerformanceReviewSnapshot)
+        .where(PerformanceReviewSnapshot.task_id == reward.task_id)
+        .order_by(PerformanceReviewSnapshot.updated_at.desc())
+    ).first()
+    hold_reason = _reward_hold_reason(reward.role_type, snapshot)
+    if hold_reason and Role.ADMIN not in actor_roles:
+        raise HTTPException(status_code=403, detail=hold_reason)
     reward.status = RewardStatus.CONFIRMED
     reward.confirmed_at = datetime.utcnow()
     _log(
@@ -1141,31 +1524,18 @@ def confirm_reward(session: Session, actor_id: int, reward_id: int) -> RewardRea
         "reward.confirm",
         "reward",
         reward_id,
-        {"task_id": reward.task_id},
+        {
+            "task_id": reward.task_id,
+            "held_override": bool(hold_reason and Role.ADMIN in actor_roles),
+        },
     )
     session.commit()
     session.refresh(reward)
-    return RewardRead(
-        id=reward.id,
-        task_id=reward.task_id,
-        user_id=reward.user_id,
-        role_type=reward.role_type.value,
-        amount=reward.amount,
-        points=reward.points,
-        badge=reward.badge,
-        status=reward.status.value,
-        confirmed_at=reward.confirmed_at,
-    )
+    return _reward_to_read(reward, snapshot)
 
 
 def _knowledge_to_dict(item: Knowledge) -> dict:
-    tags: list[str] = []
-    try:
-        parsed = _from_json(item.tags)
-        if isinstance(parsed, list):
-            tags = [str(tag) for tag in parsed]
-    except Exception:
-        tags = []
+    tags = [str(tag) for tag in _from_json_list(item.tags)]
     scenario = tags[0] if len(tags) > 0 else None
     level = tags[1] if len(tags) > 1 else None
     return {
@@ -1181,6 +1551,10 @@ def _knowledge_to_dict(item: Knowledge) -> dict:
     }
 
 
+def _escape_like(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def list_knowledge(
     session: Session,
     keyword: str | None = None,
@@ -1194,18 +1568,19 @@ def list_knowledge(
     if keyword:
         needle = keyword.strip().lower()
         if needle:
-            like_value = f"%{needle}%"
+            escaped = _escape_like(needle)
+            like_value = f"%{escaped}%"
             statement = statement.where(
                 or_(
-                    func.lower(Knowledge.problem_summary).like(like_value),
-                    func.lower(Knowledge.solution_summary).like(like_value),
-                    func.lower(Knowledge.tags).like(like_value),
+                    func.lower(Knowledge.problem_summary).like(like_value, escape="\\"),
+                    func.lower(Knowledge.solution_summary).like(like_value, escape="\\"),
+                    func.lower(Knowledge.tags).like(like_value, escape="\\"),
                 )
             )
     if scenario:
-        statement = statement.where(Knowledge.tags.like(f'%"{scenario}"%'))
+        statement = statement.where(Knowledge.tags.like(f'%"{_escape_like(scenario)}"%', escape="\\"))
     if level:
-        statement = statement.where(Knowledge.tags.like(f'%"{level}"%'))
+        statement = statement.where(Knowledge.tags.like(f'%"{_escape_like(level)}"%', escape="\\"))
     if recommended is not None:
         statement = statement.where(Knowledge.recommended == recommended)
 
@@ -1249,13 +1624,7 @@ def list_operation_logs(
     rows = session.exec(statement.order_by(OperationLog.created_at.desc()).limit(max(1, min(limit, 1000)))).all()
     output: list[OperationLogRead] = []
     for row in rows:
-        detail: dict = {}
-        try:
-            parsed = _from_json(row.detail)
-            if isinstance(parsed, dict):
-                detail = parsed
-        except Exception:
-            detail = {}
+        detail = _from_json_dict(row.detail)
         output.append(
             OperationLogRead(
                 id=row.id,
@@ -1270,16 +1639,24 @@ def list_operation_logs(
     return output
 
 
-def release_overdue_claims(session: Session, actor_id: int | None = None) -> dict:
-    today = date.today()
-    claims = session.exec(select(Claim).where(Claim.status == ClaimStatus.ACTIVE)).all()
+def release_overdue_claims(
+    session: Session,
+    actor_id: int | None = None,
+    today: date | None = None,
+) -> dict:
+    # Boundary rule: only tasks with due_date strictly before today are overdue.
+    current_day = today or date.today()
+    rows = session.exec(
+        select(Claim, Task)
+        .join(Task, Task.id == Claim.task_id)
+        .where(
+            Claim.status == ClaimStatus.ACTIVE,
+            Task.status != TaskStatus.COMPLETED,
+            Task.due_date < current_day,
+        )
+    ).all()
     released = 0
-    for claim in claims:
-        task = session.get(Task, claim.task_id)
-        if task is None or task.status == TaskStatus.COMPLETED:
-            continue
-        if task.due_date >= today:
-            continue
+    for claim, task in rows:
         claim.status = ClaimStatus.OVERDUE
         task.status = TaskStatus.OPEN
         lead = session.get(User, claim.lead_user_id)
@@ -1292,10 +1669,10 @@ def release_overdue_claims(session: Session, actor_id: int | None = None) -> dic
             "task.release.overdue",
             "claim",
             claim.id,
-            {"task_id": task.id},
+            {"task_id": task.id, "rule": "due_date < today"},
         )
     session.commit()
-    return {"released_claims": released}
+    return {"released_claims": released, "rule": "due_date < today"}
 
 
 def dashboard_overview(session: Session) -> DashboardOverview:
@@ -1313,6 +1690,29 @@ def dashboard_overview(session: Session) -> DashboardOverview:
     reward_total_confirmed_amount = session.exec(
         select(func.coalesce(func.sum(Reward.amount), 0.0)).where(Reward.status == RewardStatus.CONFIRMED)
     ).one()
+    snapshot_rows = session.exec(select(PerformanceReviewSnapshot)).all()
+    performance_review_count = len(snapshot_rows)
+    performance_fault_count = sum(
+        1
+        for row in snapshot_rows
+        if row.baseline_responsibility_status == BaselineResponsibilityStatus.FAULT
+    )
+    hold_task_ids = {
+        row.task_id for row in snapshot_rows if row.final_r_level in REWARD_HOLD_FINAL_LEVELS
+    }
+    reward_hold_count = 0
+    if hold_task_ids:
+        reward_hold_count = int(
+            session.exec(
+                select(func.count())
+                .select_from(Reward)
+                .where(
+                    Reward.task_id.in_(hold_task_ids),
+                    Reward.role_type == RewardRoleType.EXECUTOR,
+                    Reward.status == RewardStatus.GENERATED,
+                )
+            ).one()
+        )
     completion_rate = (int(task_completed) / int(task_total)) if int(task_total) > 0 else 0.0
     overdue_rate = (int(task_overdue_claims) / int(task_total)) if int(task_total) > 0 else 0.0
 
@@ -1325,4 +1725,7 @@ def dashboard_overview(session: Session) -> DashboardOverview:
         task_completion_rate=round(completion_rate, 4),
         task_overdue_rate=round(overdue_rate, 4),
         reward_total_confirmed_amount=float(reward_total_confirmed_amount or 0.0),
+        performance_review_count=performance_review_count,
+        performance_fault_count=performance_fault_count,
+        reward_hold_count=reward_hold_count,
     )

@@ -8,6 +8,7 @@
 - 定时作业：后台定时执行超期释放与飞书同步（均支持频率配置）
 - 看板：总览、排行榜、趋势、分布
 - 导出：任务/激励/知识/看板导出（Excel），知识导出（PDF）
+- 终评联动：基础履责终评快照、看板分布扩展、导出附带终评字段、激励发放策略联动
 
 ## 技术栈
 
@@ -102,11 +103,13 @@ npm run dev
   - `POST /tasks/{task_id}/claims`
   - `GET /claims/mine`
   - `GET /claims/{claim_id}/detail`
+  - `GET /claims/{claim_id}/performance-review`
+  - `PUT /claims/{claim_id}/performance-review`
   - `POST /claims/{claim_id}/deliverables`
   - `GET /deliverables/pending-acceptance/mine`
   - `POST /deliverables/{deliverable_id}/accept`
 - 激励与知识
-  - `GET /rewards`
+  - `GET /rewards`（支持 `user_id/status/held_only`）
   - `POST /rewards/{reward_id}/confirm`
   - `GET /knowledge`（支持 `keyword/scenario/level/recommended` 筛选）
   - `GET /knowledge/{knowledge_id}`
@@ -125,13 +128,20 @@ npm run dev
   - `POST /jobs/release-overdue`
   - `GET /health`
 
+终评联动说明：
+
+- 若终评 `final_r_level` 为 `R1/R2`，执行人（`executor`）激励默认进入复核冻结。
+- `reviewer` 无法确认冻结激励；`admin` 可执行复核确认。
+- 看板新增终评相关指标：终评快照数、失职快照数、激励冻结数；分布新增基础履责分布与终评 R 分布。
+- 前端新增“激励复核”页面，用于查看冻结激励并执行复核确认。
+
 ## 测试
 
 ```bash
 pytest -q
 ```
 
-当前结果：`9 passed`
+当前结果：`13 passed`
 
 前端端到端回归（Playwright）：
 
