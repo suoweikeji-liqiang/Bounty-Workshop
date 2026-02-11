@@ -276,6 +276,12 @@ a:hover {
   color: var(--text-muted);
 }
 
+.sidenav-group-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .sidenav a::before {
   content: '';
   position: absolute;
@@ -307,6 +313,7 @@ a:hover {
 .main-area {
   display: grid;
   min-height: 0;
+  align-items: start;
 }
 
 .page-wrap {
@@ -316,16 +323,20 @@ a:hover {
   box-shadow: var(--shadow-md);
   padding: 28px;
   display: grid;
+  align-content: start;
   gap: 20px;
   animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .page-head {
-  padding-bottom: 16px;
+  min-height: 72px;
+  max-height: 92px;
+  overflow: hidden;
+  padding-bottom: 12px;
   border-bottom: 2px solid var(--border-color);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   gap: 16px;
 }
 
@@ -338,10 +349,15 @@ a:hover {
 }
 
 .page-head p {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.5;
+  max-width: 560px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 
 .kpi-grid {
@@ -870,36 +886,59 @@ button:disabled {
 .personal-hero {
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px 22px;
   background: var(--gradient-card);
   box-shadow: var(--shadow-md);
   position: relative;
   z-index: 1;
+  display: grid;
+  gap: 10px;
 }
 
 .personal-kicker {
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
 }
 
 .personal-hero h3 {
-  margin: 8px 0 12px;
+  margin: 0;
   font-weight: 800;
   letter-spacing: -0.02em;
-  font-size: 36px;
+  font-size: clamp(32px, 4vw, 44px);
   color: var(--text-primary);
+}
+
+.personal-id-line {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 16px;
 }
 
 .personal-meta {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  font-size: 13px;
+}
+
+.personal-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: rgba(255, 255, 255, 0.7);
   color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.personal-meta-pill b {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .personal-kpis {
@@ -949,8 +988,39 @@ button:disabled {
   grid-template-columns: 90px 180px 1.2fr 90px 140px 2fr;
 }
 
+.guide-page {
+  gap: 16px;
+}
+
+.guide-card {
+  gap: 12px;
+}
+
+.guide-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.guide-row {
+  grid-template-columns: 220px 1fr;
+}
+
+.guide-level-row {
+  grid-template-columns: 100px 220px 1fr;
+}
+
 .muted {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .toast-stack {

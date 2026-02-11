@@ -13,6 +13,7 @@ import { PersonalCenterPage } from './pages/PersonalCenterPage'
 import { ProblemsPage } from './pages/ProblemsPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { SystemConfigPage } from './pages/SystemConfigPage'
+import { SystemGuidePage } from './pages/SystemGuidePage'
 import { TaskHallPage } from './pages/TaskHallPage'
 import { UsersPage } from './pages/UsersPage'
 import type { UserProfile } from './types'
@@ -78,22 +79,29 @@ export default function App(props: Props) {
       <TopBar onLogout={props.onLogout} />
       <div className="content-shell">
         <aside className="sidenav">
+          <p className="sidenav-group-title">业务操作</p>
           <NavLink to="/" end>
             看板
           </NavLink>
-          <NavLink to="/personal">个人中心</NavLink>
-          <NavLink to="/change-password">修改密码</NavLink>
           <NavLink to="/problems">问题提报</NavLink>
           {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核工作台</NavLink>}
           <NavLink to="/tasks">任务大厅</NavLink>
           <NavLink to="/claim-approvals">揭榜审批</NavLink>
           <NavLink to="/execution">执行闭环</NavLink>
           <NavLink to="/knowledge">知识库</NavLink>
+
+          <p className="sidenav-group-title">个人操作</p>
+          <NavLink to="/personal">个人中心</NavLink>
+          <NavLink to="/change-password">修改密码</NavLink>
+
+          <p className="sidenav-group-title">设置操作</p>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
-          {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
-          {isAdmin && <NavLink to="/users">角色分配</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
-          <p className="sidenav-group-title">工具</p>
+          {isAdmin && <NavLink to="/users">角色分配</NavLink>}
+          {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
+
+          <p className="sidenav-group-title">帮助与工具</p>
+          <NavLink to="/guide">系统说明</NavLink>
           <NavLink to="/attachments">附件中心</NavLink>
         </aside>
         <main className="main-area">
@@ -117,6 +125,7 @@ export default function App(props: Props) {
             />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
+            <Route path="/guide" element={<SystemGuidePage />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
             <Route
               path="/operation-logs"

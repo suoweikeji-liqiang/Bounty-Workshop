@@ -8,6 +8,44 @@ type Props = {
   userId: number
 }
 
+const roleLabelMap: Record<string, string> = {
+  admin: '管理员',
+  reviewer: '评审',
+  acceptor: '验收人',
+  employee: '员工',
+}
+
+const userStatusLabelMap: Record<string, string> = {
+  enabled: '启用',
+  disabled: '禁用',
+}
+
+const rewardRoleLabelMap: Record<string, string> = {
+  proposer: '问题提出人',
+  executor: '执行人',
+}
+
+const rewardStatusLabelMap: Record<string, string> = {
+  generated: '待确认',
+  confirmed: '已确认',
+}
+
+function formatRole(role: string) {
+  return roleLabelMap[role] ?? role
+}
+
+function formatUserStatus(status: string) {
+  return userStatusLabelMap[status] ?? status
+}
+
+function formatRewardRole(roleType: string) {
+  return rewardRoleLabelMap[roleType] ?? roleType
+}
+
+function formatRewardStatus(status: string) {
+  return rewardStatusLabelMap[status] ?? status
+}
+
 export function PersonalCenterPage({ userId }: Props) {
   const toast = useToast()
   const [summary, setSummary] = useState<PersonalSummary | null>(null)
@@ -59,15 +97,24 @@ export function PersonalCenterPage({ userId }: Props) {
           <article className="personal-hero">
             <p className="personal-kicker">当前账号</p>
             <h3>{summary.user.name}</h3>
-            <p className="muted">
+            <p className="personal-id-line">
               #{summary.user.id}
               {summary.user.department ? ` | ${summary.user.department}` : ''}
-              {summary.user.employee_no ? ` | ${summary.user.employee_no}` : ''}
+              {summary.user.employee_no ? ` | 工号 ${summary.user.employee_no}` : ''}
             </p>
             <div className="personal-meta">
-              <span>状态：{summary.user.status}</span>
-              <span>超期次数：{summary.user.overdue_count}</span>
-              <span>角色：{summary.user.roles.join(', ')}</span>
+              <span className="personal-meta-pill">
+                <b>状态</b>
+                {formatUserStatus(summary.user.status)}
+              </span>
+              <span className="personal-meta-pill">
+                <b>超期次数</b>
+                {summary.user.overdue_count}
+              </span>
+              <span className="personal-meta-pill">
+                <b>角色</b>
+                {summary.user.roles.map(formatRole).join('、')}
+              </span>
             </div>
           </article>
 
@@ -129,11 +176,11 @@ export function PersonalCenterPage({ userId }: Props) {
                   <div className="row wide-row personal-row" key={item.id}>
                     <span>#{item.id}</span>
                     <span>#{item.task_id}</span>
-                    <span>{item.role_type}</span>
+                    <span>{formatRewardRole(item.role_type)}</span>
                     <span>¥ {item.amount.toFixed(2)}</span>
                     <span>{item.points}</span>
                     <span>{item.badge ?? '-'}</span>
-                    <span>{item.status}</span>
+                    <span>{formatRewardStatus(item.status)}</span>
                     <span>{item.confirmed_at ? new Date(item.confirmed_at).toLocaleString() : '-'}</span>
                   </div>
                 ))}
