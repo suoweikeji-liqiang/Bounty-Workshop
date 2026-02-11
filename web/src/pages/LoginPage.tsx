@@ -62,46 +62,34 @@ export function LoginPage({ onLogin }: Props) {
       <article className="login-card">
         <p className="kicker">揭榜挂帅工坊</p>
         <h1>登录</h1>
-        
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-          <button
-            type="button"
-            className={mode === 'feishu' ? 'primary-btn' : 'ghost-btn'}
-            onClick={() => setMode('feishu')}
-            style={{ flex: 1 }}
-          >
-            员工登录
-          </button>
-          <button
-            type="button"
-            className={mode === 'admin' ? 'primary-btn' : 'ghost-btn'}
-            onClick={() => setMode('admin')}
-            style={{ flex: 1 }}
-          >
-            管理员登录
-          </button>
-        </div>
 
         {mode === 'feishu' ? (
           <div>
             <p className="muted">
-              点击下方按钮使用飞书账号登录，首次登录将自动创建账号。
+              员工使用飞书账号登录，首次登录会自动创建账号；角色权限由管理员在角色分配页调整。
             </p>
-            <button 
-              className="primary-btn" 
-              type="button" 
-              onClick={() => void loginByFeishu()} 
+            <button
+              className="primary-btn"
+              type="button"
+              onClick={() => void loginByFeishu()}
               disabled={loading}
               style={{ width: '100%' }}
             >
               {loading ? '跳转中...' : '使用飞书登录'}
             </button>
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={() => setMode('admin')}
+              disabled={loading}
+              style={{ width: '100%', marginTop: '10px' }}
+            >
+              管理员入口（初始化/应急）
+            </button>
           </div>
         ) : (
           <form className="form-grid" onSubmit={submitAdminLogin}>
-            <p className="muted">
-              仅限管理员使用账号密码登录。
-            </p>
+            <p className="muted">仅用于首次初始化或飞书异常时应急登录。</p>
             <label className="wide">
               用户名
               <input
@@ -125,6 +113,14 @@ export function LoginPage({ onLogin }: Props) {
             </label>
             <button className="primary-btn wide" type="submit" disabled={loading}>
               {loading ? '登录中...' : '登录'}
+            </button>
+            <button
+              className="ghost-btn wide"
+              type="button"
+              onClick={() => setMode('feishu')}
+              disabled={loading}
+            >
+              返回飞书登录
             </button>
           </form>
         )}

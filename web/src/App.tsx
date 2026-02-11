@@ -91,7 +91,7 @@ export default function App(props: Props) {
           <NavLink to="/knowledge">知识库</NavLink>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
           {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
-          {isAdmin && <NavLink to="/users">用户管理</NavLink>}
+          {isAdmin && <NavLink to="/users">角色分配</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
           <p className="sidenav-group-title">工具</p>
           <NavLink to="/attachments">附件中心</NavLink>
