@@ -4,6 +4,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { apiBaseUrl } from './lib/http'
 import { hasAnyRole } from './lib/roles'
 import { AttachmentsPage } from './pages/AttachmentsPage'
+import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ClaimApprovalPage } from './pages/ClaimApprovalPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
@@ -82,6 +83,7 @@ export default function App(props: Props) {
             看板
           </NavLink>
           <NavLink to="/personal">个人中心</NavLink>
+          <NavLink to="/change-password">修改密码</NavLink>
           <NavLink to="/problems">问题提报</NavLink>
           {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核工作台</NavLink>}
           <NavLink to="/tasks">任务大厅</NavLink>
@@ -99,6 +101,7 @@ export default function App(props: Props) {
           <Routes>
             <Route path="/" element={<DashboardPage userId={userId} />} />
             <Route path="/personal" element={<PersonalCenterPage userId={userId} />} />
+            <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="/problems" element={<ProblemsPage userId={userId} />} />
             <Route
               path="/review"

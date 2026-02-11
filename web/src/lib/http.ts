@@ -1,4 +1,4 @@
-const defaultBaseUrl = 'http://127.0.0.1:8000'
+const defaultBaseUrl = 'http://localhost:8000'
 const authTokenStorageKey = 'bw_access_token'
 
 export const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? defaultBaseUrl

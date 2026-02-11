@@ -1,43 +1,28 @@
-﻿import asyncio
+import asyncio
+
 from contextlib import suppress
 from contextlib import asynccontextmanager
 from datetime import date
 import os
 
-from fastapi import Depends, FastAPI, File, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Query, UploadFile, Request
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel import Session, select
+import bcrypt
 
 from app.attachments import (
     attachment_to_read,
     create_attachment,
-    ensure_attachment_access,
-    ensure_entity_attachment_access,
     get_attachment_or_404,
     get_presigned_download_url,
     list_attachments_by_entity,
     local_file_path,
 )
-from app.auth import (
-    create_access_token,
-    get_current_user_id,
-    get_user_roles,
-    is_passwordless_login_enabled,
-    require_roles,
-)
+from app.auth import create_access_token, get_current_user_id, get_user_roles, require_roles
 from app.db import engine, get_session, init_db
-from app.enums import (
-    ClaimApprovalStatus,
-    ProblemStatus,
-    RewardStatus,
-    Role,
-    Scenario,
-    TaskLevel,
-    TaskStatus,
-    UserStatus,
-)
+from app.enums import ClaimApprovalStatus, ProblemStatus, Role, Scenario, TaskLevel, TaskStatus, UserStatus
 from app.feishu import (
     consume_oauth_state,
     create_oauth_state,
@@ -62,11 +47,13 @@ from app.rate_limit import rate_limit
 from app.models import User, UserRole
 from app.schemas import (
     AcceptanceCreate,
+    AdminLoginRequest,
+    ChangePasswordRequest,
+    SetPasswordRequest,
     ClaimApprovalThresholdConfig,
     ClaimApprovalRequestRead,
     ClaimApprovalReviewInput,
     AcceptanceTemplatesConfig,
-    AuthLoginRequest,
     AuthLoginResponse,
     ClaimCreate,
     ClaimExecutionDetailRead,
@@ -83,8 +70,6 @@ from app.schemas import (
     FeishuSyncResult,
     OperationLogRead,
     PersonalSummaryRead,
-    PerformanceReviewRead,
-    PerformanceReviewUpsert,
     PendingAcceptanceRead,
     ProblemCreate,
     ProblemRead,
@@ -124,7 +109,6 @@ from app.services import (
     get_my_profile,
     get_my_summary,
     get_claim_execution_detail,
-    get_performance_review_snapshot,
     get_claim_approval_overdue_threshold,
     get_user_detail,
     get_task_detail,
@@ -145,7 +129,6 @@ from app.services import (
     set_user_status,
     set_claim_approval_overdue_threshold,
     submit_deliverable,
-    upsert_performance_review_snapshot,
     list_claim_approval_requests,
 )
 
@@ -156,12 +139,23 @@ async def lifespan(_: FastAPI):
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.id == 1)).first()
         if existing is None:
-            admin = User(name="System Admin", employee_no="A0001", department="Platform")
+            # 创建初始管理员，设置默认密码
+            password_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
+            admin = User(
+                name="系统管理员",
+                employee_no="admin",
+                department="平台部",
+                password_hash=password_hash
+            )
             session.add(admin)
             session.flush()
             for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
                 session.add(UserRole(user_id=admin.id, role=role))
             session.commit()
+            print("[WARN] 初始管理员已创建：")
+            print("   用户名: admin")
+            print("   密码: admin123")
+            print("   请登录后立即修改密码！")
     stop_event = asyncio.Event()
     scheduler_tasks: list[asyncio.Task] = []
     if is_background_jobs_enabled():
@@ -180,7 +174,18 @@ async def lifespan(_: FastAPI):
             await scheduler_task
 
 
-app = FastAPI(title="鎻鎸傚竻浠诲姟绠＄悊绯荤粺 MVP", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="揭榜挂帅任务管理系统 MVP", version="0.1.0", lifespan=lifespan)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    try:
+        print(f"[REQ] {request.method} {request.url}")
+        response = await call_next(request)
+        print(f"[RESP] {response.status_code}")
+        return response
+    except Exception as e:
+        print(f"[ERROR] Error processing request: {e}")
+        raise
 
 cors_origins = [
     item.strip()
@@ -204,32 +209,126 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/auth/login", response_model=AuthLoginResponse)
-def post_auth_login(
-    payload: AuthLoginRequest,
+@app.post("/auth/admin/login", response_model=AuthLoginResponse)
+def post_admin_login(
+    payload: AdminLoginRequest,
     session: Session = Depends(get_session),
 ) -> AuthLoginResponse:
-    if not is_passwordless_login_enabled():
-        raise HTTPException(status_code=403, detail="passwordless login is disabled")
-
-    user: User | None = None
-    if payload.user_id is not None:
-        user = session.get(User, payload.user_id)
-    elif payload.employee_no:
-        employee_no = payload.employee_no.strip()
-        if employee_no:
-            user = session.exec(select(User).where(User.employee_no == employee_no)).first()
+    """管理员账号密码登录（含失败次数限制）"""
+    from datetime import datetime, timedelta
+    
+    # 查找用户（支持employee_no或email）
+    user = session.exec(
+        select(User).where(
+            (User.employee_no == payload.username) | (User.email == payload.username)
+        )
+    ).first()
+    
     if user is None:
-        raise HTTPException(status_code=404, detail="user not found")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    
+    # 检查账号锁定状态
+    if user.locked_until and user.locked_until > datetime.utcnow():
+        remaining = int((user.locked_until - datetime.utcnow()).total_seconds() / 60)
+        raise HTTPException(
+            status_code=403, 
+            detail=f"账号已被锁定，请{remaining}分钟后再试"
+        )
+    
+    # 检查用户状态
     if user.status == UserStatus.DISABLED:
-        raise HTTPException(status_code=403, detail="user is disabled")
+        raise HTTPException(status_code=403, detail="账号已被禁用")
+    
+    # 验证密码
+    if not user.password_hash:
+        raise HTTPException(status_code=401, detail="该账号未设置密码，请使用飞书登录")
+    
+    password_valid = bcrypt.checkpw(payload.password.encode(), user.password_hash.encode())
+    
+    if not password_valid:
+        # 登录失败：增加失败次数
+        user.failed_login_attempts += 1
+        
+        # 超过5次失败，锁定账号30分钟
+        MAX_ATTEMPTS = 5
+        LOCKOUT_MINUTES = 30
+        
+        if user.failed_login_attempts >= MAX_ATTEMPTS:
+            user.locked_until = datetime.utcnow() + timedelta(minutes=LOCKOUT_MINUTES)
 
+            # 记录审计日志
+            _log_auth_event(session, user.id, "login_locked", {
+                "username": payload.username,
+                "failed_attempts": user.failed_login_attempts,
+                "locked_until": user.locked_until.isoformat()
+            })
+            session.add(user)
+            session.commit()
+            
+            raise HTTPException(
+                status_code=403,
+                detail=f"登录失败次数过多，账号已被锁定{LOCKOUT_MINUTES}分钟"
+            )
+        
+        # 记录失败日志
+        _log_auth_event(session, user.id, "login_failed", {
+            "username": payload.username,
+            "failed_attempts": user.failed_login_attempts,
+            "remaining_attempts": MAX_ATTEMPTS - user.failed_login_attempts
+        })
+        session.add(user)
+        session.commit()
+        
+        raise HTTPException(
+            status_code=401,
+            detail=f"用户名或密码错误，剩余尝试次数：{MAX_ATTEMPTS - user.failed_login_attempts}"
+        )
+    
+    # 检查是否为管理员
+    user_roles = session.exec(select(UserRole).where(UserRole.user_id == user.id)).all()
+    roles = [ur.role for ur in user_roles]
+    if Role.ADMIN not in roles:
+        raise HTTPException(status_code=403, detail="该账号无管理员权限")
+    
+    # 登录成功：清除失败次数和锁定状态
+    user.failed_login_attempts = 0
+    user.locked_until = None
+
+    # 记录成功登录日志
+    _log_auth_event(session, user.id, "login_success", {
+        "username": payload.username,
+        "roles": [r.value for r in roles]
+    })
+    session.add(user)
+    session.commit()
+    
+    # 检查是否需要强制修改密码
+    response_user = get_my_profile(session, user.id)
+    if user.force_password_change:
+        response_user.__dict__['force_password_change'] = True  # 临时添加标记
+    
     access_token, expires_in = create_access_token(user.id)
     return AuthLoginResponse(
         access_token=access_token,
         expires_in=expires_in,
-        user=get_my_profile(session, user.id),
+        user=response_user,
     )
+
+
+def _log_auth_event(session: Session, user_id: int, event_type: str, details: dict) -> None:
+    """记录认证审计日志"""
+    from app.models import OperationLog
+    from app.services import _to_json
+    
+    log = OperationLog(
+        actor_user_id=user_id,
+        action=f"auth.{event_type}",
+        target_type="auth",
+        target_id=user_id,
+        detail=_to_json(details),
+    )
+    session.add(log)
+    # 不在这里commit，由调用方统一commit
 
 
 @app.get("/me", response_model=UserRead)
@@ -238,6 +337,85 @@ def get_me(
     actor_id: int = Depends(get_current_user_id),
 ) -> UserRead:
     return get_my_profile(session, actor_id)
+
+
+@app.post("/me/password")
+def change_my_password(
+    payload: ChangePasswordRequest,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    """修改当前用户密码"""
+    from datetime import datetime
+    
+    user = session.get(User, actor_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 验证旧密码
+    if not user.password_hash:
+        raise HTTPException(status_code=400, detail="该账号未设置密码")
+    
+    if not bcrypt.checkpw(payload.old_password.encode(), user.password_hash.encode()):
+        raise HTTPException(status_code=401, detail="旧密码错误")
+    
+    # 设置新密码
+    new_hash = bcrypt.hashpw(payload.new_password.encode(), bcrypt.gensalt()).decode()
+    user.password_hash = new_hash
+    user.password_changed_at = datetime.utcnow()
+    user.force_password_change = False  # 清除强制修改标记
+    
+    session.add(user)
+    session.commit()
+    
+    # 记录审计日志
+    _log_auth_event(session, actor_id, "password_changed", {
+        "changed_at": user.password_changed_at.isoformat()
+    })
+    session.commit()
+    
+    return {"message": "密码修改成功"}
+
+
+@app.post("/admin/users/{user_id}/password")
+def set_user_password(
+    user_id: int,
+    payload: SetPasswordRequest,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+    _roles: list[Role] = Depends(require_roles([Role.ADMIN])),
+) -> dict:
+    """管理员为用户设置密码"""
+    from datetime import datetime
+    
+    target_user = session.get(User, payload.user_id)
+    if target_user is None:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+    
+    # 生成密码哈希
+    password_hash = bcrypt.hashpw(payload.new_password.encode(), bcrypt.gensalt()).decode()
+    
+    target_user.password_hash = password_hash
+    target_user.password_changed_at = datetime.utcnow()
+    target_user.force_password_change = payload.force_change
+    target_user.failed_login_attempts = 0  # 重置失败次数
+    target_user.locked_until = None  # 解除锁定
+    
+    session.add(target_user)
+    session.commit()
+    
+    # 记录审计日志
+    _log_auth_event(session, actor_id, "password_set_by_admin", {
+        "target_user_id": target_user.id,
+        "target_user_name": target_user.name,
+        "force_change": payload.force_change
+    })
+    session.commit()
+    
+    return {
+        "message": f"已为用户 {target_user.name} 设置密码",
+        "force_change": payload.force_change
+    }
 
 
 @app.get("/me/summary", response_model=PersonalSummaryRead)
@@ -269,31 +447,28 @@ async def post_attachment_upload(
 def get_attachment_metadata(
     attachment_id: int,
     session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
+    _: int = Depends(get_current_user_id),
 ) -> AttachmentRead:
     attachment = get_attachment_or_404(session, attachment_id)
-    actor_roles = get_user_roles(session, actor_id)
-    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     return attachment_to_read(attachment)
+
 
 @app.get("/attachments/{attachment_id}/download", response_model=None)
 def get_attachment_download(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
+    _: int = Depends(get_current_user_id),
 ) -> StreamingResponse:
     attachment = get_attachment_or_404(session, attachment_id)
-    actor_roles = get_user_roles(session, actor_id)
-    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     if attachment.storage_backend == "s3":
         url = get_presigned_download_url(attachment, expires_in=expires_in)
         return RedirectResponse(url=url, status_code=307)
     if attachment.storage_backend != "local":
-        raise HTTPException(status_code=501, detail="unsupported storage backend")
+        raise HTTPException(status_code=501, detail="不支持的存储后端")
     file_path = local_file_path(attachment.object_key)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="attachment file not found")
+        raise HTTPException(status_code=404, detail="附件文件不存在")
     payload = file_path.read_bytes()
     return StreamingResponse(
         iter([payload]),
@@ -304,39 +479,49 @@ def get_attachment_download(
         },
     )
 
+
 @app.get("/attachments/{attachment_id}/presign", response_model=AttachmentPresignRead)
 def get_attachment_presign(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
+    _: int = Depends(get_current_user_id),
 ) -> AttachmentPresignRead:
     attachment = get_attachment_or_404(session, attachment_id)
-    actor_roles = get_user_roles(session, actor_id)
-    ensure_attachment_access(session, actor_id=actor_id, actor_roles=actor_roles, attachment=attachment)
     if attachment.storage_backend != "s3":
-        raise HTTPException(status_code=400, detail="presign is only available for s3 attachments")
+        raise HTTPException(status_code=400, detail="仅 s3 附件支持预签名")
     url = get_presigned_download_url(attachment, expires_in=expires_in)
     return AttachmentPresignRead(attachment_id=attachment_id, url=url, expires_in=expires_in)
+
 
 @app.get("/entities/{entity_type}/{entity_id}/attachments", response_model=list[AttachmentRead])
 def get_entity_attachments(
     entity_type: str,
     entity_id: int,
     session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
+    _: int = Depends(get_current_user_id),
 ) -> list[AttachmentRead]:
     if entity_type not in {"problem", "deliverable"}:
-        raise HTTPException(status_code=400, detail="entity_type only supports problem or deliverable")
-    actor_roles = get_user_roles(session, actor_id)
-    ensure_entity_attachment_access(
-        session,
-        actor_id=actor_id,
-        actor_roles=actor_roles,
-        entity_type=entity_type,
-        entity_id=entity_id,
-    )
+        raise HTTPException(status_code=400, detail="entity_type 仅支持 problem 或 deliverable")
     return list_attachments_by_entity(session, entity_type=entity_type, entity_id=entity_id)
+
+
+@app.post("/auth/logout")
+def post_logout(
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    """用户登出（记录审计日志）"""
+    user = session.get(User, actor_id)
+    if user:
+        _log_auth_event(session, actor_id, "logout", {
+            "user_name": user.name,
+            "employee_no": user.employee_no
+        })
+        session.commit()
+    
+    return {"message": "登出成功"}
+
 
 @app.get("/auth/feishu/login-url", response_model=FeishuLoginUrlResponse)
 def get_feishu_login_url(
@@ -449,8 +634,6 @@ def get_problems(
     scenario: Scenario | None = Query(default=None),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[ProblemRead]:
@@ -462,8 +645,6 @@ def get_problems(
         scenario=scenario,
         created_from=created_from,
         created_to=created_to,
-        offset=offset,
-        limit=limit,
     )
 
 
@@ -488,8 +669,6 @@ def get_tasks(
     scenario: Scenario | None = Query(default=None),
     reward_min: float | None = Query(default=None),
     reward_max: float | None = Query(default=None),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> list[TaskRead]:
     return list_tasks(
@@ -499,8 +678,6 @@ def get_tasks(
         scenario=scenario,
         reward_min=reward_min,
         reward_max=reward_max,
-        offset=offset,
-        limit=limit,
     )
 
 
@@ -553,7 +730,7 @@ def get_claims_mine(
         try:
             parsed_status = ClaimStatus(status)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="鏃犳晥鐨?claim status") from exc
+            raise HTTPException(status_code=400, detail="无效的 claim status") from exc
     else:
         parsed_status = None
     return list_my_claims(session, user_id=actor_id, status=parsed_status)
@@ -646,38 +823,6 @@ def get_claim_detail(
     return get_claim_execution_detail(session, actor_id=actor_id, actor_roles=roles, claim_id=claim_id)
 
 
-@app.get("/claims/{claim_id}/performance-review", response_model=PerformanceReviewRead)
-def get_claim_performance_review(
-    claim_id: int,
-    session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
-) -> PerformanceReviewRead:
-    roles = get_user_roles(session, actor_id)
-    return get_performance_review_snapshot(
-        session=session,
-        actor_id=actor_id,
-        actor_roles=roles,
-        claim_id=claim_id,
-    )
-
-
-@app.put("/claims/{claim_id}/performance-review", response_model=PerformanceReviewRead)
-def put_claim_performance_review(
-    claim_id: int,
-    payload: PerformanceReviewUpsert,
-    session: Session = Depends(get_session),
-    actor_id: int = Depends(get_current_user_id),
-) -> PerformanceReviewRead:
-    roles = get_user_roles(session, actor_id)
-    return upsert_performance_review_snapshot(
-        session=session,
-        actor_id=actor_id,
-        actor_roles=roles,
-        claim_id=claim_id,
-        payload=payload,
-    )
-
-
 @app.post(
     "/claims/{claim_id}/deliverables",
     dependencies=[Depends(rate_limit("deliverable_submit", limit=20, window_seconds=60))],
@@ -725,26 +870,9 @@ def get_pending_acceptance_mine(
 @app.get("/rewards", response_model=list[RewardRead])
 def get_rewards(
     user_id: int | None = Query(default=None),
-    status: str | None = Query(default=None),
-    held_only: bool = Query(default=False),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> list[RewardRead]:
-    parsed_status = None
-    if status:
-        try:
-            parsed_status = RewardStatus(status)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="鏃犳晥鐨?reward status") from exc
-    return list_rewards(
-        session,
-        user_id=user_id,
-        status=parsed_status,
-        held_only=held_only,
-        offset=offset,
-        limit=limit,
-    )
+    return list_rewards(session, user_id=user_id)
 
 
 @app.post(
@@ -757,8 +885,7 @@ def post_reward_confirm(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> RewardRead:
-    roles = get_user_roles(session, actor_id)
-    return confirm_reward(session, actor_id=actor_id, actor_roles=roles, reward_id=reward_id)
+    return confirm_reward(session, actor_id=actor_id, reward_id=reward_id)
 
 
 @app.get("/knowledge")
@@ -1045,4 +1172,3 @@ def post_release_overdue(
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
     return release_overdue_claims(session, actor_id=actor_id)
-

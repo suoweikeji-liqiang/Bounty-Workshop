@@ -9,25 +9,24 @@ type Props = {
   onLogin: (payload: AuthLoginResponse) => void
 }
 
+type LoginMode = 'feishu' | 'admin'
+
 export function LoginPage({ onLogin }: Props) {
   const toast = useToast()
-  const [employeeNo, setEmployeeNo] = useState('A0001')
-  const [userId, setUserId] = useState('1')
+  const [mode, setMode] = useState<LoginMode>('feishu')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const submit = async (event: FormEvent) => {
+  const submitAdminLogin = async (event: FormEvent) => {
     event.preventDefault()
     try {
       setLoading(true)
       setError(null)
-      const parsedId = Number(userId)
-      const body = Number.isInteger(parsedId) && parsedId > 0
-        ? { user_id: parsedId }
-        : { employee_no: employeeNo.trim() }
-      const payload = await requestJson<AuthLoginResponse>('/auth/login', {
+      const payload = await requestJson<AuthLoginResponse>('/auth/admin/login', {
         method: 'POST',
-        body,
+        body: { username: username.trim(), password },
       })
       onLogin(payload)
     } catch (err) {
@@ -63,33 +62,72 @@ export function LoginPage({ onLogin }: Props) {
       <article className="login-card">
         <p className="kicker">揭榜挂帅工坊</p>
         <h1>登录</h1>
-        <p className="muted">系统使用 Token 会话认证，前端无需再手动切换 X-User-Id。</p>
-        <form className="form-grid" onSubmit={submit}>
-          <label>
-            用户 ID（开发环境优先）
-            <input
-              type="number"
-              min={1}
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-              placeholder="例如：1"
-            />
-          </label>
-          <label>
-            工号（备用）
-            <input
-              value={employeeNo}
-              onChange={(event) => setEmployeeNo(event.target.value)}
-              placeholder="例如：A0001"
-            />
-          </label>
-          <button className="primary-btn" type="submit" disabled={loading}>
-            {loading ? '登录中...' : '登录'}
+        
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+          <button
+            type="button"
+            className={mode === 'feishu' ? 'primary-btn' : 'ghost-btn'}
+            onClick={() => setMode('feishu')}
+            style={{ flex: 1 }}
+          >
+            员工登录
           </button>
-          <button type="button" onClick={() => void loginByFeishu()} disabled={loading}>
-            使用飞书登录
+          <button
+            type="button"
+            className={mode === 'admin' ? 'primary-btn' : 'ghost-btn'}
+            onClick={() => setMode('admin')}
+            style={{ flex: 1 }}
+          >
+            管理员登录
           </button>
-        </form>
+        </div>
+
+        {mode === 'feishu' ? (
+          <div>
+            <p className="muted">
+              点击下方按钮使用飞书账号登录，首次登录将自动创建账号。
+            </p>
+            <button 
+              className="primary-btn" 
+              type="button" 
+              onClick={() => void loginByFeishu()} 
+              disabled={loading}
+              style={{ width: '100%' }}
+            >
+              {loading ? '跳转中...' : '使用飞书登录'}
+            </button>
+          </div>
+        ) : (
+          <form className="form-grid" onSubmit={submitAdminLogin}>
+            <p className="muted">
+              仅限管理员使用账号密码登录。
+            </p>
+            <label className="wide">
+              用户名
+              <input
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="工号或邮箱"
+                required
+              />
+            </label>
+            <label className="wide">
+              密码
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="请输入密码"
+                required
+                minLength={6}
+              />
+            </label>
+            <button className="primary-btn wide" type="submit" disabled={loading}>
+              {loading ? '登录中...' : '登录'}
+            </button>
+          </form>
+        )}
       </article>
     </section>
   )

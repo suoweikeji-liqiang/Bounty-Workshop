@@ -124,10 +124,38 @@ def get_current_user_id(
     return x_user_id
 
 
+def check_password_expiry(user: User) -> None:
+    """检查密码是否过期（90天）"""
+    from datetime import datetime, timedelta
+    
+    if not user.password_hash:
+        return  # 飞书登录用户无需检查
+    
+    if not user.password_changed_at:
+        # 如果从未修改过密码，认为过期
+        raise HTTPException(
+            status_code=403,
+            detail="密码已过期，请修改密码后继续使用"
+        )
+    
+    PASSWORD_EXPIRY_DAYS = 90
+    expiry_date = user.password_changed_at + timedelta(days=PASSWORD_EXPIRY_DAYS)
+    
+    if datetime.utcnow() > expiry_date:
+        raise HTTPException(
+            status_code=403,
+            detail=f"密码已超过{PASSWORD_EXPIRY_DAYS}天未修改，请修改密码后继续使用"
+        )
+
+
 def get_user_roles(session: Session, user_id: int) -> set[Role]:
     user = session.get(User, user_id)
     if user is None or user.status == UserStatus.DISABLED:
         raise HTTPException(status_code=403, detail='user not found or disabled')
+    
+    # 检查密码过期（仅对有密码的用户）
+    check_password_expiry(user)
+    
     role_rows = session.exec(select(UserRole).where(UserRole.user_id == user_id)).all()
     return {row.role for row in role_rows}
 

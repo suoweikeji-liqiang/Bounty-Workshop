@@ -86,7 +86,20 @@ export default function Bootstrap() {
     setProfileError(null)
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // 调用登出接口记录审计日志
+    if (authToken) {
+      try {
+        await requestJson('/auth/logout', {
+          method: 'POST',
+          token: authToken,
+        })
+      } catch (err) {
+        // 忽略登出错误，仍然清除本地状态
+        console.warn('Logout API call failed:', err)
+      }
+    }
+    
     setStoredAuthToken(null)
     setAuthToken(null)
     setProfile(null)

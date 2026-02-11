@@ -53,15 +53,48 @@ class UserRead(BaseModel):
     roles: list[Role]
 
 
-class AuthLoginRequest(BaseModel):
-    user_id: Optional[int] = Field(default=None, ge=1)
-    employee_no: Optional[str] = None
+class AdminLoginRequest(BaseModel):
+    """管理员账号密码登录"""
+    username: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=6, max_length=100)
 
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码"""
+    old_password: str = Field(min_length=6, max_length=100)
+    new_password: str = Field(min_length=8, max_length=100)
+    
     @model_validator(mode="after")
-    def validate_identifier(self) -> "AuthLoginRequest":
-        if self.user_id is None and not (self.employee_no and self.employee_no.strip()):
-            raise ValueError("either user_id or employee_no is required")
+    def validate_password_strength(self) -> "ChangePasswordRequest":
+        """验证密码强度"""
+        password = self.new_password
+        
+        # 至少8位
+        if len(password) < 8:
+            raise ValueError("密码至少需要8位")
+        
+        # 包含大小写字母、数字、特殊字符
+        has_upper = any(c.isupper() for c in password)
+        has_lower = any(c.islower() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
+        
+        strength_count = sum([has_upper, has_lower, has_digit, has_special])
+        if strength_count < 3:
+            raise ValueError("密码必须包含大小写字母、数字、特殊字符中的至少3种")
+        
+        # 不能与旧密码相同
+        if self.old_password == self.new_password:
+            raise ValueError("新密码不能与旧密码相同")
+        
         return self
+
+
+class SetPasswordRequest(BaseModel):
+    """管理员为用户设置密码"""
+    user_id: int = Field(ge=1)
+    new_password: str = Field(min_length=8, max_length=100)
+    force_change: bool = Field(default=True, description="是否强制用户下次登录修改密码")
 
 
 class AuthLoginResponse(BaseModel):

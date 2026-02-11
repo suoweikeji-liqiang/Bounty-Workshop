@@ -38,6 +38,11 @@ class User(SQLModel, table=True):
     department: Optional[str] = None
     email: Optional[str] = None
     avatar_url: Optional[str] = None
+    password_hash: Optional[str] = None  # 管理员密码哈希
+    password_changed_at: Optional[datetime] = None  # 密码修改时间
+    force_password_change: bool = Field(default=False)  # 强制修改密码
+    failed_login_attempts: int = Field(default=0)  # 登录失败次数
+    locked_until: Optional[datetime] = None  # 账号锁定至
     status: UserStatus = Field(default=UserStatus.ENABLED)
     overdue_count: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
