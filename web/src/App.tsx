@@ -1,8 +1,6 @@
 import type { ReactElement } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
-import { apiBaseUrl } from './lib/http'
-import { hasAnyRole } from './lib/roles'
 import { AttachmentsPage } from './pages/AttachmentsPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ClaimApprovalPage } from './pages/ClaimApprovalPage'
@@ -13,7 +11,6 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { OperationLogsPage } from './pages/OperationLogsPage'
 import { PersonalCenterPage } from './pages/PersonalCenterPage'
 import { ProblemsPage } from './pages/ProblemsPage'
-import { RewardReviewPage } from './pages/RewardReviewPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { SystemConfigPage } from './pages/SystemConfigPage'
 import { TaskHallPage } from './pages/TaskHallPage'
@@ -33,6 +30,13 @@ type GuardProps = {
   children: ReactElement
 }
 
+function hasAnyRole(profile: UserProfile | null, allowedRoles: string[]) {
+  if (!profile) {
+    return false
+  }
+  return profile.roles.some((role) => allowedRoles.includes(role))
+}
+
 function Guard({ profile, roles, children }: GuardProps) {
   if (hasAnyRole(profile, roles)) {
     return children
@@ -47,7 +51,7 @@ function Guard({ profile, roles, children }: GuardProps) {
   )
 }
 
-function TopBar({ profile, loadingProfile, onLogout }: Props) {
+function TopBar({ onLogout }: Pick<Props, 'onLogout'>) {
   return (
     <header className="topbar">
       <div>
@@ -55,14 +59,9 @@ function TopBar({ profile, loadingProfile, onLogout }: Props) {
         <h1>任务协作控制台</h1>
       </div>
       <div className="topbar-controls">
-        <p className="muted">接口地址：{apiBaseUrl}</p>
-        {loadingProfile && <p className="muted">正在加载用户信息...</p>}
-        {profile && (
-          <p className="muted">
-            #{profile.id} {profile.name} ({profile.roles.join(', ')})
-          </p>
-        )}
-        <button type="button" onClick={onLogout}>退出登录</button>
+        <button type="button" onClick={onLogout}>
+          退出登录
+        </button>
       </div>
     </header>
   )
@@ -76,7 +75,7 @@ export default function App(props: Props) {
 
   return (
     <div className="app-shell">
-      <TopBar {...props} />
+      <TopBar onLogout={props.onLogout} />
       <div className="content-shell">
         <aside className="sidenav">
           <NavLink to="/" end>
@@ -89,13 +88,13 @@ export default function App(props: Props) {
           <NavLink to="/tasks">任务大厅</NavLink>
           <NavLink to="/claim-approvals">揭榜审批</NavLink>
           <NavLink to="/execution">执行闭环</NavLink>
-          {canReviewOrAdmin && <NavLink to="/reward-review">激励复核</NavLink>}
           <NavLink to="/knowledge">知识库</NavLink>
-          <NavLink to="/attachments">附件中心</NavLink>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
           {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
           {isAdmin && <NavLink to="/users">用户管理</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
+          <p className="sidenav-group-title">工具</p>
+          <NavLink to="/attachments">附件中心</NavLink>
         </aside>
         <main className="main-area">
           <Routes>
@@ -112,16 +111,11 @@ export default function App(props: Props) {
               }
             />
             <Route path="/tasks" element={<TaskHallPage userId={userId} profile={profile} />} />
-            <Route path="/claim-approvals" element={<ClaimApprovalPage userId={userId} profile={profile} />} />
-            <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route
-              path="/reward-review"
-              element={
-                <Guard profile={profile} roles={['admin', 'reviewer']}>
-                  <RewardReviewPage userId={userId} profile={profile} />
-                </Guard>
-              }
+              path="/claim-approvals"
+              element={<ClaimApprovalPage userId={userId} profile={profile} />}
             />
+            <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />
             <Route
