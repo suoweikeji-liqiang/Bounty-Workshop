@@ -116,3 +116,42 @@ class PerformanceLevel(str, Enum):
     R3 = "R3"
     R4 = "R4"
     R5 = "R5"
+
+
+class AIProvider(str, Enum):
+    """AI 供应商类型"""
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
+    SILICONFLOW = "siliconflow"
+    OLLAMA = "ollama"
+    CUSTOM = "custom"
+
+
+class AnalysisStatus(str, Enum):
+    """问题论证状态"""
+    PENDING = "pending"
+    ANALYZING = "analyzing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class HypothesisStatus(str, Enum):
+    """假设验证状态"""
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+
+
+class HypothesisType(str, Enum):
+    """假设类型"""
+    MARKET = "market"
+    TECHNICAL = "technical"
+    REQUIREMENT = "requirement"
+
+
+class RiskLevel(str, Enum):
+    """风险等级"""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"

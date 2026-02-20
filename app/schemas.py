@@ -5,12 +5,17 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.enums import (
     AcceptanceResult,
+    AIProvider,
+    AnalysisStatus,
     BaselineResponsibilityStatus,
     ClaimMode,
+    HypothesisStatus,
+    HypothesisType,
     IncidentSeverity,
     PerformanceLevel,
     ProblemFrequency,
     ProblemStatus,
+    RiskLevel,
     Role,
     Scenario,
     TaskLevel,
@@ -131,6 +136,29 @@ class ProblemRead(BaseModel):
     title: str
     scenario: Scenario
     status: ProblemStatus
+    reject_reason: Optional[str] = None
+    merged_problem_id: Optional[int] = None
+    submitter_id: int
+    created_at: datetime
+
+
+class ProblemDetailRead(BaseModel):
+    id: int
+    title: str
+    scenario: Scenario
+    background: str
+    frequency: ProblemFrequency
+    impact_scope: str
+    description: str
+    value_reduce_effort: bool
+    value_reduce_cost: bool
+    value_improve_quality: bool
+    value_statement: str
+    current_solution: Optional[str]
+    attachment_urls: list[str] = Field(default_factory=list)
+    status: ProblemStatus
+    reject_reason: Optional[str] = None
+    merged_problem_id: Optional[int] = None
     submitter_id: int
     created_at: datetime
 
@@ -166,11 +194,16 @@ class ProblemReview(BaseModel):
     reject_reason: Optional[str] = None
     merge_to_problem_id: Optional[int] = None
     task: Optional[TaskDefinition] = None
+    analysis_id: Optional[int] = None
+    analysis_acceptance: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ProblemReview":
-        if self.approve and self.task is None:
-            raise ValueError("立项时必须提供任务定义")
+        if self.approve:
+            if self.task is None:
+                raise ValueError("立项时必须提供任务定义")
+            if self.analysis_id is not None and not self.analysis_acceptance:
+                raise ValueError("立项时必须填写对论证建议的采纳意见")
         if not self.approve and not self.reject_reason:
             raise ValueError("不立项时必须填写原因")
         return self
@@ -557,3 +590,134 @@ class OperationLogRead(BaseModel):
 
 
 ClaimExecutionDetailRead.model_rebuild()
+
+
+class AIModelCreate(BaseModel):
+    name: str
+    provider: AIProvider
+    api_base_url: str
+    api_key: str
+    model: str
+    is_default: bool = False
+    enabled: bool = True
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    timeout: int = 60
+
+
+class AIModelUpdate(BaseModel):
+    name: Optional[str] = None
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    is_default: Optional[bool] = None
+    enabled: Optional[bool] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    timeout: Optional[int] = None
+
+
+class AIModelRead(BaseModel):
+    id: int
+    name: str
+    provider: AIProvider
+    api_base_url: str
+    has_api_key: bool
+    model: str
+    is_default: bool
+    enabled: bool
+    max_tokens: int
+    temperature: float
+    timeout: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class HypothesisItem(BaseModel):
+    content: str
+    hypothesis_type: HypothesisType
+    risk_level: RiskLevel
+    verification_method: str
+
+
+class ProblemAnalysisCreate(BaseModel):
+    problem_id: int
+
+
+class ProblemAnalysisRead(BaseModel):
+    id: int
+    problem_id: int
+    ai_model_id: int
+    status: AnalysisStatus
+
+    core_problem: Optional[str]
+    target_users: list[str]
+    problem_boundaries: Optional[str]
+    success_criteria: Optional[str]
+
+    assumptions_challenged: list[dict]
+    risks_identified: list[dict]
+    alternative_views: list[str]
+
+    user_questions: list[str]
+    user_value_priorities: list[str]
+    edge_cases: list[str]
+
+    hypothesis_list: list[HypothesisItem]
+    falsification_checks: list[str]
+    mvp_boundaries: Optional[str]
+    next_actions: list[str]
+
+    recommendation: Optional[str]
+    confidence: Optional[float]
+
+    rounds: int
+    error_message: Optional[str]
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class HypothesisVerificationUpdate(BaseModel):
+    verification_status: HypothesisStatus
+    verification_method: Optional[str] = None
+    verification_result: Optional[str] = None
+
+
+class HypothesisVerificationRead(BaseModel):
+    id: int
+    analysis_id: int
+    hypothesis_content: str
+    hypothesis_type: HypothesisType
+    risk_level: RiskLevel
+    verification_status: HypothesisStatus
+    verification_method: Optional[str]
+    verification_result: Optional[str]
+    verified_by: Optional[int]
+    verified_at: Optional[datetime]
+    created_at: datetime
+
+
+class ProblemReviewAnalysisRefCreate(BaseModel):
+    recommendation: str
+    analysis_id: int
+    acceptance_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+class ProblemReviewAnalysisRefRead(BaseModel):
+    id: int
+    problem_id: int
+    recommendation: str
+    analysis_id: int
+    acceptance_reason: Optional[str]
+    rejection_reason: Optional[str]
+    reviewed_by: int
+    created_at: datetime
+
+
+class ProblemDetailWithAnalysisRead(ProblemDetailRead):
+    analysis_id: Optional[int] = None
+    analysis_status: AnalysisStatus = AnalysisStatus.PENDING
+    analysis: Optional[ProblemAnalysisRead] = None
+    analysis_ref: Optional[ProblemReviewAnalysisRefRead] = None

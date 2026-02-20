@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import { AttachmentField } from '../components/AttachmentField'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { Attachment, Problem } from '../types'
+import type { Attachment, Problem, ProblemDetail } from '../types'
 
 type Props = {
   userId: number
@@ -56,6 +56,7 @@ export function ProblemsPage({ userId }: Props) {
   const [filters, setFilters] = useState<ProblemFilters>(defaultFilters)
   const [list, setList] = useState<Problem[]>([])
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
+  const [editingProblemId, setEditingProblemId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +94,43 @@ export function ProblemsPage({ userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [userId, buildMineQuery])
+  }, [buildMineQuery, userId])
+
+  const startResubmit = async (problemId: number) => {
+    try {
+      setError(null)
+      const [detail, attachments] = await Promise.all([
+        requestJson<ProblemDetail>(`/problems/${problemId}`, { userId }),
+        requestJson<Attachment[]>(`/entities/problem/${problemId}/attachments`, { userId }),
+      ])
+      if (detail.status !== 'rejected') {
+        setError('只有驳回问题可修改重提')
+        return
+      }
+      setForm({
+        title: detail.title,
+        scenario: detail.scenario,
+        background: detail.background,
+        frequency: detail.frequency,
+        impact_scope: detail.impact_scope,
+        description: detail.description,
+        value_reduce_effort: detail.value_reduce_effort,
+        value_reduce_cost: detail.value_reduce_cost,
+        value_improve_quality: detail.value_improve_quality,
+        value_statement: detail.value_statement,
+      })
+      setUploadedAttachments(attachments)
+      setEditingProblemId(problemId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载问题详情失败')
+    }
+  }
+
+  const cancelResubmit = () => {
+    setEditingProblemId(null)
+    setForm(defaultForm)
+    setUploadedAttachments([])
+  }
 
   useEffect(() => {
     void loadMine()
@@ -104,8 +141,10 @@ export function ProblemsPage({ userId }: Props) {
     try {
       setMessage(null)
       setError(null)
-      await requestJson('/problems', {
-        method: 'POST',
+      const isResubmit = editingProblemId !== null
+      const path = isResubmit ? `/problems/${editingProblemId}/resubmit` : '/problems'
+      await requestJson(path, {
+        method: isResubmit ? 'PUT' : 'POST',
         userId,
         body: {
           ...form,
@@ -113,7 +152,8 @@ export function ProblemsPage({ userId }: Props) {
           attachment_urls: [],
         },
       })
-      setMessage('问题已提交')
+      setMessage(isResubmit ? '问题已修改并重新提交' : '问题已提交')
+      setEditingProblemId(null)
       setForm(defaultForm)
       setUploadedAttachments([])
       await loadMine()
@@ -139,8 +179,8 @@ export function ProblemsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>问题提交</h2>
-        <p>把痛点转化为可执行任务，推动立项。</p>
+        <h2>{editingProblemId ? '修改并重提问题' : '问题提交'}</h2>
+        <p>将问题转化为可执行任务，推动审核立项。</p>
       </header>
       <form className="panel form-grid" onSubmit={submit}>
         <label>
@@ -261,10 +301,18 @@ export function ProblemsPage({ userId }: Props) {
             改善稳定质量
           </label>
         </div>
-        <button className="primary-btn" type="submit">
-          提交问题
-        </button>
+        <div className="button-row wide">
+          <button className="primary-btn" type="submit">
+            {editingProblemId ? '修改并重提问题' : '提交问题'}
+          </button>
+          {editingProblemId && (
+            <button type="button" onClick={cancelResubmit}>
+              取消重提
+            </button>
+          )}
+        </div>
       </form>
+
       <form
         className="panel form-grid"
         onSubmit={(event) => {
@@ -331,6 +379,7 @@ export function ProblemsPage({ userId }: Props) {
           </button>
         </div>
       </form>
+
       <article className="panel">
         <div className="panel-headline">
           <h3>我的问题</h3>
@@ -339,20 +388,30 @@ export function ProblemsPage({ userId }: Props) {
           </button>
         </div>
         <div className="table">
-          <div className="row head">
+          <div className="row head wide-row">
             <span>ID</span>
             <span>标题</span>
             <span>场景</span>
             <span>状态</span>
+            <span>驳回原因</span>
             <span>时间</span>
+            <span>操作</span>
           </div>
           {list.map((item) => (
-            <div className="row" key={item.id}>
+            <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{item.title}</span>
               <span>{item.scenario}</span>
               <span>{item.status}</span>
+              <span>{item.reject_reason ?? '-'}</span>
               <span>{new Date(item.created_at).toLocaleDateString()}</span>
+              <span className="actions">
+                {item.status === 'rejected' && (
+                  <button type="button" onClick={() => void startResubmit(item.id)}>
+                    修改重提
+                  </button>
+                )}
+              </span>
             </div>
           ))}
         </div>

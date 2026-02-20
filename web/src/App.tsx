@@ -1,12 +1,14 @@
 import type { ReactElement } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
+import { AIModelConfigPage } from './pages/AIModelConfigPage'
 import { AttachmentsPage } from './pages/AttachmentsPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ClaimApprovalPage } from './pages/ClaimApprovalPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ExecutionLoopPage } from './pages/ExecutionLoopPage'
 import { FeishuPage } from './pages/FeishuPage'
+import { HypothesisVerificationPage } from './pages/HypothesisVerificationPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { OperationLogsPage } from './pages/OperationLogsPage'
 import { PersonalCenterPage } from './pages/PersonalCenterPage'
@@ -96,7 +98,9 @@ export default function App(props: Props) {
 
           <p className="sidenav-group-title">设置操作</p>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
+          {canReviewOrAdmin && <NavLink to="/hypothesis">假设验证</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
+          {isAdmin && <NavLink to="/ai-models">AI 模型</NavLink>}
           {isAdmin && <NavLink to="/users">角色分配</NavLink>}
           {isAdmin && <NavLink to="/system-config">系统配置</NavLink>}
 
@@ -156,6 +160,22 @@ export default function App(props: Props) {
               element={
                 <Guard profile={profile} roles={['admin', 'reviewer', 'acceptor']}>
                   <FeishuPage userId={userId} profile={profile} />
+                </Guard>
+              }
+            />
+            <Route
+              path="/ai-models"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <AIModelConfigPage userId={userId} />
+                </Guard>
+              }
+            />
+            <Route
+              path="/hypothesis"
+              element={
+                <Guard profile={profile} roles={['admin', 'reviewer']}>
+                  <HypothesisVerificationPage userId={userId} />
                 </Guard>
               }
             />

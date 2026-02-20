@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { Problem, UserProfile } from '../types'
+import type { Problem, ProblemAnalysisReport, UserProfile } from '../types'
 
 type Props = {
   userId: number
@@ -61,9 +61,12 @@ export function ReviewWorkbenchPage({ userId }: Props) {
   const [pendingProblems, setPendingProblems] = useState<Problem[]>([])
   const [acceptors, setAcceptors] = useState<UserProfile[]>([])
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(null)
+  const [selectedAnalysis, setSelectedAnalysis] = useState<ProblemAnalysisReport | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(buildDefaultTaskDraft())
   const [rejectReason, setRejectReason] = useState('')
   const [mergeToProblemId, setMergeToProblemId] = useState('')
+  const [analysisAcceptance, setAnalysisAcceptance] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -100,14 +103,28 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     void load()
   }, [load])
 
-  const pickProblem = (problem: Problem) => {
+  const pickProblem = async (problem: Problem) => {
     setSelectedProblemId(problem.id)
     setRejectReason('')
     setMergeToProblemId('')
+    setAnalysisAcceptance('')
+    setSelectedAnalysis(null)
     setTaskDraft((prev) => ({
       ...prev,
       title: prev.title || `${problem.title} - 任务`,
     }))
+    setAnalysisLoading(true)
+    try {
+      const analysis = await requestJson<ProblemAnalysisReport | null>(
+        `/problems/${problem.id}/analysis`,
+        { userId },
+      )
+      setSelectedAnalysis(analysis)
+    } catch {
+      setSelectedAnalysis(null)
+    } finally {
+      setAnalysisLoading(false)
+    }
   }
 
   const addCriteria = () => {
@@ -182,6 +199,14 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       setError('请选择验收人')
       return
     }
+    if (!selectedAnalysis) {
+      setError('请先等待 ProdMind 论证完成')
+      return
+    }
+    if (!analysisAcceptance.trim()) {
+      setError('必须填写对论证建议的采纳意见')
+      return
+    }
 
     try {
       setError(null)
@@ -190,6 +215,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
         userId,
         body: {
           approve: true,
+          analysis_id: selectedAnalysis.id,
+          analysis_acceptance: analysisAcceptance.trim(),
           task: {
             title: taskDraft.title.trim(),
             goal: taskDraft.goal.trim(),
@@ -207,6 +234,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       })
       setMessage(`问题 #${selectedProblem.id} 已立项`)
       setSelectedProblemId(null)
+      setSelectedAnalysis(null)
+      setAnalysisAcceptance('')
       setTaskDraft(buildDefaultTaskDraft())
       await load()
     } catch (err) {
@@ -270,6 +299,50 @@ export function ReviewWorkbenchPage({ userId }: Props) {
 
       {selectedProblem && (
         <>
+          <article className="panel">
+            <h3>ProdMind 论证参考（问题 #{selectedProblem.id}）</h3>
+            {analysisLoading ? (
+              <p>正在加载论证报告...</p>
+            ) : selectedAnalysis ? (
+              <div className="analysis-summary">
+                <div className="analysis-header">
+                  <span className="recommendation">
+                    立项建议：{selectedAnalysis.recommendation || '未提供'}
+                    {selectedAnalysis.confidence ? `（置信度 ${Math.round(selectedAnalysis.confidence * 100)}%）` : ''}
+                  </span>
+                </div>
+                {selectedAnalysis.report?.grounder?.hypothesis_list && selectedAnalysis.report.grounder.hypothesis_list.length > 0 && (
+                  <div className="hypothesis-list">
+                    <h4>假设清单</h4>
+                    {selectedAnalysis.report.grounder.hypothesis_list.map((h, idx) => (
+                      <div key={idx} className={`hypothesis-item risk-${h.risk_level}`}>
+                        <span className="hypothesis-type">{h.hypothesis_type}</span>
+                        <span className="hypothesis-risk">{h.risk_level}</span>
+                        <span className="hypothesis-content">{h.content}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selectedAnalysis.report?.assassin?.risks_identified && selectedAnalysis.report.assassin.risks_identified.length > 0 && (
+                  <div className="risks-section">
+                    <h4>关键风险点</h4>
+                    <ul>
+                      {selectedAnalysis.report.assassin.risks_identified.map((r, idx) => (
+                        <li key={idx}>
+                          {r.risk}（{r.severity}）
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="no-analysis">
+                <p>该问题尚未完成 ProdMind 论证</p>
+              </div>
+            )}
+          </article>
+
           <form className="panel form-grid" onSubmit={submitApprove}>
             <h3>立项定义（问题 #{selectedProblem.id}）</h3>
             <label className="wide">
@@ -432,7 +505,16 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                   </button>
                 </div>
               ))}
-            </div>
+              </div>
+            <label className="wide">
+              对论证建议的采纳意见
+              <textarea
+                value={analysisAcceptance}
+                onChange={(event) => setAnalysisAcceptance(event.target.value)}
+                placeholder="请填写对 ProdMind 论证建议的采纳意见（必填）"
+                required
+              />
+            </label>
             <button className="primary-btn" type="submit">
               立项并生成任务
             </button>

@@ -1203,3 +1203,183 @@ button:disabled {
     font-size: clamp(18px, 3.5vw, 28px);
   }
 }
+
+/* Analysis Report Styles */
+.analysis-section {
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-section p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.analysis-section strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.analysis-item {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--brand-primary);
+}
+
+/* Hypothesis Card Styles */
+.hypothesis-card {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+}
+
+.hypothesis-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.risk-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.type-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.hypothesis-content {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.hypothesis-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hypothesis-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.verification-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.verification-info p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.analysis-summary {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.analysis-header {
+  margin-bottom: 16px;
+}
+
+.analysis-header .recommendation {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.hypothesis-list {
+  margin-top: 16px;
+}
+
+.hypothesis-list h4 {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.hypothesis-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.hypothesis-item .hypothesis-type {
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.hypothesis-item .hypothesis-risk {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.hypothesis-item.risk-high .hypothesis-risk {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.hypothesis-item.risk-medium .hypothesis-risk {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.hypothesis-item.risk-low .hypothesis-risk {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.hypothesis-item .hypothesis-content {
+  flex: 1;
+}
+
+.risks-section {
+  margin-top: 16px;
+}
+
+.risks-section h4 {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.risks-section ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.risks-section li {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.no-analysis {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}

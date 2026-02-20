@@ -55,7 +55,46 @@ export type Problem = {
   title: string
   scenario: string
   status: string
+  reject_reason?: string | null
+  merged_problem_id?: number | null
   submitter_id: number
+  created_at: string
+}
+
+export type ProblemDetail = {
+  id: number
+  title: string
+  scenario: string
+  background: string
+  frequency: string
+  impact_scope: string
+  description: string
+  value_reduce_effort: boolean
+  value_reduce_cost: boolean
+  value_improve_quality: boolean
+  value_statement: string
+  current_solution: string | null
+  attachment_urls: string[]
+  status: string
+  reject_reason: string | null
+  merged_problem_id: number | null
+  submitter_id: number
+  created_at: string
+  // ProdMind analysis fields
+  analysis_id?: number | null
+  analysis_status?: AnalysisStatus
+  analysis?: ProblemAnalysisReport | null
+  analysis_ref?: ProblemReviewAnalysisRef | null
+}
+
+export type ProblemReviewAnalysisRef = {
+  id: number
+  problem_id: number
+  recommendation: string
+  analysis_id: number
+  acceptance_reason: string | null
+  rejection_reason: string | null
+  reviewed_by: number
   created_at: string
 }
 
@@ -310,5 +349,88 @@ export type OperationLog = {
   target_type: string
   target_id: number | null
   detail: Record<string, unknown>
+  created_at: string
+}
+
+export type AIProvider = 'openai' | 'anthropic' | 'deepseek' | 'siliconflow' | 'ollama' | 'custom'
+
+export type AIModel = {
+  id: number
+  name: string
+  provider: AIProvider
+  api_base_url: string
+  has_api_key: boolean
+  model: string
+  is_default: boolean
+  enabled: boolean
+  max_tokens: number
+  temperature: number
+  timeout: number
+  created_at: string
+  updated_at: string
+}
+
+export type AnalysisStatus = 'pending' | 'analyzing' | 'completed' | 'failed'
+
+export type HypothesisStatus = 'pending' | 'verified' | 'rejected'
+export type HypothesisType = 'market' | 'technical' | 'requirement'
+export type RiskLevel = 'high' | 'medium' | 'low'
+
+export type HypothesisItem = {
+  content: string
+  hypothesis_type: HypothesisType
+  risk_level: RiskLevel
+  verification_method: string
+}
+
+export type ProblemAnalysisReport = {
+  id: number
+  problem_id: number
+  status: AnalysisStatus
+  recommendation: string | null
+  confidence: number | null
+  rounds: number
+  error_message: string | null
+  report: {
+    architect: {
+      core_problem: string | null
+      target_users: string[]
+      problem_boundaries: string | null
+      success_criteria: string | null
+    }
+    assassin: {
+      assumptions_challenged: Array<{ assumption: string; challenge: string }>
+      risks_identified: Array<{ risk: string; severity: RiskLevel; mitigation: string }>
+      alternative_views: string[]
+    }
+    user_ghost: {
+      user_questions: string[]
+      user_value_priorities: string[]
+      edge_cases: string[]
+    }
+    grounder: {
+      hypothesis_list: HypothesisItem[]
+      falsification_checks: string[]
+      mvp_boundaries: string | null
+      next_actions: string[]
+      recommendation: string | null
+      confidence: number | null
+    }
+  }
+  created_at: string
+  updated_at: string
+}
+
+export type HypothesisVerification = {
+  id: number
+  analysis_id: number
+  hypothesis_content: string
+  hypothesis_type: HypothesisType
+  risk_level: RiskLevel
+  verification_status: HypothesisStatus
+  verification_method: string | null
+  verification_result: string | null
+  verified_by: number | null
+  verified_at: string | null
   created_at: string
 }

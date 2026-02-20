@@ -6,17 +6,22 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 from app.enums import (
+    AIProvider,
+    AnalysisStatus,
     BaselineResponsibilityStatus,
     ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
+    HypothesisStatus,
+    HypothesisType,
     IncidentSeverity,
     PerformanceLevel,
     ProblemFrequency,
     ProblemStatus,
     RewardRoleType,
     RewardStatus,
+    RiskLevel,
     Role,
     Scenario,
     TaskLevel,
@@ -67,6 +72,9 @@ class Problem(SQLModel, table=True):
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = Field(default=None, foreign_key="problem.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    analysis_id: Optional[int] = Field(default=None)
+    analysis_status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
 
 
 class Task(SQLModel, table=True):
@@ -229,3 +237,85 @@ class Attachment(SQLModel, table=True):
     entity_type: Optional[str] = Field(default=None, index=True)
     entity_id: Optional[int] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class AIModel(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    provider: AIProvider
+    api_base_url: str
+    api_key_encrypted: Optional[str] = None
+    model: str
+    is_default: bool = Field(default=False)
+    enabled: bool = Field(default=True)
+    max_tokens: int = Field(default=4096)
+    temperature: float = Field(default=0.7)
+    timeout: int = Field(default=60)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProblemAnalysis(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    problem_id: int = Field(foreign_key="problem.id", index=True)
+    ai_model_id: int
+
+    input_json: str
+
+    core_problem: Optional[str] = None
+    target_users: str = Field(default="[]")
+    problem_boundaries: Optional[str] = None
+    success_criteria: Optional[str] = None
+
+    assumptions_challenged: str = Field(default="[]")
+    risks_identified: str = Field(default="[]")
+    alternative_views: str = Field(default="[]")
+
+    user_questions: str = Field(default="[]")
+    user_value_priorities: str = Field(default="[]")
+    edge_cases: str = Field(default="[]")
+
+    hypothesis_list: str = Field(default="[]")
+    falsification_checks: str = Field(default="[]")
+    mvp_boundaries: Optional[str] = None
+    next_actions: str = Field(default="[]")
+
+    recommendation: Optional[str] = None
+    confidence: Optional[float] = None
+
+    rounds: int = Field(default=1)
+    status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
+    error_message: Optional[str] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class HypothesisVerification(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    analysis_id: int
+
+    hypothesis_content: str
+    hypothesis_type: HypothesisType
+    risk_level: RiskLevel
+
+    verification_status: HypothesisStatus = Field(default=HypothesisStatus.PENDING)
+    verification_method: Optional[str] = None
+    verification_result: Optional[str] = None
+
+    verified_by: Optional[int] = Field(default=None)
+    verified_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProblemReviewAnalysisRef(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    problem_id: int
+
+    recommendation: str
+    analysis_id: int
+    acceptance_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+    reviewed_by: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)

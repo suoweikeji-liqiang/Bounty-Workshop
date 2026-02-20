@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 import os
 
-from fastapi import Depends, FastAPI, File, Query, UploadFile, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Query, UploadFile, Request
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -22,7 +22,16 @@ from app.attachments import (
 )
 from app.auth import create_access_token, get_current_user_id, get_user_roles, require_roles
 from app.db import engine, get_session, init_db
-from app.enums import ClaimApprovalStatus, ProblemStatus, Role, Scenario, TaskLevel, TaskStatus, UserStatus
+from app.enums import (
+    AnalysisStatus,
+    ClaimApprovalStatus,
+    ProblemStatus,
+    Role,
+    Scenario,
+    TaskLevel,
+    TaskStatus,
+    UserStatus,
+)
 from app.feishu import (
     consume_oauth_state,
     create_oauth_state,
@@ -43,6 +52,15 @@ from app.jobs import (
     run_release_overdue_scheduler,
     set_release_overdue_frequency_minutes,
 )
+from app.ai_models import (
+    create_ai_model,
+    decrypt_api_key,
+    delete_ai_model,
+    get_ai_model,
+    list_ai_models,
+    update_ai_model,
+)
+from app.prodmind import get_analysis_report
 from app.rate_limit import rate_limit
 from app.models import User, UserRole
 from app.schemas import (
@@ -85,6 +103,11 @@ from app.schemas import (
     UserCreate,
     UserRead,
     UserStatusUpdate,
+    AIModelCreate,
+    AIModelUpdate,
+    AIModelRead,
+    HypothesisVerificationUpdate,
+    ProblemReviewAnalysisRefCreate,
 )
 from app.reporting import (
     dashboard_distribution,
@@ -124,12 +147,18 @@ from app.services import (
     list_users,
     release_overdue_claims,
     reject_claim_approval_request,
+    resubmit_problem,
     review_problem,
     set_user_roles,
     set_user_status,
     set_claim_approval_overdue_threshold,
     submit_deliverable,
     list_claim_approval_requests,
+    trigger_problem_analysis,
+    get_problem_analysis,
+    list_hypothesis_verifications,
+    update_hypothesis_verification,
+    create_analysis_ref,
 )
 
 
@@ -207,6 +236,35 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/auth/login", response_model=AuthLoginResponse)
+def post_login(
+    payload: dict,
+    session: Session = Depends(get_session),
+) -> AuthLoginResponse:
+    """简单登录 - 根据 user_id 返回 token（仅开发/测试环境可用）"""
+    from app.auth import create_access_token, is_passwordless_login_enabled
+    from app.services import user_to_read
+    
+    if not is_passwordless_login_enabled():
+        raise HTTPException(status_code=403, detail="密码登录已禁用")
+    
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    access_token, expires_in = create_access_token(user_id)
+    
+    return AuthLoginResponse(
+        access_token=access_token,
+        expires_in=expires_in,
+        user=user_to_read(session, user),
+    )
 
 
 @app.post("/auth/admin/login", response_model=AuthLoginResponse)
@@ -621,10 +679,36 @@ def put_user_status(
 @app.post("/problems", response_model=ProblemRead)
 def post_problem(
     payload: ProblemCreate,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> ProblemRead:
-    return create_problem(session, actor_id=actor_id, payload=payload)
+    problem = create_problem(session, actor_id=actor_id, payload=payload)
+    background_tasks.add_task(_trigger_analysis_background, problem.id)
+    return problem
+
+
+@app.put("/problems/{problem_id}/resubmit", response_model=ProblemRead)
+def put_problem_resubmit(
+    problem_id: int,
+    payload: ProblemCreate,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> ProblemRead:
+    problem = resubmit_problem(session, actor_id=actor_id, problem_id=problem_id, payload=payload)
+    background_tasks.add_task(_trigger_analysis_background, problem.id)
+    return problem
+
+
+def _trigger_analysis_background(problem_id: int) -> None:
+    from app.services import trigger_problem_analysis
+    from app.db import get_session
+    try:
+        with get_session() as session:
+            asyncio.run(trigger_problem_analysis(session, problem_id))
+    except ValueError:
+        pass
 
 
 @app.get("/problems", response_model=list[ProblemRead])
@@ -1172,3 +1256,281 @@ def post_release_overdue(
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
     return release_overdue_claims(session, actor_id=actor_id)
+
+
+@app.get(
+    "/ai/models",
+    response_model=list[AIModelRead],
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def get_ai_models(session: Session = Depends(get_session)) -> list[AIModelRead]:
+    models = list_ai_models(session)
+    return [
+        AIModelRead(
+            id=m.id,
+            name=m.name,
+            provider=m.provider,
+            api_base_url=m.api_base_url,
+            has_api_key=bool(m.api_key_encrypted),
+            model=m.model,
+            is_default=m.is_default,
+            enabled=m.enabled,
+            max_tokens=m.max_tokens,
+            temperature=m.temperature,
+            timeout=m.timeout,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+        )
+        for m in models
+    ]
+
+
+@app.post(
+    "/ai/models",
+    response_model=AIModelRead,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def post_ai_model(
+    payload: AIModelCreate,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> AIModelRead:
+    model = create_ai_model(session, actor_id, payload)
+    return AIModelRead(
+        id=model.id,
+        name=model.name,
+        provider=model.provider,
+        api_base_url=model.api_base_url,
+        has_api_key=bool(model.api_key_encrypted),
+        model=model.model,
+        is_default=model.is_default,
+        enabled=model.enabled,
+        max_tokens=model.max_tokens,
+        temperature=model.temperature,
+        timeout=model.timeout,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+@app.get(
+    "/ai/models/{model_id}",
+    response_model=AIModelRead,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def get_ai_model_detail(
+    model_id: int,
+    session: Session = Depends(get_session),
+) -> AIModelRead:
+    model = get_ai_model(session, model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return AIModelRead(
+        id=model.id,
+        name=model.name,
+        provider=model.provider,
+        api_base_url=model.api_base_url,
+        has_api_key=bool(model.api_key_encrypted),
+        model=model.model,
+        is_default=model.is_default,
+        enabled=model.enabled,
+        max_tokens=model.max_tokens,
+        temperature=model.temperature,
+        timeout=model.timeout,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+@app.put(
+    "/ai/models/{model_id}",
+    response_model=AIModelRead,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def put_ai_model(
+    model_id: int,
+    payload: AIModelUpdate,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> AIModelRead:
+    model = update_ai_model(session, actor_id, model_id, payload)
+    return AIModelRead(
+        id=model.id,
+        name=model.name,
+        provider=model.provider,
+        api_base_url=model.api_base_url,
+        has_api_key=bool(model.api_key_encrypted),
+        model=model.model,
+        is_default=model.is_default,
+        enabled=model.enabled,
+        max_tokens=model.max_tokens,
+        temperature=model.temperature,
+        timeout=model.timeout,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+@app.delete(
+    "/ai/models/{model_id}",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def delete_ai_model_route(
+    model_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    delete_ai_model(session, model_id)
+    return {"message": "Model deleted"}
+
+
+@app.get(
+    "/ai/models/{model_id}/api-key",
+    response_model=dict,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def get_ai_model_api_key(
+    model_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    model = get_ai_model(session, model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not model.api_key_encrypted:
+        raise HTTPException(status_code=404, detail="No API key configured")
+    api_key = decrypt_api_key(model.api_key_encrypted)
+    return {"api_key": api_key}
+
+
+@app.post(
+    "/problems/{problem_id}/analyze",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.EMPLOYEE))],
+)
+async def post_problem_analyze(
+    problem_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    try:
+        analysis = await trigger_problem_analysis(session, problem_id)
+        return {
+            "analysis_id": analysis.id,
+            "status": analysis.status.value,
+            "message": "论证已启动" if analysis.status == AnalysisStatus.ANALYZING else "论证完成",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/problems/{problem_id}/analysis",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.EMPLOYEE))],
+)
+def get_problem_analysis_report(
+    problem_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    analysis = get_problem_analysis(session, problem_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="分析报告不存在")
+    report = get_analysis_report(analysis)
+    return {
+        "id": analysis.id,
+        "problem_id": analysis.problem_id,
+        "status": analysis.status.value,
+        "recommendation": analysis.recommendation,
+        "confidence": analysis.confidence,
+        "rounds": analysis.rounds,
+        "error_message": analysis.error_message,
+        "report": report,
+        "created_at": analysis.created_at.isoformat(),
+        "updated_at": analysis.updated_at.isoformat(),
+    }
+
+
+@app.get(
+    "/problems/{problem_id}/hypotheses",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.EMPLOYEE))],
+)
+def get_problem_hypotheses(
+    problem_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> list[dict]:
+    analysis = get_problem_analysis(session, problem_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="分析报告不存在")
+    verifications = list_hypothesis_verifications(session, analysis.id)
+    return [
+        {
+            "id": v.id,
+            "analysis_id": v.analysis_id,
+            "hypothesis_content": v.hypothesis_content,
+            "hypothesis_type": v.hypothesis_type.value,
+            "risk_level": v.risk_level.value,
+            "verification_status": v.verification_status.value,
+            "verification_method": v.verification_method,
+            "verification_result": v.verification_result,
+            "verified_by": v.verified_by,
+            "verified_at": v.verified_at.isoformat() if v.verified_at else None,
+            "created_at": v.created_at.isoformat(),
+        }
+        for v in verifications
+    ]
+
+
+@app.put(
+    "/problems/{problem_id}/hypotheses/{hypothesis_id}",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def put_hypothesis_verification(
+    problem_id: int,
+    hypothesis_id: int,
+    payload: HypothesisVerificationUpdate,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    analysis = get_problem_analysis(session, problem_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="分析报告不存在")
+    verification = update_hypothesis_verification(
+        session,
+        hypothesis_id,
+        actor_id,
+        payload.verification_status,
+        payload.verification_method,
+        payload.verification_result,
+    )
+    return {
+        "id": verification.id,
+        "verification_status": verification.verification_status.value,
+        "verification_method": verification.verification_method,
+        "verification_result": verification.verification_result,
+    }
+
+
+@app.post(
+    "/problems/{problem_id}/analysis-ref",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def post_analysis_ref(
+    problem_id: int,
+    payload: ProblemReviewAnalysisRefCreate,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    ref = create_analysis_ref(
+        session,
+        problem_id,
+        actor_id,
+        payload.recommendation,
+        payload.analysis_id,
+        payload.acceptance_reason,
+        payload.rejection_reason,
+    )
+    return {
+        "id": ref.id,
+        "problem_id": ref.problem_id,
+        "recommendation": ref.recommendation,
+        "analysis_id": ref.analysis_id,
+    }
