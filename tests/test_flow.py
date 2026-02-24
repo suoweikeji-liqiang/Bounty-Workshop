@@ -1709,3 +1709,225 @@ def test_pagination_and_like_escape_for_lists(tmp_path: Path) -> None:
     assert escaped_keyword_resp.json() == []
 
     app.dependency_overrides.clear()
+
+
+def test_rejected_problem_can_be_modified_and_resubmitted(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ResubmitReviewer",
+            "employee_no": "R901",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ResubmitDev", "employee_no": "E901", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(submitter_id),
+        json={
+            "title": "resubmit problem",
+            "scenario": "rd",
+            "background": "original background",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "original description",
+            "value_reduce_effort": True,
+            "value_statement": "original value",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    reject_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={"approve": False, "reject_reason": "need clearer statement"},
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json() is None
+
+    outsider_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ResubmitOutsider", "employee_no": "E903", "department": "RD", "roles": ["employee"]},
+    )
+    assert outsider_resp.status_code == 200
+    outsider_id = outsider_resp.json()["id"]
+
+    forbidden_resubmit_resp = client.put(
+        f"/problems/{problem_id}/resubmit",
+        headers=_headers(outsider_id),
+        json={
+            "title": "blocked resubmit",
+            "scenario": "rd",
+            "background": "blocked",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "blocked",
+            "value_reduce_effort": True,
+            "value_statement": "blocked",
+        },
+    )
+    assert forbidden_resubmit_resp.status_code == 403
+
+    resubmit_resp = client.put(
+        f"/problems/{problem_id}/resubmit",
+        headers=_headers(submitter_id),
+        json={
+            "title": "resubmitted problem",
+            "scenario": "ops",
+            "background": "updated background",
+            "frequency": "monthly",
+            "impact_scope": "department",
+            "description": "updated description",
+            "value_reduce_effort": True,
+            "value_reduce_cost": True,
+            "value_statement": "updated value",
+        },
+    )
+    assert resubmit_resp.status_code == 200
+    assert resubmit_resp.json()["status"] == "pending_review"
+    assert resubmit_resp.json()["reject_reason"] is None
+
+    detail_resp = client.get(f"/problems/{problem_id}", headers=_headers(submitter_id))
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["title"] == "resubmitted problem"
+    assert detail_resp.json()["scenario"] == "ops"
+    assert detail_resp.json()["frequency"] == "monthly"
+    assert detail_resp.json()["status"] == "pending_review"
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "resubmitted task",
+                "goal": "approve after resubmit",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+
+    app.dependency_overrides.clear()
+
+
+def test_claim_limit_two_active_claims_per_user(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ClaimLimitReviewer",
+            "employee_no": "R902",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ClaimLimitDev", "employee_no": "E902", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    task_ids: list[int] = []
+    for idx in range(1, 4):
+        problem_resp = client.post(
+            "/problems",
+            headers=_headers(employee_id),
+            json={
+                "title": f"claim limit problem {idx}",
+                "scenario": "rd",
+                "background": "claim limit",
+                "frequency": "weekly",
+                "impact_scope": "team",
+                "description": "prepare claim limit tasks",
+                "value_reduce_effort": True,
+                "value_statement": "claim limit validation",
+            },
+        )
+        assert problem_resp.status_code == 200
+        problem_id = problem_resp.json()["id"]
+
+        review_resp = client.post(
+            f"/problems/{problem_id}/review",
+            headers=_headers(reviewer_id),
+            json={
+                "approve": True,
+                "task": {
+                    "title": f"claim limit task {idx}",
+                    "goal": "verify max active claims",
+                    "scope": "single",
+                    "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                    "level": "C",
+                    "reward_total": 300,
+                    "proposer_ratio": 0.2,
+                    "accepter_id": reviewer_id,
+                    "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+                },
+            },
+        )
+        assert review_resp.status_code == 200
+        task_ids.append(review_resp.json()["id"])
+
+    first_claim_resp = client.post(
+        f"/tasks/{task_ids[0]}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert first_claim_resp.status_code == 200
+    first_claim_id = first_claim_resp.json()["claim_id"]
+
+    second_claim_resp = client.post(
+        f"/tasks/{task_ids[1]}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert second_claim_resp.status_code == 200
+
+    third_claim_resp = client.post(
+        f"/tasks/{task_ids[2]}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert third_claim_resp.status_code == 400
+    assert "最多进行2个揭榜" in third_claim_resp.text
+
+    abandon_resp = client.post(f"/claims/{first_claim_id}/abandon", headers=_headers(employee_id))
+    assert abandon_resp.status_code == 200
+
+    retry_third_claim_resp = client.post(
+        f"/tasks/{task_ids[2]}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert retry_third_claim_resp.status_code == 200
+
+    app.dependency_overrides.clear()

@@ -9,7 +9,29 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.db import get_session
 from app.enums import Role
 from app.main import app
-from app.models import User, UserRole
+from app.models import (
+    AIModel,
+    Acceptance,
+    Attachment,
+    Claim,
+    ClaimApprovalRequest,
+    ClaimMember,
+    Department,
+    Deliverable,
+    HypothesisVerification,
+    Knowledge,
+    OAuthState,
+    OperationLog,
+    PerformanceReviewSnapshot,
+    Problem,
+    ProblemAnalysis,
+    ProblemReviewAnalysisRef,
+    Reward,
+    SystemConfig,
+    Task,
+    User,
+    UserRole,
+)
 
 
 def _headers(user_id: int) -> dict[str, str]:

@@ -205,3 +205,13 @@ npm run e2e
 
 - P2 (partial quick win)
   - Added `Esc` close behavior for task detail and knowledge detail modals.
+
+## Latest Additions (2026-02-11)
+
+- Problem resubmission after rejection:
+  - `GET /problems/{problem_id}` to read full problem detail.
+  - `PUT /problems/{problem_id}/resubmit` to modify a rejected problem and return it to `pending_review`.
+  - Only the original submitter can resubmit.
+- Claim concurrency guard:
+  - A lead user can have at most 2 active claims at the same time.
+  - Third active claim returns `400` with a clear error message.
