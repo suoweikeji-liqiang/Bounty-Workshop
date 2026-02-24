@@ -1,9 +1,13 @@
 # 第 1 阶段：Node 构建环境
-FROM node:20-alpine AS builder
+# 🌟 优化：使用国内加速源拉取基础镜像
+FROM docker.1panel.live/library/node:20-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+
+# 🌟 优化：使用淘宝 NPM 镜像源保证下载速度
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci
 
 COPY . .
 
@@ -12,7 +16,8 @@ ENV VITE_API_BASE_URL=/api
 RUN npm run build
 
 # 第 2 阶段：Nginx 服务环境
-FROM nginx:alpine
+# 🌟 优化：使用国内加速源拉取基础镜像
+FROM docker.1panel.live/library/nginx:alpine
 
 # 移除默认的 nginx 配置
 RUN rm /etc/nginx/conf.d/default.conf

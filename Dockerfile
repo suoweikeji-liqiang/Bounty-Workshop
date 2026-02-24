@@ -1,5 +1,5 @@
-# 后端构建镜像
-FROM python:3.11-slim
+# 🌟 优化：使用国内加速源拉取基础镜像
+FROM docker.1panel.live/library/python:3.11-slim
 
 WORKDIR /app
 
@@ -9,7 +9,10 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 复制依赖定义并安装
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip && \
+
+# 🌟 优化：使用阿里云 Pip 镜像源保证下载速度
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e .
 
 # 复制整个后端代码

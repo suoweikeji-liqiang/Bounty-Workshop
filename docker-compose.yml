@@ -1,23 +1,26 @@
-version: '3.8'
-
 services:
   # Bounty 专属的文件存储服务
   minio:
-    image: minio/minio:latest
+    # 🌟 优化：复用您机器上原有的长亭镜像，避免重新从墙外下载
+    image: chaitin-registry.cn-hangzhou.cr.aliyuncs.com/chaitin/panda-wiki-minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
     container_name: bounty-minio
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: minio server /data --console-address ":9001"
     ports:
-      - "8001:9001"    # 把控制台映射到 TNAS 宿主机的 8001 端口给您访问
+      - "8001:9001"
     environment:
-      - MINIO_ROOT_USER=bounty_admin        # 这是控制台的登录账号
-      - MINIO_ROOT_PASSWORD=bounty_password # 这是控制台的初始密码
+      - MINIO_ROOT_USER=bounty_admin
+      - MINIO_ROOT_PASSWORD=bounty_password
     volumes:
-      - ./data/minio:/data   # 附件的真实物理文件还是落在 ./data/minio 里
+      - ./data/minio:/data
+    networks:
+      bounty-net:
+        ipv4_address: "169.254.16.20"
 
   # 自动建桶的临时助手工具
   minio-init:
-    image: minio/mc:latest
+    # 🌟 优化：加上国内可访问的镜像加速前缀
+    image: docker.1panel.live/minio/mc:latest
     container_name: bounty-minio-init
     depends_on:
       - minio
@@ -29,6 +32,9 @@ services:
       mc policy set public myminio/bounty-workshop;
       exit 0;
       "
+    networks:
+      bounty-net:
+        ipv4_address: "169.254.16.21"
 
   # 后端 API 服务
   backend:
@@ -56,11 +62,13 @@ services:
       # ==== 自动对接自带的 MinIO ====
       - ATTACHMENT_STORAGE_BACKEND=s3
       - ATTACHMENT_S3_BUCKET=bounty-workshop
-      # 通过 Docker 内部网络名 minio 直接互通（不需要填局域网IP）
       - ATTACHMENT_S3_ENDPOINT_URL=http://minio:9000
       - ATTACHMENT_S3_REGION=us-east-1
       - ATTACHMENT_S3_ACCESS_KEY_ID=bounty_admin
       - ATTACHMENT_S3_SECRET_ACCESS_KEY=bounty_password
+    networks:
+      bounty-net:
+        ipv4_address: "169.254.16.22"
 
   # 前端 Web 服务 (Nginx)
   frontend:
@@ -73,3 +81,14 @@ services:
       - "81:80"  # 将主机的 81 端口映射到容器的 80
     depends_on:
       - backend
+    networks:
+      bounty-net:
+        ipv4_address: "169.254.16.23"
+
+# 🌟 优化：采用独立网段分配，避免默认网桥在 NAS 上冲突
+networks:
+  bounty-net:
+    ipam:
+      driver: default
+      config:
+        - subnet: "169.254.16.0/24"
