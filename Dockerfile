@@ -1,5 +1,5 @@
 # 🌟 优化：使用国内加速源拉取基础镜像
-FROM docker.1panel.live/library/python:3.11-slim
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 WORKDIR /app
 
