@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Bounty 专属的文件存储服务
+  minio:
+    image: minio/minio:latest
+    container_name: bounty-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "8001:9001"    # 把控制台映射到 TNAS 宿主机的 8001 端口给您访问
+    environment:
+      - MINIO_ROOT_USER=bounty_admin        # 这是控制台的登录账号
+      - MINIO_ROOT_PASSWORD=bounty_password # 这是控制台的初始密码
+    volumes:
+      - ./data/minio:/data   # 附件的真实物理文件还是落在 ./data/minio 里
+
+  # 自动建桶的临时助手工具
+  minio-init:
+    image: minio/mc:latest
+    container_name: bounty-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 bounty_admin bounty_password;
+      mc mb myminio/bounty-workshop --ignore-existing;
+      mc policy set public myminio/bounty-workshop;
+      exit 0;
+      "
+
+  # 后端 API 服务
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bounty-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - minio
+    environment:
+      - APP_DB_PATH=/app/data/app.db
+      - AUTH_TOKEN_SECRET=change-this-to-a-strong-random-secret
+      - AUTH_TOKEN_TTL_MINUTES=1440
+      - ENABLE_BACKGROUND_JOBS=true
+      - ENABLE_FEISHU_SYNC_JOB=true
+      - RATE_LIMIT_ENABLED=true
+      - CORS_ALLOW_ORIGINS=*
+      - FEISHU_PROVIDER=mock
+      
+      # ==== 自动对接自带的 MinIO ====
+      - ATTACHMENT_STORAGE_BACKEND=s3
+      - ATTACHMENT_S3_BUCKET=bounty-workshop
+      # 通过 Docker 内部网络名 minio 直接互通（不需要填局域网IP）
+      - ATTACHMENT_S3_ENDPOINT_URL=http://minio:9000
+      - ATTACHMENT_S3_REGION=us-east-1
+      - ATTACHMENT_S3_ACCESS_KEY_ID=bounty_admin
+      - ATTACHMENT_S3_SECRET_ACCESS_KEY=bounty_password
+
+  # 前端 Web 服务 (Nginx)
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: bounty-frontend
+    restart: unless-stopped
+    ports:
+      - "81:80"  # 将主机的 81 端口映射到容器的 80
+    depends_on:
+      - backend
