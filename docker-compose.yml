@@ -20,7 +20,7 @@ services:
   # 自动建桶的临时助手工具
   minio-init:
     # 🌟 优化：加上国内可访问的镜像加速前缀
-    image: docker.m.daocloud.io/minio/mc:latest
+    image: docker.1ms.run/minio/mc:latest
     container_name: bounty-minio-init
     depends_on:
       - minio

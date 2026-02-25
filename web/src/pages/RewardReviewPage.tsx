@@ -23,7 +23,7 @@ function buildQuery(filter: RewardFilter, page: number) {
   return query ? `/rewards?${query}` : '/rewards'
 }
 
-export function RewardReviewPage({ userId, profile }: Props) {
+export function RewardReviewPage({ userId, profile: _profile }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<Reward[]>([])
   const [filter, setFilter] = useState<RewardFilter>('generated')

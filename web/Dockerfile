@@ -1,6 +1,6 @@
 # 第 1 阶段：Node 构建环境
 # 🌟 优化：使用国内加速源拉取基础镜像
-FROM docker.m.daocloud.io/library/node:20-alpine AS builder
+FROM docker.1ms.run/library/node:20-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -17,7 +17,7 @@ RUN npm run build
 
 # 第 2 阶段：Nginx 服务环境
 # 🌟 优化：使用国内加速源拉取基础镜像
-FROM docker.m.daocloud.io/library/nginx:alpine
+FROM docker.1ms.run/library/nginx:alpine
 
 # 移除默认的 nginx 配置
 RUN rm /etc/nginx/conf.d/default.conf

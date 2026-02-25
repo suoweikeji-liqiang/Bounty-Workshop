@@ -1,5 +1,5 @@
 # 🌟 优化：使用国内加速源拉取基础镜像
-FROM docker.m.daocloud.io/library/python:3.11-slim
+FROM docker.1ms.run/library/python:3.11-slim
 
 WORKDIR /app
 
@@ -7,16 +7,18 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 复制依赖定义并安装
-COPY pyproject.toml ./
-
-# 🌟 优化：使用阿里云 Pip 镜像源保证下载速度
+# 🌟 优化：使用阿里云 Pip 镜像源
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
-    pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e .
+    pip install --no-cache-dir --upgrade pip
 
-# 复制整个后端代码
+# 🌟 优化：先装依赖再拷代码，改业务代码不会重新装依赖
+COPY pyproject.toml ./
+RUN mkdir -p app && touch app/__init__.py && \
+    pip install --no-cache-dir .
+
+# 复制整个后端代码，再装一次只装包本身（秒完成）
 COPY . .
+RUN pip install --no-cache-dir --no-deps .
 
 # 暴露 FastAPI 端口
 EXPOSE 8000
