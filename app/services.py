@@ -379,6 +379,7 @@ def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> P
             attachment_ids=payload.attachment_ids,
             entity_type="problem",
             entity_id=problem.id,
+            uploader_user_id=actor_id,
         )
     )
     problem.attachment_urls = _to_json(attachment_urls)
@@ -434,6 +435,7 @@ def resubmit_problem(
             attachment_ids=payload.attachment_ids,
             entity_type="problem",
             entity_id=problem.id,
+            uploader_user_id=actor_id,
         )
     )
 
@@ -534,6 +536,8 @@ def review_problem(session: Session, actor_id: int, problem_id: int, payload: Pr
         analysis = session.get(ProblemAnalysis, payload.analysis_id)
         if analysis is None:
             raise HTTPException(status_code=400, detail="论证记录不存在")
+        if analysis.problem_id != problem_id:
+            raise HTTPException(status_code=400, detail="论证记录不属于当前问题")
         ref = ProblemReviewAnalysisRef(
             problem_id=problem_id,
             recommendation=analysis.recommendation or "中立",
@@ -1080,6 +1084,9 @@ def claim_task(
         member_ids = {member.user_id for member in payload.members}
         if lead_user_id not in member_ids:
             raise HTTPException(status_code=400, detail="联合揭榜成员中必须包含主负责人")
+        total_ratio = sum(member.ratio for member in payload.members)
+        if abs(total_ratio - 1.0) > 0.01:
+            raise HTTPException(status_code=400, detail=f"团队成员分配比例之和必须为1.0，当前为{total_ratio}")
         for member in payload.members:
             _ensure_user_exists(session, member.user_id)
             session.add(ClaimMember(claim_id=claim.id, user_id=member.user_id, ratio=member.ratio))
@@ -1194,6 +1201,7 @@ def submit_deliverable(
             attachment_ids=payload.evidence_attachment_ids,
             entity_type="deliverable",
             entity_id=deliverable.id,
+            uploader_user_id=actor_id,
         )
     )
     deliverable.evidence_urls = _to_json(evidence_urls)
@@ -1347,6 +1355,16 @@ def accept_deliverable(
         deliverable.status = DeliverableStatus.APPROVED
         claim.status = ClaimStatus.COMPLETED
         task.status = TaskStatus.COMPLETED
+        # 清理同任务下其他活跃揭榜，避免悬挂
+        other_active_claims = session.exec(
+            select(Claim).where(
+                Claim.task_id == task.id,
+                Claim.status == ClaimStatus.ACTIVE,
+                Claim.id != claim.id,
+            )
+        ).all()
+        for other_claim in other_active_claims:
+            other_claim.status = ClaimStatus.ABANDONED
         _generate_rewards_and_knowledge(session, task, claim, deliverable)
 
     _log(
@@ -1389,6 +1407,8 @@ def confirm_reward(
     reward = session.get(Reward, reward_id)
     if reward is None:
         raise HTTPException(status_code=404, detail="激励记录不存在")
+    if reward.status == RewardStatus.CONFIRMED:
+        raise HTTPException(status_code=400, detail="该激励已确认，不可重复操作")
     reward.status = RewardStatus.CONFIRMED
     reward.confirmed_at = datetime.utcnow()
     _log(
@@ -1653,6 +1673,12 @@ def create_analysis_ref(
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="问题不存在")
+
+    analysis = session.get(ProblemAnalysis, analysis_id)
+    if analysis is None:
+        raise HTTPException(status_code=400, detail="论证记录不存在")
+    if analysis.problem_id != problem_id:
+        raise HTTPException(status_code=400, detail="论证记录不属于当前问题")
 
     ref = ProblemReviewAnalysisRef(
         problem_id=problem_id,

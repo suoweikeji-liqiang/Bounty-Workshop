@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import secrets as _secrets
 
 from contextlib import suppress
 from contextlib import asynccontextmanager
@@ -8,13 +10,15 @@ import os
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Query, UploadFile, Request
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlmodel import Session, select
 import bcrypt
 
 from app.attachments import (
     attachment_to_read,
     create_attachment,
+    ensure_attachment_access,
+    ensure_entity_attachment_access,
     get_attachment_or_404,
     get_presigned_download_url,
     list_attachments_by_entity,
@@ -62,7 +66,7 @@ from app.ai_models import (
 )
 from app.prodmind import get_analysis_report
 from app.rate_limit import rate_limit
-from app.models import User, UserRole
+from app.models import Problem, User, UserRole
 from app.schemas import (
     AcceptanceCreate,
     AdminLoginRequest,
@@ -90,6 +94,7 @@ from app.schemas import (
     PersonalSummaryRead,
     PendingAcceptanceRead,
     ProblemCreate,
+    ProblemDetailRead,
     ProblemRead,
     ProblemReview,
     RewardRead,
@@ -131,6 +136,7 @@ from app.services import (
     get_knowledge_detail,
     get_my_profile,
     get_my_summary,
+    get_problem_detail,
     get_claim_execution_detail,
     get_claim_approval_overdue_threshold,
     get_user_detail,
@@ -161,6 +167,8 @@ from app.services import (
     create_analysis_ref,
 )
 
+_logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -168,22 +176,29 @@ async def lifespan(_: FastAPI):
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.id == 1)).first()
         if existing is None:
-            # 创建初始管理员，设置默认密码
-            password_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
+            init_password = os.getenv("INIT_ADMIN_PASSWORD")
+            if not init_password:
+                init_password = _secrets.token_urlsafe(16)
+            password_hash = bcrypt.hashpw(
+                init_password.encode(), bcrypt.gensalt()
+            ).decode()
             admin = User(
                 name="系统管理员",
                 employee_no="admin",
                 department="平台部",
-                password_hash=password_hash
+                password_hash=password_hash,
+                force_password_change=True,
             )
             session.add(admin)
             session.flush()
             for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
                 session.add(UserRole(user_id=admin.id, role=role))
             session.commit()
-            print("[WARN] 初始管理员已创建：")
+            if os.getenv("INIT_ADMIN_PASSWORD"):
+                print("[INFO] 初始管理员已创建，使用环境变量指定的密码")
+            else:
+                print(f"[WARN] 初始管理员已创建，随机密码: {init_password}")
             print("   用户名: admin")
-            print("   密码: admin123")
             print("   请登录后立即修改密码！")
     stop_event = asyncio.Event()
     scheduler_tasks: list[asyncio.Task] = []
@@ -231,6 +246,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    _logger.exception("Unhandled exception on %s %s", request.method, request.url)
+    return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
 
 
 @app.get("/health")
@@ -441,12 +462,12 @@ def set_user_password(
     payload: SetPasswordRequest,
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
-    _roles: list[Role] = Depends(require_roles([Role.ADMIN])),
+    _roles: int = Depends(require_roles(Role.ADMIN)),
 ) -> dict:
     """管理员为用户设置密码"""
     from datetime import datetime
-    
-    target_user = session.get(User, payload.user_id)
+
+    target_user = session.get(User, user_id)
     if target_user is None:
         raise HTTPException(status_code=404, detail="目标用户不存在")
     
@@ -484,13 +505,29 @@ def get_me_summary(
     return get_my_summary(session, actor_id)
 
 
+_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
+
+
 @app.post("/attachments/upload", response_model=AttachmentRead)
 async def post_attachment_upload(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> AttachmentRead:
-    content = await file.read()
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(256 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件大小超过限制 ({_MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     attachment = create_attachment(
         session=session,
         uploader_user_id=actor_id,
@@ -505,9 +542,11 @@ async def post_attachment_upload(
 def get_attachment_metadata(
     attachment_id: int,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> AttachmentRead:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id, actor_roles, attachment)
     return attachment_to_read(attachment)
 
 
@@ -516,9 +555,11 @@ def get_attachment_download(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> StreamingResponse:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id, actor_roles, attachment)
     if attachment.storage_backend == "s3":
         url = get_presigned_download_url(attachment, expires_in=expires_in)
         return RedirectResponse(url=url, status_code=307)
@@ -543,9 +584,11 @@ def get_attachment_presign(
     attachment_id: int,
     expires_in: int = Query(default=3600, ge=60, le=86400),
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> AttachmentPresignRead:
     attachment = get_attachment_or_404(session, attachment_id)
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_attachment_access(session, actor_id, actor_roles, attachment)
     if attachment.storage_backend != "s3":
         raise HTTPException(status_code=400, detail="仅 s3 附件支持预签名")
     url = get_presigned_download_url(attachment, expires_in=expires_in)
@@ -557,10 +600,12 @@ def get_entity_attachments(
     entity_type: str,
     entity_id: int,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> list[AttachmentRead]:
     if entity_type not in {"problem", "deliverable"}:
         raise HTTPException(status_code=400, detail="entity_type 仅支持 problem 或 deliverable")
+    actor_roles = get_user_roles(session, actor_id)
+    ensure_entity_attachment_access(session, actor_id, actor_roles, entity_type, entity_id)
     return list_attachments_by_entity(session, entity_type=entity_type, entity_id=entity_id)
 
 
@@ -618,7 +663,10 @@ def get_users(session: Session = Depends(get_session)) -> list[UserRead]:
 
 
 @app.get("/users/active", response_model=list[UserRead])
-def get_users_active(session: Session = Depends(get_session)) -> list[UserRead]:
+def get_users_active(
+    session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
+) -> list[UserRead]:
     return list_active_users(session)
 
 
@@ -703,12 +751,11 @@ def put_problem_resubmit(
 
 def _trigger_analysis_background(problem_id: int) -> None:
     from app.services import trigger_problem_analysis
-    from app.db import get_session
     try:
-        with get_session() as session:
+        with Session(engine) as session:
             asyncio.run(trigger_problem_analysis(session, problem_id))
-    except ValueError:
-        pass
+    except Exception:
+        _logger.exception("Background analysis failed for problem_id=%s", problem_id)
 
 
 @app.get("/problems", response_model=list[ProblemRead])
@@ -718,6 +765,8 @@ def get_problems(
     scenario: Scenario | None = Query(default=None),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[ProblemRead]:
@@ -729,7 +778,19 @@ def get_problems(
         scenario=scenario,
         created_from=created_from,
         created_to=created_to,
+        offset=offset,
+        limit=limit,
     )
+
+
+@app.get("/problems/{problem_id}", response_model=ProblemDetailRead)
+def get_problem(
+    problem_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> ProblemDetailRead:
+    actor_roles = get_user_roles(session, actor_id)
+    return get_problem_detail(session, actor_id=actor_id, actor_roles=actor_roles, problem_id=problem_id)
 
 
 @app.post(
@@ -753,7 +814,10 @@ def get_tasks(
     scenario: Scenario | None = Query(default=None),
     reward_min: float | None = Query(default=None),
     reward_max: float | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> list[TaskRead]:
     return list_tasks(
         session,
@@ -762,6 +826,8 @@ def get_tasks(
         scenario=scenario,
         reward_min=reward_min,
         reward_max=reward_max,
+        offset=offset,
+        limit=limit,
     )
 
 
@@ -769,6 +835,7 @@ def get_tasks(
 def get_task(
     task_id: int,
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> TaskDetailRead:
     return get_task_detail(session, task_id=task_id)
 
@@ -922,7 +989,7 @@ def post_deliverable(
 
 @app.post(
     "/deliverables/{deliverable_id}/accept",
-    dependencies=[Depends(require_roles(Role.ADMIN, Role.ACCEPTOR))],
+    dependencies=[Depends(require_roles(Role.ACCEPTOR))],
 )
 def post_acceptance(
     deliverable_id: int,
@@ -954,9 +1021,12 @@ def get_pending_acceptance_mine(
 @app.get("/rewards", response_model=list[RewardRead])
 def get_rewards(
     user_id: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> list[RewardRead]:
-    return list_rewards(session, user_id=user_id)
+    return list_rewards(session, user_id=user_id, offset=offset, limit=limit)
 
 
 @app.post(
@@ -981,6 +1051,7 @@ def get_knowledge(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=200),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> list[dict]:
     return list_knowledge(
         session,
@@ -997,6 +1068,7 @@ def get_knowledge(
 def get_knowledge_item(
     knowledge_id: int,
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> dict:
     return get_knowledge_detail(session, knowledge_id)
 
@@ -1033,7 +1105,10 @@ def get_departments(
 
 
 @app.get("/dashboard/overview")
-def get_dashboard_overview(session: Session = Depends(get_session)) -> dict:
+def get_dashboard_overview(
+    session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
+) -> dict:
     return dashboard_overview(session).model_dump()
 
 
@@ -1042,6 +1117,7 @@ def get_dashboard_rankings(
     time_range: TimeRange = Query(default="this_month"),
     top_n: int = Query(default=10, ge=1, le=100),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> DashboardRankings:
     return dashboard_rankings(session, time_range=time_range, top_n=top_n)
 
@@ -1051,6 +1127,7 @@ def get_dashboard_trends(
     time_range: TimeRange = Query(default="this_month"),
     granularity: TrendGranularity = Query(default="month"),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> DashboardTrends:
     return dashboard_trends(session, time_range=time_range, granularity=granularity)
 
@@ -1059,6 +1136,7 @@ def get_dashboard_trends(
 def get_dashboard_distribution(
     time_range: TimeRange = Query(default="all"),
     session: Session = Depends(get_session),
+    _: int = Depends(get_current_user_id),
 ) -> DashboardDistribution:
     return dashboard_distribution(session, time_range=time_range)
 
@@ -1410,6 +1488,12 @@ async def post_problem_analyze(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
+    problem = session.get(Problem, problem_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="问题不存在")
+    actor_roles = get_user_roles(session, actor_id)
+    if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
+        raise HTTPException(status_code=403, detail="无权触发该问题分析")
     try:
         analysis = await trigger_problem_analysis(session, problem_id)
         return {
@@ -1430,6 +1514,12 @@ def get_problem_analysis_report(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
+    problem = session.get(Problem, problem_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="问题不存在")
+    actor_roles = get_user_roles(session, actor_id)
+    if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
+        raise HTTPException(status_code=403, detail="无权查看该问题分析")
     analysis = get_problem_analysis(session, problem_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="分析报告不存在")
@@ -1457,6 +1547,12 @@ def get_problem_hypotheses(
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[dict]:
+    problem = session.get(Problem, problem_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="问题不存在")
+    actor_roles = get_user_roles(session, actor_id)
+    if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
+        raise HTTPException(status_code=403, detail="无权查看该问题分析")
     analysis = get_problem_analysis(session, problem_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="分析报告不存在")

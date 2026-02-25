@@ -13,10 +13,22 @@ from app.models import AIModel
 if TYPE_CHECKING:
     from app.schemas import AIModelCreate, AIModelUpdate
 
-ENCRYPTION_KEY = os.environ.get(
-    "AI_ENCRYPTION_KEY",
-    Fernet.generate_key().decode() if hasattr(Fernet.generate_key(), "decode") else Fernet.generate_key(),
-)
+_DEV_FALLBACK_KEY = "IvdcjALfNbERVXxtfqLVVkcYW1RuCdajliBAVNytnqw="
+
+
+def _resolve_encryption_key() -> str:
+    key = os.environ.get("AI_ENCRYPTION_KEY")
+    if key:
+        return key
+    if os.getenv("APP_ENV", "").strip().lower() in {"prod", "production"}:
+        raise RuntimeError(
+            "AI_ENCRYPTION_KEY must be set in production. "
+            "Refusing to start with fallback key."
+        )
+    return _DEV_FALLBACK_KEY
+
+
+ENCRYPTION_KEY = _resolve_encryption_key()
 
 _cipher = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
 
@@ -32,7 +44,7 @@ def decrypt_api_key(encrypted: str) -> str:
 def create_ai_model(session: Session, actor_id: int, payload: "AIModelCreate") -> AIModel:
     if payload.is_default:
         existing_defaults = session.exec(
-            select(AIModel).where(AIModel.is_default is True)
+            select(AIModel).where(AIModel.is_default == True)
         ).all()
         for model in existing_defaults:
             model.is_default = False
@@ -67,12 +79,12 @@ def get_ai_model(session: Session, model_id: int) -> Optional[AIModel]:
 
 def get_default_model(session: Session) -> Optional[AIModel]:
     model = session.exec(
-        select(AIModel).where(AIModel.is_default is True, AIModel.enabled is True)
+        select(AIModel).where(AIModel.is_default == True, AIModel.enabled == True)
     ).first()
     if model:
         return model
     return session.exec(
-        select(AIModel).where(AIModel.enabled is True).order_by(AIModel.created_at.desc())
+        select(AIModel).where(AIModel.enabled == True).order_by(AIModel.created_at.desc())
     ).first()
 
 
@@ -85,7 +97,7 @@ def update_ai_model(
 
     if payload.is_default and not model.is_default:
         existing_defaults = session.exec(
-            select(AIModel).where(AIModel.is_default is True, AIModel.id != model_id)
+            select(AIModel).where(AIModel.is_default == True, AIModel.id != model_id)
         ).all()
         for m in existing_defaults:
             m.is_default = False

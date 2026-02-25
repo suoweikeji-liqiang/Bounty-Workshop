@@ -94,7 +94,6 @@ class ChangePasswordRequest(BaseModel):
 
 class SetPasswordRequest(BaseModel):
     """管理员为用户设置密码"""
-    user_id: int = Field(ge=1)
     new_password: str = Field(min_length=8, max_length=100)
     force_change: bool = Field(default=True, description="是否强制用户下次登录修改密码")
 

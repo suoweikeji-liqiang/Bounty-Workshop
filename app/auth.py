@@ -39,7 +39,15 @@ def is_header_user_auth_enabled() -> bool:
 
 
 def _token_secret() -> bytes:
-    return os.getenv('AUTH_TOKEN_SECRET', 'bounty-workshop-dev-secret').encode('utf-8')
+    secret = os.getenv('AUTH_TOKEN_SECRET')
+    if not secret:
+        if _is_production_env():
+            raise RuntimeError(
+                "AUTH_TOKEN_SECRET must be set in production. "
+                "Refusing to start with default secret."
+            )
+        secret = 'bounty-workshop-dev-secret'
+    return secret.encode('utf-8')
 
 
 def _token_ttl_seconds() -> int:

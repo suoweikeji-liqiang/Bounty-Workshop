@@ -29,7 +29,7 @@ services:
       sleep 5;
       mc alias set myminio http://minio:9000 bounty_admin bounty_password;
       mc mb myminio/bounty-workshop --ignore-existing;
-      mc policy set public myminio/bounty-workshop;
+      mc anonymous set none myminio/bounty-workshop;
       exit 0;
       "
     networks:
@@ -56,6 +56,7 @@ services:
       - ENABLE_BACKGROUND_JOBS=true
       - ENABLE_FEISHU_SYNC_JOB=true
       - RATE_LIMIT_ENABLED=true
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:?Set AI_ENCRYPTION_KEY in .env}
       - CORS_ALLOW_ORIGINS=*
       - FEISHU_PROVIDER=mock
       

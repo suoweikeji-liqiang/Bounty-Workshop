@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
-import { apiBaseUrl, requestJson } from '../lib/http'
+import { downloadFile, requestJson } from '../lib/http'
 import type { Attachment } from '../types'
 
 type Props = {
@@ -138,14 +138,13 @@ export function AttachmentsPage({ userId }: Props) {
             <span>后端</span>
             <strong>{attachment.storage_backend}</strong>
           </p>
-          <a
+          <button
             className="ghost-btn"
-            href={`${apiBaseUrl}${attachment.download_url}`}
-            target="_blank"
-            rel="noreferrer"
+            type="button"
+            onClick={() => void downloadFile(attachment.download_url, attachment.filename, { userId })}
           >
             下载附件
-          </a>
+          </button>
         </article>
       )}
       <article className="panel">
@@ -163,9 +162,9 @@ export function AttachmentsPage({ userId }: Props) {
               <span>{item.filename}</span>
               <span>{item.storage_backend}</span>
               <span>
-                <a href={`${apiBaseUrl}${item.download_url}`} target="_blank" rel="noreferrer">
+                <button type="button" onClick={() => void downloadFile(item.download_url, item.filename, { userId })}>
                   打开
-                </a>
+                </button>
               </span>
             </div>
           ))}

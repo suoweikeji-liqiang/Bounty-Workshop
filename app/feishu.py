@@ -409,7 +409,7 @@ def get_acceptance_templates(session: Session) -> AcceptanceTemplatesConfig:
     if row is None:
         row = SystemConfig(
             key=ACCEPTANCE_TEMPLATES_KEY,
-            value=DEFAULT_ACCEPTANCE_TEMPLATES.model_dump_json(ensure_ascii=False),
+            value=json.dumps(DEFAULT_ACCEPTANCE_TEMPLATES.model_dump(), ensure_ascii=False),
         )
         session.add(row)
         session.commit()
@@ -430,12 +430,12 @@ def set_acceptance_templates(
     if row is None:
         row = SystemConfig(
             key=ACCEPTANCE_TEMPLATES_KEY,
-            value=payload.model_dump_json(ensure_ascii=False),
+            value=json.dumps(payload.model_dump(), ensure_ascii=False),
             updated_at=now,
         )
         session.add(row)
     else:
-        row.value = payload.model_dump_json(ensure_ascii=False)
+        row.value = json.dumps(payload.model_dump(), ensure_ascii=False)
         row.updated_at = now
     session.commit()
     return payload

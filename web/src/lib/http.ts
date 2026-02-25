@@ -63,6 +63,24 @@ export async function requestJson<T>(path: string, options: HttpOptions): Promis
   return (await res.json()) as T
 }
 
+export async function downloadFile(path: string, filename: string, options: HttpOptions): Promise<void> {
+  const headers = buildHeaders(options)
+  const res = await fetch(`${apiBaseUrl}${path}`, { headers })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status} ${res.statusText}: ${text}`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function requestRaw(path: string, options: HttpOptions): Promise<Response> {
   const { method = 'GET', body, formData } = options
   const headers = buildHeaders(options)

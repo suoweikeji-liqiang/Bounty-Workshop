@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 
-import { apiBaseUrl, requestJson } from '../lib/http'
+import { downloadFile, requestJson } from '../lib/http'
 import type { Attachment } from '../types'
 import { useToast } from './ToastProvider'
 
@@ -73,9 +73,9 @@ export function AttachmentField({ userId, value, onChange, label = 'Attachments'
               <span>#{item.id}</span>
               <span>{item.filename}</span>
               <span>{item.size_bytes} B</span>
-              <a href={`${apiBaseUrl}${item.download_url}`} target="_blank" rel="noreferrer">
+              <button type="button" onClick={() => void downloadFile(item.download_url, item.filename, { userId })}>
                 Open
-              </a>
+              </button>
               <button type="button" onClick={() => onChange(value.filter((row) => row.id !== item.id))}>
                 Remove
               </button>

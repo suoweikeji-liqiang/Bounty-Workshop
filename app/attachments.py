@@ -296,6 +296,7 @@ def bind_attachments(
     attachment_ids: list[int],
     entity_type: str,
     entity_id: int,
+    uploader_user_id: int | None = None,
 ) -> list[str]:
     if not attachment_ids:
         return []
@@ -305,6 +306,16 @@ def bind_attachments(
         raise HTTPException(status_code=400, detail="some attachments do not exist")
     urls: list[str] = []
     for item in rows:
+        if item.entity_type is not None and item.entity_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"attachment {item.id} is already bound to {item.entity_type}/{item.entity_id}",
+            )
+        if uploader_user_id is not None and item.uploader_user_id != uploader_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"attachment {item.id} does not belong to current user",
+            )
         item.entity_type = entity_type
         item.entity_id = entity_id
         urls.append(f"/attachments/{item.id}/download")

@@ -171,37 +171,46 @@ async def call_ai_model(
     headers = {
         "Content-Type": "application/json",
     }
-    if model.provider.value in ("openai", "custom", "siliconflow", "deepseek"):
-        headers["Authorization"] = f"Bearer {decrypt_api_key(model.api_key_encrypted)}"
-    elif model.provider.value == "anthropic":
-        headers["x-api-key"] = decrypt_api_key(model.api_key_encrypted)
 
-    payload = {
-        "model": model.model,
-        "messages": messages,
-        "temperature": temperature or model.temperature,
-        "max_tokens": max_tokens or model.max_tokens,
-    }
+    is_anthropic = model.provider.value == "anthropic"
+
+    if is_anthropic:
+        headers["x-api-key"] = decrypt_api_key(model.api_key_encrypted)
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        headers["Authorization"] = f"Bearer {decrypt_api_key(model.api_key_encrypted)}"
+
+    # 分离 system 消息和普通消息
+    system_msgs = [m for m in messages if m["role"] == "system"]
+    non_system_msgs = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
+
+    if is_anthropic:
+        payload = {
+            "model": model.model,
+            "system": system_msgs[0]["content"] if system_msgs else "",
+            "messages": non_system_msgs,
+            "temperature": temperature or model.temperature,
+            "max_tokens": max_tokens or model.max_tokens,
+        }
+    else:
+        payload = {
+            "model": model.model,
+            "messages": messages,
+            "temperature": temperature or model.temperature,
+            "max_tokens": max_tokens or model.max_tokens,
+        }
 
     async with httpx.AsyncClient(timeout=model.timeout) as client:
-        if model.provider.value == "anthropic":
-            payload["messages"] = [{"role": m["role"], "content": m["content"]} for m in messages]
-            response = await client.post(
-                f"{model.api_base_url.rstrip('/')}/messages",
-                headers=headers,
-                json=payload,
-            )
+        if is_anthropic:
+            url = f"{model.api_base_url.rstrip('/')}/messages"
         else:
-            response = await client.post(
-                f"{model.api_base_url.rstrip('/')}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+            url = f"{model.api_base_url.rstrip('/')}/chat/completions"
 
+        response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         result = response.json()
 
-        if model.provider.value == "anthropic":
+        if is_anthropic:
             return result["content"][0]["text"]
         return result["choices"][0]["message"]["content"]
 
@@ -249,48 +258,48 @@ async def run_analysis(
     session.flush()
 
     try:
-        messages = [
+        # Step 1: Architect 独立调用
+        architect_messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"产品想法：{problem_info}"},
+            {"role": "user", "content": ARCHITECT_PROMPT.format(problem_info=problem_info)},
         ]
-
-        architect_response = await call_ai_model(model, messages)
+        architect_response = await call_ai_model(model, architect_messages)
         architect_output = parse_json_response(architect_response)
 
-        messages.extend([
-            {"role": "assistant", "content": architect_response},
-            {"role": "user", "content": ARCHITECT_PROMPT.format(problem_info=problem_info)},
-        ])
-
-        assassin_response = await call_ai_model(model, messages)
-        assassin_output = parse_json_response(assassin_response)
-
-        messages.extend([
-            {"role": "assistant", "content": assassin_response},
+        # Step 2: Assassin 独立调用，只传入 architect 的结论
+        assassin_messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": ASSASSIN_PROMPT.format(
                 problem_info=problem_info,
-                architect_output=str(architect_output),
+                architect_output=json.dumps(architect_output, ensure_ascii=False),
             )},
-        ])
+        ]
+        assassin_response = await call_ai_model(model, assassin_messages)
+        assassin_output = parse_json_response(assassin_response)
 
-        user_ghost_response = await call_ai_model(model, messages)
-        user_ghost_output = parse_json_response(user_ghost_response)
-
-        messages.extend([
-            {"role": "assistant", "content": user_ghost_response},
+        # Step 3: User Ghost 独立调用
+        user_ghost_messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_GHOST_PROMPT.format(
                 problem_info=problem_info,
-                architect_output=str(architect_output),
+                architect_output=json.dumps(architect_output, ensure_ascii=False),
             )},
-        ])
+        ]
+        user_ghost_response = await call_ai_model(model, user_ghost_messages)
+        user_ghost_output = parse_json_response(user_ghost_response)
 
-        grounder_response = await call_ai_model(model, messages)
+        # Step 4: Grounder 综合前三个角色的输出
+        grounder_messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": GROUNDER_PROMPT.format(
+                problem_info=problem_info,
+                architect_output=json.dumps(architect_output, ensure_ascii=False),
+                assassin_output=json.dumps(assassin_output, ensure_ascii=False),
+                user_ghost_output=json.dumps(user_ghost_output, ensure_ascii=False),
+            )},
+        ]
+        grounder_response = await call_ai_model(model, grounder_messages)
         grounder_output = parse_json_response(grounder_response)
-
-        messages.append({
-            "role": "assistant",
-            "content": grounder_response,
-        })
 
         analysis.core_problem = architect_output.get("core_problem")
         analysis.target_users = json.dumps(architect_output.get("target_users", []))
@@ -320,11 +329,21 @@ async def run_analysis(
         analysis.status = AnalysisStatus.COMPLETED
 
         for hyp in hypothesis_list:
+            # 枚举值 fallback，防止 AI 返回非法值导致整个分析失败
+            try:
+                hyp_type = HypothesisType(hyp.get("type", "requirement"))
+            except ValueError:
+                hyp_type = HypothesisType.REQUIREMENT
+            try:
+                risk = RiskLevel(hyp.get("risk_level", "medium"))
+            except ValueError:
+                risk = RiskLevel.MEDIUM
+
             verification = HypothesisVerification(
                 analysis_id=analysis.id,
                 hypothesis_content=hyp.get("content", ""),
-                hypothesis_type=HypothesisType(hyp.get("type", "requirement")),
-                risk_level=RiskLevel(hyp.get("risk_level", "medium")),
+                hypothesis_type=hyp_type,
+                risk_level=risk,
                 verification_status=HypothesisStatus.PENDING,
             )
             session.add(verification)

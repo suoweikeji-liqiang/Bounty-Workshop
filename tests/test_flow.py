@@ -64,6 +64,7 @@ def test_auth_login_and_bearer_access(tmp_path: Path) -> None:
 def test_prod_auth_disables_passwordless_and_header_auth(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
     os.environ["APP_ENV"] = "production"
+    os.environ["AUTH_TOKEN_SECRET"] = "test-secret-for-production-mode"
     os.environ.pop("AUTH_ENABLE_PASSWORDLESS_LOGIN", None)
     os.environ.pop("AUTH_ENABLE_HEADER_USER_ID", None)
     try:
@@ -79,6 +80,7 @@ def test_prod_auth_disables_passwordless_and_header_auth(tmp_path: Path) -> None
         assert me_bearer_resp.json()["id"] == 1
     finally:
         os.environ.pop("APP_ENV", None)
+        os.environ.pop("AUTH_TOKEN_SECRET", None)
         os.environ.pop("AUTH_ENABLE_PASSWORDLESS_LOGIN", None)
         os.environ.pop("AUTH_ENABLE_HEADER_USER_ID", None)
         app.dependency_overrides.clear()
