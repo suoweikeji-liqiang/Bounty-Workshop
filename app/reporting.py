@@ -14,7 +14,6 @@ from app.models import (
     Acceptance,
     Claim,
     Knowledge,
-    PerformanceReviewSnapshot,
     Problem,
     Reward,
     Task,
@@ -176,40 +175,12 @@ def dashboard_distribution(session: Session, time_range: TimeRange) -> Dashboard
     dept_stmt = _append_time_filter(dept_stmt, Claim.created_at, time_range)
     dept_rows = session.exec(dept_stmt).all()
 
-    baseline_stmt = select(
-        PerformanceReviewSnapshot.baseline_responsibility_status,
-        func.count(PerformanceReviewSnapshot.id),
-    ).group_by(PerformanceReviewSnapshot.baseline_responsibility_status)
-    baseline_stmt = _append_time_filter(
-        baseline_stmt,
-        PerformanceReviewSnapshot.updated_at,
-        time_range,
-    )
-    baseline_rows = session.exec(baseline_stmt).all()
-
-    final_r_stmt = select(
-        PerformanceReviewSnapshot.final_r_level,
-        func.count(PerformanceReviewSnapshot.id),
-    ).group_by(PerformanceReviewSnapshot.final_r_level)
-    final_r_stmt = _append_time_filter(
-        final_r_stmt,
-        PerformanceReviewSnapshot.updated_at,
-        time_range,
-    )
-    final_r_rows = session.exec(final_r_stmt).all()
-
     return DashboardDistribution(
         scenario_distribution=[
             DistributionItem(name=str(row[0]), count=int(row[1])) for row in scenario_rows
         ],
         level_distribution=[DistributionItem(name=str(row[0]), count=int(row[1])) for row in level_rows],
         department_distribution=[DistributionItem(name=str(row[0]), count=int(row[1])) for row in dept_rows],
-        baseline_responsibility_distribution=[
-            DistributionItem(name=str(row[0]), count=int(row[1])) for row in baseline_rows
-        ],
-        final_r_level_distribution=[
-            DistributionItem(name=str(row[0]), count=int(row[1])) for row in final_r_rows
-        ],
     )
 
 
@@ -225,33 +196,8 @@ def _append_table(sheet, headers: list[str], rows: list[list]) -> None:
         sheet.append(row)
 
 
-def _latest_snapshot_by_task_id(session: Session) -> dict[int, PerformanceReviewSnapshot]:
-    rows = session.exec(
-        select(PerformanceReviewSnapshot).order_by(PerformanceReviewSnapshot.updated_at.desc())
-    ).all()
-    latest: dict[int, PerformanceReviewSnapshot] = {}
-    for row in rows:
-        if row.task_id not in latest:
-            latest[row.task_id] = row
-    return latest
-
-
-def _reward_hold_reason(
-    role_type: RewardRoleType,
-    snapshot: PerformanceReviewSnapshot | None,
-) -> str:
-    if snapshot is None:
-        return ""
-    if role_type == RewardRoleType.EXECUTOR and snapshot.final_r_level.value in {"R1", "R2"}:
-        return "held_by_performance_policy"
-    return ""
-
-
 def export_tasks_excel(session: Session) -> bytes:
     rows = session.exec(select(Task).order_by(Task.created_at.desc())).all()
-    performance_rows = session.exec(
-        select(PerformanceReviewSnapshot).order_by(PerformanceReviewSnapshot.updated_at.desc())
-    ).all()
     wb = Workbook()
     ws = wb.active
     ws.title = "Tasks"
@@ -272,57 +218,17 @@ def export_tasks_excel(session: Session) -> bytes:
             for item in rows
         ],
     )
-    ws2 = wb.create_sheet("PerformanceReviews")
-    _append_table(
-        ws2,
-        [
-            "claim_id",
-            "task_id",
-            "deliverable_id",
-            "baseline_status",
-            "final_r_level",
-            "baseline_reasons",
-            "updated_at",
-        ],
-        [
-            [
-                item.claim_id,
-                item.task_id,
-                item.deliverable_id or "",
-                item.baseline_responsibility_status.value,
-                item.final_r_level.value,
-                item.baseline_reasons,
-                item.updated_at.isoformat(),
-            ]
-            for item in performance_rows
-        ],
-    )
     return _workbook_bytes(wb)
 
 
 def export_rewards_excel(session: Session) -> bytes:
     rows = session.exec(select(Reward, User.name).join(User, User.id == Reward.user_id)).all()
-    snapshot_map = _latest_snapshot_by_task_id(session)
     wb = Workbook()
     ws = wb.active
     ws.title = "Rewards"
     _append_table(
         ws,
-        [
-            "reward_id",
-            "task_id",
-            "user_id",
-            "user_name",
-            "role_type",
-            "amount",
-            "points",
-            "badge",
-            "status",
-            "confirmed_at",
-            "performance_baseline_status",
-            "performance_final_r_level",
-            "hold_reason",
-        ],
+        ["reward_id", "task_id", "user_id", "user_name", "role_type", "amount", "points", "badge", "status", "confirmed_at"],
         [
             [
                 reward.id,
@@ -335,17 +241,6 @@ def export_rewards_excel(session: Session) -> bytes:
                 reward.badge or "",
                 reward.status.value,
                 reward.confirmed_at.isoformat() if reward.confirmed_at else "",
-                (
-                    snapshot_map[reward.task_id].baseline_responsibility_status.value
-                    if reward.task_id in snapshot_map
-                    else ""
-                ),
-                (
-                    snapshot_map[reward.task_id].final_r_level.value
-                    if reward.task_id in snapshot_map
-                    else ""
-                ),
-                _reward_hold_reason(reward.role_type, snapshot_map.get(reward.task_id)),
             ]
             for reward, user_name in rows
         ],
@@ -421,12 +316,7 @@ def export_dashboard_excel(
         ["distribution_type", "name", "count"],
         [["scenario", i.name, i.count] for i in distribution.scenario_distribution]
         + [["level", i.name, i.count] for i in distribution.level_distribution]
-        + [["department", i.name, i.count] for i in distribution.department_distribution]
-        + [
-            ["baseline_responsibility", i.name, i.count]
-            for i in distribution.baseline_responsibility_distribution
-        ]
-        + [["final_r_level", i.name, i.count] for i in distribution.final_r_level_distribution],
+        + [["department", i.name, i.count] for i in distribution.department_distribution],
     )
     return _workbook_bytes(wb)
 

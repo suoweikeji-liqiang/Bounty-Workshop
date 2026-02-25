@@ -12,14 +12,11 @@ from sqlmodel import Session, select
 from app.enums import (
     AcceptanceResult,
     AnalysisStatus,
-    BaselineResponsibilityStatus,
     ClaimApprovalStatus,
     ClaimMode,
     ClaimStatus,
     DeliverableStatus,
     HypothesisStatus,
-    IncidentSeverity,
-    PerformanceLevel,
     ProblemStatus,
     RewardRoleType,
     RewardStatus,
@@ -39,7 +36,6 @@ from app.models import (
     Deliverable,
     Knowledge,
     OperationLog,
-    PerformanceReviewSnapshot,
     Problem,
     ProblemAnalysis,
     HypothesisVerification,
@@ -57,9 +53,6 @@ from app.schemas import (
     OperationLogRead,
     PersonalRewardStats,
     PersonalSummaryRead,
-    PerformanceReviewRead,
-    PerformanceReviewSignalInput,
-    PerformanceReviewUpsert,
     ClaimExecutionDetailRead,
     ClaimExecutionRead,
     DashboardOverview,
@@ -155,14 +148,6 @@ def _ensure_role(session: Session, user_id: int, role: Role) -> None:
 CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY = "claim_approval_overdue_threshold"
 DEFAULT_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 2
 MIN_CLAIM_APPROVAL_OVERDUE_THRESHOLD = 1
-PERFORMANCE_LEVEL_SCORE = {
-    PerformanceLevel.R1: 1,
-    PerformanceLevel.R2: 2,
-    PerformanceLevel.R3: 3,
-    PerformanceLevel.R4: 4,
-    PerformanceLevel.R5: 5,
-}
-REWARD_HOLD_FINAL_LEVELS = {PerformanceLevel.R1, PerformanceLevel.R2}
 MAX_ACTIVE_CLAIMS_PER_USER = 2
 
 
@@ -795,141 +780,9 @@ def _ensure_claim_access(actor_id: int, actor_roles: set[Role], claim: Claim, ta
         raise HTTPException(status_code=403, detail="无权查看该揭榜详情")
 
 
-def _min_performance_level(left: PerformanceLevel, right: PerformanceLevel) -> PerformanceLevel:
-    return left if PERFORMANCE_LEVEL_SCORE[left] <= PERFORMANCE_LEVEL_SCORE[right] else right
 
 
-def _calc_baseline_responsibility_status(
-    signals: PerformanceReviewSignalInput,
-) -> tuple[BaselineResponsibilityStatus, list[str]]:
-    reasons: list[str] = []
-    fault_reasons: list[str] = []
-    normal_reasons: list[str] = []
-
-    if signals.incident_severity == IncidentSeverity.MAJOR and signals.incident_count > 0:
-        fault_reasons.append("发生重大事故（major）")
-    if signals.critical_task_missed_without_reason:
-        fault_reasons.append("关键职责任务遗漏且无正当理由")
-    if signals.process_violation_count > 0:
-        fault_reasons.append(f"流程违规 {signals.process_violation_count} 次")
-    if signals.known_risk_unreported:
-        fault_reasons.append("已知风险未上报")
-    if signals.repeated_issue_count > 0 and signals.repeated_issue_without_improvement:
-        fault_reasons.append("重复性问题跨周期出现且无改进")
-
-    if signals.incident_severity == IncidentSeverity.MINOR and signals.incident_count >= 2:
-        normal_reasons.append(f"轻微事故累计 {signals.incident_count} 次")
-    if signals.missed_deadline_count >= 2:
-        normal_reasons.append(f"非关键任务延期/遗漏累计 {signals.missed_deadline_count} 次")
-    if signals.unjustified_delay_count > 0:
-        normal_reasons.append(f"无合理理由延期 {signals.unjustified_delay_count} 次")
-    if signals.repeated_issue_count > 0 and not signals.repeated_issue_without_improvement:
-        normal_reasons.append(f"重复性问题出现 {signals.repeated_issue_count} 次（已有改进）")
-
-    if fault_reasons:
-        reasons.extend(fault_reasons)
-        return BaselineResponsibilityStatus.FAULT, reasons
-    if normal_reasons:
-        reasons.extend(normal_reasons)
-        return BaselineResponsibilityStatus.NORMAL, reasons
-    return BaselineResponsibilityStatus.GOOD, reasons
-
-
-def _calc_final_r_level(
-    initial_r_level: PerformanceLevel,
-    baseline_status: BaselineResponsibilityStatus,
-    has_t3_plus_task: bool,
-) -> tuple[PerformanceLevel, list[str]]:
-    final_level = initial_r_level
-    fusion_reasons: list[str] = []
-
-    if baseline_status == BaselineResponsibilityStatus.FAULT:
-        final_level = _min_performance_level(final_level, PerformanceLevel.R2)
-        fusion_reasons.append("基础履责为 fault，最终 R 级别下拉至不高于 R2")
-    elif baseline_status == BaselineResponsibilityStatus.NORMAL:
-        normal_cap = PerformanceLevel.R3 if has_t3_plus_task else PerformanceLevel.R2
-        final_level = _min_performance_level(final_level, normal_cap)
-        fusion_reasons.append(f"基础履责为 normal，最终 R 级别不高于 {normal_cap.value}")
-    else:
-        good_cap = PerformanceLevel.R4 if has_t3_plus_task else PerformanceLevel.R3
-        final_level = _min_performance_level(final_level, good_cap)
-        fusion_reasons.append(f"基础履责为 good，最终 R 级别不高于 {good_cap.value}")
-
-    if not has_t3_plus_task:
-        final_level = _min_performance_level(final_level, PerformanceLevel.R3)
-        fusion_reasons.append("无 T3+ 任务，最终 R 级别不高于 R3")
-
-    return final_level, fusion_reasons
-
-
-def _performance_snapshot_to_read(row: PerformanceReviewSnapshot) -> PerformanceReviewRead:
-    baseline_reasons = [str(item) for item in _from_json_list(row.baseline_reasons)]
-
-    return PerformanceReviewRead(
-        claim_id=row.claim_id,
-        task_id=row.task_id,
-        deliverable_id=row.deliverable_id,
-        reviewed_by_user_id=row.reviewed_by_user_id,
-        baseline_responsibility_status=row.baseline_responsibility_status,
-        baseline_reasons=baseline_reasons,
-        incident_severity=row.incident_severity,
-        incident_count=row.incident_count,
-        missed_deadline_count=row.missed_deadline_count,
-        unjustified_delay_count=row.unjustified_delay_count,
-        process_violation_count=row.process_violation_count,
-        known_risk_unreported=row.known_risk_unreported,
-        repeated_issue_count=row.repeated_issue_count,
-        critical_task_missed_without_reason=row.critical_task_missed_without_reason,
-        repeated_issue_without_improvement=row.repeated_issue_without_improvement,
-        has_t3_plus_task=row.has_t3_plus_task,
-        initial_r_level=row.initial_r_level,
-        final_r_level=row.final_r_level,
-        has_fault_warning=row.baseline_responsibility_status == BaselineResponsibilityStatus.FAULT,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def _latest_snapshot_by_task_ids(
-    session: Session,
-    task_ids: list[int],
-) -> dict[int, PerformanceReviewSnapshot]:
-    if not task_ids:
-        return {}
-    rows = session.exec(
-        select(PerformanceReviewSnapshot)
-        .where(PerformanceReviewSnapshot.task_id.in_(task_ids))
-        .order_by(PerformanceReviewSnapshot.updated_at.desc())
-    ).all()
-    latest: dict[int, PerformanceReviewSnapshot] = {}
-    for row in rows:
-        if row.task_id not in latest:
-            latest[row.task_id] = row
-    return latest
-
-
-def _reward_hold_reason(
-    reward_role_type: RewardRoleType,
-    snapshot: PerformanceReviewSnapshot | None,
-) -> str | None:
-    if snapshot is None:
-        return None
-    if (
-        reward_role_type == RewardRoleType.EXECUTOR
-        and snapshot.final_r_level in REWARD_HOLD_FINAL_LEVELS
-    ):
-        return (
-            f"终评等级为 {snapshot.final_r_level.value}，执行人激励进入复核冻结；"
-            "仅管理员可确认发放。"
-        )
-    return None
-
-
-def _reward_to_read(
-    reward: Reward,
-    snapshot: PerformanceReviewSnapshot | None,
-) -> RewardRead:
-    hold_reason = _reward_hold_reason(reward.role_type, snapshot)
+def _reward_to_read(reward: Reward) -> RewardRead:
     return RewardRead(
         id=reward.id,
         task_id=reward.task_id,
@@ -940,104 +793,9 @@ def _reward_to_read(
         badge=reward.badge,
         status=reward.status.value,
         confirmed_at=reward.confirmed_at,
-        held_by_performance_policy=hold_reason is not None and reward.status != RewardStatus.CONFIRMED,
-        performance_baseline_status=snapshot.baseline_responsibility_status if snapshot else None,
-        performance_final_r_level=snapshot.final_r_level if snapshot else None,
-        hold_reason=hold_reason,
     )
 
 
-def get_performance_review_snapshot(
-    session: Session,
-    actor_id: int,
-    actor_roles: set[Role],
-    claim_id: int,
-) -> PerformanceReviewRead:
-    claim, task = _load_claim_and_task(session, claim_id)
-    _ensure_claim_access(actor_id, actor_roles, claim, task)
-
-    row = session.exec(
-        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
-    ).first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="终评快照不存在")
-    return _performance_snapshot_to_read(row)
-
-
-def upsert_performance_review_snapshot(
-    session: Session,
-    actor_id: int,
-    actor_roles: set[Role],
-    claim_id: int,
-    payload: PerformanceReviewUpsert,
-) -> PerformanceReviewRead:
-    claim, task = _load_claim_and_task(session, claim_id)
-    if not (
-        actor_id == task.accepter_id or Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles
-    ):
-        raise HTTPException(status_code=403, detail="仅验收人/管理员/评审可录入终评快照")
-
-    baseline_status, baseline_reasons = _calc_baseline_responsibility_status(payload.signals)
-    final_r_level, fusion_reasons = _calc_final_r_level(
-        payload.initial_r_level,
-        baseline_status,
-        payload.has_t3_plus_task,
-    )
-    all_reasons = baseline_reasons + fusion_reasons
-    deliverable = session.exec(select(Deliverable).where(Deliverable.claim_id == claim_id)).first()
-
-    row = session.exec(
-        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
-    ).first()
-    now = datetime.utcnow()
-    if row is None:
-        row = PerformanceReviewSnapshot(
-            claim_id=claim_id,
-            task_id=task.id,
-            deliverable_id=deliverable.id if deliverable else None,
-            reviewed_by_user_id=actor_id,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(row)
-
-    signals = payload.signals
-    row.task_id = task.id
-    row.deliverable_id = deliverable.id if deliverable else None
-    row.reviewed_by_user_id = actor_id
-    row.baseline_responsibility_status = baseline_status
-    row.baseline_reasons = _to_json(all_reasons)
-    row.incident_severity = signals.incident_severity
-    row.incident_count = signals.incident_count
-    row.missed_deadline_count = signals.missed_deadline_count
-    row.unjustified_delay_count = signals.unjustified_delay_count
-    row.process_violation_count = signals.process_violation_count
-    row.known_risk_unreported = signals.known_risk_unreported
-    row.repeated_issue_count = signals.repeated_issue_count
-    row.critical_task_missed_without_reason = signals.critical_task_missed_without_reason
-    row.repeated_issue_without_improvement = signals.repeated_issue_without_improvement
-    row.has_t3_plus_task = payload.has_t3_plus_task
-    row.initial_r_level = payload.initial_r_level
-    row.final_r_level = final_r_level
-    row.updated_at = now
-
-    _log(
-        session,
-        actor_id,
-        "performance.review.upsert",
-        "claim",
-        claim_id,
-        {
-            "task_id": task.id,
-            "baseline_status": baseline_status.value,
-            "initial_r_level": payload.initial_r_level.value,
-            "final_r_level": final_r_level.value,
-            "has_t3_plus_task": payload.has_t3_plus_task,
-        },
-    )
-    session.commit()
-    session.refresh(row)
-    return _performance_snapshot_to_read(row)
 
 
 def get_claim_execution_detail(
@@ -1074,11 +832,6 @@ def get_claim_execution_detail(
         evidence_urls = [str(item) for item in _from_json_list(deliverable.evidence_urls)]
         criteria_results = [str(item) for item in _from_json_list(deliverable.criteria_results_json)]
 
-    performance_row = session.exec(
-        select(PerformanceReviewSnapshot).where(PerformanceReviewSnapshot.claim_id == claim_id)
-    ).first()
-    performance_review = _performance_snapshot_to_read(performance_row) if performance_row else None
-
     return ClaimExecutionDetailRead(
         claim_id=claim.id,
         claim_status=claim.status.value,
@@ -1098,7 +851,6 @@ def get_claim_execution_detail(
         criteria_results=criteria_results,
         submitted_at=deliverable.submitted_at if deliverable else None,
         acceptance_history=acceptance_history,
-        performance_review=performance_review,
     )
 
 
@@ -1613,7 +1365,6 @@ def list_rewards(
     session: Session,
     user_id: int | None = None,
     status: RewardStatus | None = None,
-    held_only: bool = False,
     offset: int = 0,
     limit: int = 200,
 ) -> list[RewardRead]:
@@ -1627,30 +1378,17 @@ def list_rewards(
     rows = session.exec(
         statement.order_by(Reward.created_at.desc()).offset(safe_offset).limit(safe_limit)
     ).all()
-    snapshot_map = _latest_snapshot_by_task_ids(session, [row.task_id for row in rows if row.task_id is not None])
-    output = [_reward_to_read(row, snapshot_map.get(row.task_id)) for row in rows]
-    if held_only:
-        output = [row for row in output if row.held_by_performance_policy]
-    return output
+    return [_reward_to_read(row) for row in rows]
 
 
 def confirm_reward(
     session: Session,
     actor_id: int,
-    actor_roles: set[Role],
     reward_id: int,
 ) -> RewardRead:
     reward = session.get(Reward, reward_id)
     if reward is None:
         raise HTTPException(status_code=404, detail="激励记录不存在")
-    snapshot = session.exec(
-        select(PerformanceReviewSnapshot)
-        .where(PerformanceReviewSnapshot.task_id == reward.task_id)
-        .order_by(PerformanceReviewSnapshot.updated_at.desc())
-    ).first()
-    hold_reason = _reward_hold_reason(reward.role_type, snapshot)
-    if hold_reason and Role.ADMIN not in actor_roles:
-        raise HTTPException(status_code=403, detail=hold_reason)
     reward.status = RewardStatus.CONFIRMED
     reward.confirmed_at = datetime.utcnow()
     _log(
@@ -1659,14 +1397,11 @@ def confirm_reward(
         "reward.confirm",
         "reward",
         reward_id,
-        {
-            "task_id": reward.task_id,
-            "held_override": bool(hold_reason and Role.ADMIN in actor_roles),
-        },
+        {"task_id": reward.task_id},
     )
     session.commit()
     session.refresh(reward)
-    return _reward_to_read(reward, snapshot)
+    return _reward_to_read(reward)
 
 
 def _knowledge_to_dict(item: Knowledge) -> dict:
@@ -1825,29 +1560,6 @@ def dashboard_overview(session: Session) -> DashboardOverview:
     reward_total_confirmed_amount = session.exec(
         select(func.coalesce(func.sum(Reward.amount), 0.0)).where(Reward.status == RewardStatus.CONFIRMED)
     ).one()
-    snapshot_rows = session.exec(select(PerformanceReviewSnapshot)).all()
-    performance_review_count = len(snapshot_rows)
-    performance_fault_count = sum(
-        1
-        for row in snapshot_rows
-        if row.baseline_responsibility_status == BaselineResponsibilityStatus.FAULT
-    )
-    hold_task_ids = {
-        row.task_id for row in snapshot_rows if row.final_r_level in REWARD_HOLD_FINAL_LEVELS
-    }
-    reward_hold_count = 0
-    if hold_task_ids:
-        reward_hold_count = int(
-            session.exec(
-                select(func.count())
-                .select_from(Reward)
-                .where(
-                    Reward.task_id.in_(hold_task_ids),
-                    Reward.role_type == RewardRoleType.EXECUTOR,
-                    Reward.status == RewardStatus.GENERATED,
-                )
-            ).one()
-        )
     completion_rate = (int(task_completed) / int(task_total)) if int(task_total) > 0 else 0.0
     overdue_rate = (int(task_overdue_claims) / int(task_total)) if int(task_total) > 0 else 0.0
 
@@ -1860,9 +1572,6 @@ def dashboard_overview(session: Session) -> DashboardOverview:
         task_completion_rate=round(completion_rate, 4),
         task_overdue_rate=round(overdue_rate, 4),
         reward_total_confirmed_amount=float(reward_total_confirmed_amount or 0.0),
-        performance_review_count=performance_review_count,
-        performance_fault_count=performance_fault_count,
-        reward_hold_count=reward_hold_count,
     )
 
 

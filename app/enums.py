@@ -98,25 +98,6 @@ class RewardStatus(str, Enum):
     CONFIRMED = "confirmed"
 
 
-class BaselineResponsibilityStatus(str, Enum):
-    GOOD = "good"
-    NORMAL = "normal"
-    FAULT = "fault"
-
-
-class IncidentSeverity(str, Enum):
-    NONE = "none"
-    MINOR = "minor"
-    MAJOR = "major"
-
-
-class PerformanceLevel(str, Enum):
-    R1 = "R1"
-    R2 = "R2"
-    R3 = "R3"
-    R4 = "R4"
-    R5 = "R5"
-
 
 class AIProvider(str, Enum):
     """AI 供应商类型"""

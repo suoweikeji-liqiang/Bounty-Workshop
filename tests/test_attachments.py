@@ -22,7 +22,6 @@ from app.models import (
     Knowledge,
     OAuthState,
     OperationLog,
-    PerformanceReviewSnapshot,
     Problem,
     ProblemAnalysis,
     ProblemReviewAnalysisRef,

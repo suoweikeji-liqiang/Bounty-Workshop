@@ -2,7 +2,6 @@
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import { hasRole } from '../lib/roles'
 import type { Reward, UserProfile } from '../types'
 
 type Props = {
@@ -10,7 +9,7 @@ type Props = {
   profile: UserProfile | null
 }
 
-type RewardFilter = 'all' | 'generated' | 'confirmed' | 'held'
+type RewardFilter = 'all' | 'generated' | 'confirmed'
 const rewardPageSize = 20
 
 function buildQuery(filter: RewardFilter, page: number) {
@@ -20,9 +19,6 @@ function buildQuery(filter: RewardFilter, page: number) {
   if (filter === 'generated' || filter === 'confirmed') {
     params.set('status', filter)
   }
-  if (filter === 'held') {
-    params.set('held_only', 'true')
-  }
   const query = params.toString()
   return query ? `/rewards?${query}` : '/rewards'
 }
@@ -30,12 +26,11 @@ function buildQuery(filter: RewardFilter, page: number) {
 export function RewardReviewPage({ userId, profile }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<Reward[]>([])
-  const [filter, setFilter] = useState<RewardFilter>('held')
+  const [filter, setFilter] = useState<RewardFilter>('generated')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const isAdmin = useMemo(() => hasRole(profile, 'admin'), [profile])
   const hasNext = useMemo(() => rows.length === rewardPageSize, [rows.length])
 
   const load = useCallback(async () => {
@@ -92,9 +87,8 @@ export function RewardReviewPage({ userId, profile }: Props) {
       <article className="panel form-grid">
         <label>
           绛涢€?          <select value={filter} onChange={(event) => { setFilter(event.target.value as RewardFilter); setPage(1) }}>
-            <option value="held">鍐荤粨婵€鍔</option>
-            <option value="generated">寰呯‘璁</option>
-            <option value="confirmed">宸茬‘璁</option>
+            <option value="generated">寰呯'璁</option>
+            <option value="confirmed">宸茬'璁</option>
             <option value="all">鍏ㄩ儴</option>
           </select>
         </label>
@@ -113,9 +107,7 @@ export function RewardReviewPage({ userId, profile }: Props) {
             <span>鐢ㄦ埛</span>
             <span>瑙掕壊</span>
             <span>閲戦</span>
-            <span>缁堣瘎</span>
             <span>鐘舵€</span>
-            <span>绛栫暐</span>
             <span>鎿嶄綔</span>
           </div>
           {rows.map((item) => (
@@ -125,20 +117,12 @@ export function RewardReviewPage({ userId, profile }: Props) {
               <span>#{item.user_id}</span>
               <span>{item.role_type}</span>
               <span>楼{item.amount.toFixed(2)}</span>
-              <span>
-                {item.performance_baseline_status ?? '-'} / {item.performance_final_r_level ?? '-'}
-              </span>
               <span>{item.status}</span>
-              <span>{item.hold_reason ?? '-'}</span>
               <span>
                 {item.status === 'generated' ? (
-                  item.held_by_performance_policy && !isAdmin ? (
-                    <span className="muted">浠呯鐞嗗憳鍙鏍</span>
-                  ) : (
-                    <button type="button" onClick={() => void confirmReward(item)}>
-                      纭
-                    </button>
-                  )
+                  <button type="button" onClick={() => void confirmReward(item)}>
+                    confirm
+                  </button>
                 ) : (
                   'Confirmed'
                 )}
