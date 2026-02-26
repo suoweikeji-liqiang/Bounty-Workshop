@@ -14,6 +14,7 @@ from app.attachments import (
     ensure_entity_attachment_access,
     get_attachment_or_404,
     get_presigned_download_url,
+    get_s3_object_stream,
     list_attachments_by_entity,
     local_file_path,
 )
@@ -77,9 +78,14 @@ def get_attachment_download(
     attachment = get_attachment_or_404(session, attachment_id)
     actor_roles = get_user_roles(session, actor_id)
     ensure_attachment_access(session, actor_id, actor_roles, attachment)
+    media = attachment.content_type or "application/octet-stream"
+    disposition = f'attachment; filename="{attachment.filename}"'
     if attachment.storage_backend == "s3":
-        url = get_presigned_download_url(attachment, expires_in=expires_in)
-        return RedirectResponse(url=url, status_code=307)
+        body = get_s3_object_stream(attachment)
+        headers = {"Content-Disposition": disposition}
+        if attachment.size_bytes:
+            headers["Content-Length"] = str(attachment.size_bytes)
+        return StreamingResponse(body.iter_chunks(256 * 1024), media_type=media, headers=headers)
     if attachment.storage_backend != "local":
         raise HTTPException(status_code=501, detail="不支持的存储后端")
     file_path = local_file_path(attachment.object_key)
@@ -88,9 +94,9 @@ def get_attachment_download(
     payload = file_path.read_bytes()
     return StreamingResponse(
         iter([payload]),
-        media_type=attachment.content_type or "application/octet-stream",
+        media_type=media,
         headers={
-            "Content-Disposition": f'attachment; filename="{attachment.filename}"',
+            "Content-Disposition": disposition,
             "Content-Length": str(len(payload)),
         },
     )

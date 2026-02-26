@@ -149,6 +149,17 @@ def get_presigned_download_url(attachment: Attachment, expires_in: int = DEFAULT
         raise HTTPException(status_code=502, detail=f"s3 presign failed: {exc}") from exc
 
 
+def get_s3_object_stream(attachment: Attachment):
+    """从 S3 读取文件并返回可迭代的字节流"""
+    bucket = attachment.bucket or _s3_bucket()
+    client = _create_s3_client()
+    try:
+        resp = client.get_object(Bucket=bucket, Key=attachment.object_key)
+        return resp["Body"]
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"s3 download failed: {exc}") from exc
+
+
 def attachment_to_read(attachment: Attachment) -> AttachmentRead:
     return AttachmentRead(
         id=attachment.id,
