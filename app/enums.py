@@ -4,6 +4,7 @@ from enum import Enum
 class Role(str, Enum):
     ADMIN = "admin"
     REVIEWER = "reviewer"
+    REWARD_APPROVER = "reward_approver"
     ACCEPTOR = "acceptor"
     EMPLOYEE = "employee"
 
@@ -37,7 +38,10 @@ class ImpactScope(str, Enum):
 
 
 class ProblemStatus(str, Enum):
+    DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
+    BUDGET_PENDING = "budget_pending"
+    PRICING_REVISION_REQUIRED = "pricing_revision_required"
     APPROVED = "approved"
     REJECTED = "rejected"
     ARCHIVED = "archived"

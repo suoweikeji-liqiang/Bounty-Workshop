@@ -10,7 +10,8 @@ type Props = {
 
 const roleLabelMap: Record<string, string> = {
   admin: '管理员',
-  reviewer: '评审',
+  reviewer: '审核人',
+  reward_approver: '资金复核人',
   acceptor: '验收人',
   employee: '员工',
 }
@@ -21,7 +22,7 @@ const userStatusLabelMap: Record<string, string> = {
 }
 
 const rewardRoleLabelMap: Record<string, string> = {
-  proposer: '问题提出人',
+  proposer: '问题提交人',
   executor: '执行人',
 }
 
@@ -74,9 +75,7 @@ export function PersonalCenterPage({ userId }: Props) {
   const rewards = useMemo(() => summary?.rewards ?? [], [summary])
 
   useEffect(() => {
-    if (!error) {
-      return
-    }
+    if (!error) return
     toast.error(error)
   }, [error, toast])
 
@@ -85,7 +84,7 @@ export function PersonalCenterPage({ userId }: Props) {
       <header className="page-head personal-head">
         <div>
           <h2>个人中心</h2>
-          <p>集中查看个人信息、积分、徽章与激励历史。</p>
+          <p>集中查看个人信息、积分、徽章与激励记录。</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading}>
           {loading ? '加载中...' : '刷新'}
@@ -124,7 +123,7 @@ export function PersonalCenterPage({ userId }: Props) {
               <strong>{summary.stats.total_records}</strong>
             </article>
             <article className="kpi-card personal-kpi">
-              <h4>已确认激励</h4>
+              <h4>已确认记录</h4>
               <strong>{summary.stats.confirmed_records}</strong>
             </article>
             <article className="kpi-card personal-kpi">
@@ -157,7 +156,7 @@ export function PersonalCenterPage({ userId }: Props) {
           </article>
 
           <article className="panel">
-            <h3>激励历史</h3>
+            <h3>激励记录</h3>
             {rewards.length === 0 ? (
               <p className="muted">暂无激励记录。</p>
             ) : (

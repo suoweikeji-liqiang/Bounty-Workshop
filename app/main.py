@@ -47,7 +47,7 @@ async def lifespan(_: FastAPI):
             )
             session.add(admin)
             session.flush()
-            for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
+            for role in [Role.ADMIN, Role.REVIEWER, Role.REWARD_APPROVER, Role.ACCEPTOR, Role.EMPLOYEE]:
                 session.add(UserRole(user_id=admin.id, role=role))
             session.commit()
             if os.getenv("INIT_ADMIN_PASSWORD"):

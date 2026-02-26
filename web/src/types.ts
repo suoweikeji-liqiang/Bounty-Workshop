@@ -52,6 +52,8 @@ export type Problem = {
   status: string
   reject_reason?: string | null
   merged_problem_id?: number | null
+  analysis_status?: AnalysisStatus
+  reviewer_comment?: string | null
   submitter_id: number
   submitter_name: string
   created_at: string
@@ -77,11 +79,30 @@ export type ProblemDetail = {
   submitter_id: number
   submitter_name: string
   created_at: string
+  draft_goal?: string | null
+  draft_scope?: string | null
+  draft_due_date?: string | null
+  draft_acceptance_criteria?: Array<{ description?: string; type?: string }>
+  submitter_reflection?: string | null
+  reviewer_comment?: string | null
+  priced_level?: string | null
+  priced_reward_total?: number | null
+  priced_proposer_ratio?: number | null
+  priced_accepter_id?: number | null
+  priced_points?: number
+  priced_badge?: string | null
   // ProdMind analysis fields
   analysis_id?: number | null
   analysis_status?: AnalysisStatus
   analysis?: ProblemAnalysisReport | null
   analysis_ref?: ProblemReviewAnalysisRef | null
+}
+
+export type ProblemReviewResult = {
+  status: string
+  message?: string | null
+  task?: Task | null
+  id?: number | null
 }
 
 export type ProblemReviewAnalysisRef = {
@@ -196,7 +217,12 @@ export type SystemConfigOverview = {
   feishu_sync_frequency_minutes: number
   release_overdue_frequency_minutes: number
   claim_approval_overdue_threshold: number
+  budget_review_threshold: number
   acceptance_templates: AcceptanceTemplatesConfig
+}
+
+export type BudgetReviewThresholdConfig = {
+  threshold: number
 }
 
 export type ClaimExecution = {

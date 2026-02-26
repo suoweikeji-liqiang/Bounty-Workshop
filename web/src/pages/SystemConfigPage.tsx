@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
   AcceptanceTemplatesConfig,
+  BudgetReviewThresholdConfig,
   ClaimApprovalThresholdConfig,
   SyncFrequencyConfig,
   SystemConfigOverview,
@@ -19,6 +20,7 @@ export function SystemConfigPage({ userId }: Props) {
   const [feishuFreq, setFeishuFreq] = useState('')
   const [releaseFreq, setReleaseFreq] = useState('')
   const [claimThreshold, setClaimThreshold] = useState('')
+  const [budgetThreshold, setBudgetThreshold] = useState('')
   const [approvedTemplates, setApprovedTemplates] = useState('')
   const [reworkTemplates, setReworkTemplates] = useState('')
   const [rejectedTemplates, setRejectedTemplates] = useState('')
@@ -36,6 +38,7 @@ export function SystemConfigPage({ userId }: Props) {
       setFeishuFreq(String(data.feishu_sync_frequency_minutes))
       setReleaseFreq(String(data.release_overdue_frequency_minutes))
       setClaimThreshold(String(data.claim_approval_overdue_threshold))
+      setBudgetThreshold(String(data.budget_review_threshold))
       setApprovedTemplates(data.acceptance_templates.approved.join('\n'))
       setReworkTemplates(data.acceptance_templates.rework.join('\n'))
       setRejectedTemplates(data.acceptance_templates.rejected.join('\n'))
@@ -53,7 +56,8 @@ export function SystemConfigPage({ userId }: Props) {
   const saveAll = async () => {
     const feishuValue = Number(feishuFreq)
     const releaseValue = Number(releaseFreq)
-    const thresholdValue = Number(claimThreshold)
+    const claimThresholdValue = Number(claimThreshold)
+    const budgetThresholdValue = Number(budgetThreshold)
     const parseLines = (text: string) =>
       text
         .split('\n')
@@ -74,8 +78,12 @@ export function SystemConfigPage({ userId }: Props) {
       setError('超期释放频率必须是大于等于 5 的整数')
       return
     }
-    if (!Number.isInteger(thresholdValue) || thresholdValue < 1) {
-      setError('揭榜阈值必须是大于等于 1 的整数')
+    if (!Number.isInteger(claimThresholdValue) || claimThresholdValue < 1) {
+      setError('揭榜审批阈值必须是大于等于 1 的整数')
+      return
+    }
+    if (!Number.isFinite(budgetThresholdValue) || budgetThresholdValue < 0) {
+      setError('资金复核阈值必须是大于等于 0 的数字')
       return
     }
     if (
@@ -101,14 +109,16 @@ export function SystemConfigPage({ userId }: Props) {
           userId,
           body: { frequency_minutes: releaseValue },
         }),
-        requestJson<ClaimApprovalThresholdConfig>(
-          '/system/config/claim-approval-overdue-threshold',
-          {
-            method: 'PUT',
-            userId,
-            body: { threshold: thresholdValue },
-          },
-        ),
+        requestJson<ClaimApprovalThresholdConfig>('/system/config/claim-approval-overdue-threshold', {
+          method: 'PUT',
+          userId,
+          body: { threshold: claimThresholdValue },
+        }),
+        requestJson<BudgetReviewThresholdConfig>('/system/config/budget-review-threshold', {
+          method: 'PUT',
+          userId,
+          body: { threshold: budgetThresholdValue },
+        }),
         requestJson<AcceptanceTemplatesConfig>('/system/config/acceptance-templates', {
           method: 'PUT',
           userId,
@@ -125,16 +135,12 @@ export function SystemConfigPage({ userId }: Props) {
   }
 
   useEffect(() => {
-    if (!message) {
-      return
-    }
+    if (!message) return
     toast.success(message)
   }, [message, toast])
 
   useEffect(() => {
-    if (!error) {
-      return
-    }
+    if (!error) return
     toast.error(error)
   }, [error, toast])
 
@@ -142,69 +148,43 @@ export function SystemConfigPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>系统配置</h2>
-        <p>集中管理同步频率、揭榜策略和验收模板。</p>
+        <p>集中管理同步频率、审批阈值和验收模板。</p>
       </header>
 
       <article className="panel form-grid">
         <h3>配置中心</h3>
         <label>
           飞书同步频率（分钟）
-          <input
-            type="number"
-            min={5}
-            value={feishuFreq}
-            onChange={(event) => setFeishuFreq(event.target.value)}
-            disabled={loading}
-          />
+          <input type="number" min={5} value={feishuFreq} onChange={(e) => setFeishuFreq(e.target.value)} disabled={loading} />
         </label>
         <label>
           超期释放频率（分钟）
-          <input
-            type="number"
-            min={5}
-            value={releaseFreq}
-            onChange={(event) => setReleaseFreq(event.target.value)}
-            disabled={loading}
-          />
+          <input type="number" min={5} value={releaseFreq} onChange={(e) => setReleaseFreq(e.target.value)} disabled={loading} />
         </label>
         <label>
-          揭榜审批超期阈值
-          <input
-            type="number"
-            min={1}
-            value={claimThreshold}
-            onChange={(event) => setClaimThreshold(event.target.value)}
-            disabled={loading}
-          />
+          揭榜审批阈值
+          <input type="number" min={1} value={claimThreshold} onChange={(e) => setClaimThreshold(e.target.value)} disabled={loading} />
         </label>
+        <label>
+          资金复核阈值
+          <input type="number" min={0} value={budgetThreshold} onChange={(e) => setBudgetThreshold(e.target.value)} disabled={loading} />
+        </label>
+
         <label className="wide">
           验收模板：通过（每行一条）
-          <textarea
-            value={approvedTemplates}
-            onChange={(event) => setApprovedTemplates(event.target.value)}
-            disabled={loading}
-          />
+          <textarea value={approvedTemplates} onChange={(e) => setApprovedTemplates(e.target.value)} disabled={loading} />
         </label>
         <label className="wide">
-          验收模板：返工（每行一条）
-          <textarea
-            value={reworkTemplates}
-            onChange={(event) => setReworkTemplates(event.target.value)}
-            disabled={loading}
-          />
+          验收模板：整改（每行一条）
+          <textarea value={reworkTemplates} onChange={(e) => setReworkTemplates(e.target.value)} disabled={loading} />
         </label>
         <label className="wide">
-          验收模板：驳回（每行一条）
-          <textarea
-            value={rejectedTemplates}
-            onChange={(event) => setRejectedTemplates(event.target.value)}
-            disabled={loading}
-          />
+          验收模板：不通过（每行一条）
+          <textarea value={rejectedTemplates} onChange={(e) => setRejectedTemplates(e.target.value)} disabled={loading} />
         </label>
+
         <div className="button-row wide">
-          <button type="button" onClick={() => void load()} disabled={loading}>
-            刷新
-          </button>
+          <button type="button" onClick={() => void load()} disabled={loading}>刷新</button>
           <button className="primary-btn" type="button" onClick={() => void saveAll()} disabled={saving}>
             {saving ? '保存中...' : '保存全部'}
           </button>
@@ -214,18 +194,10 @@ export function SystemConfigPage({ userId }: Props) {
       {overview && (
         <article className="panel">
           <h3>当前配置快照</h3>
-          <p className="line-metric">
-            <span>飞书同步频率</span>
-            <strong>{overview.feishu_sync_frequency_minutes} 分钟</strong>
-          </p>
-          <p className="line-metric">
-            <span>超期释放频率</span>
-            <strong>{overview.release_overdue_frequency_minutes} 分钟</strong>
-          </p>
-          <p className="line-metric">
-            <span>揭榜审批阈值</span>
-            <strong>{overview.claim_approval_overdue_threshold}</strong>
-          </p>
+          <p className="line-metric"><span>飞书同步频率</span><strong>{overview.feishu_sync_frequency_minutes} 分钟</strong></p>
+          <p className="line-metric"><span>超期释放频率</span><strong>{overview.release_overdue_frequency_minutes} 分钟</strong></p>
+          <p className="line-metric"><span>揭榜审批阈值</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
+          <p className="line-metric"><span>资金复核阈值</span><strong>{overview.budget_review_threshold}</strong></p>
         </article>
       )}
     </section>

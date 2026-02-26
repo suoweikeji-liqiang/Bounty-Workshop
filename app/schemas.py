@@ -1,4 +1,4 @@
-from datetime import date, datetime
+﻿from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -118,6 +118,7 @@ class ProblemCreate(BaseModel):
     value_improve_quality: bool = False
     value_statement: str
     current_solution: Optional[str] = None
+    task_draft: Optional["TaskDraftDefinition"] = None
     attachment_urls: list[str] = Field(default_factory=list)
     attachment_ids: list[int] = Field(default_factory=list)
 
@@ -135,6 +136,8 @@ class ProblemRead(BaseModel):
     status: ProblemStatus
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = None
+    analysis_status: AnalysisStatus = AnalysisStatus.PENDING
+    reviewer_comment: Optional[str] = None
     submitter_id: int
     submitter_name: str
     created_at: datetime
@@ -157,6 +160,19 @@ class ProblemDetailRead(BaseModel):
     status: ProblemStatus
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = None
+    draft_goal: Optional[str] = None
+    draft_scope: Optional[str] = None
+    draft_due_date: Optional[date] = None
+    draft_acceptance_criteria: list[dict] = Field(default_factory=list)
+    submitter_reflection: Optional[str] = None
+    reviewer_comment: Optional[str] = None
+    priced_level: Optional[TaskLevel] = None
+    priced_reward_total: Optional[float] = None
+    priced_proposer_ratio: Optional[float] = None
+    priced_accepter_id: Optional[int] = None
+    priced_points: int = 0
+    priced_badge: Optional[str] = None
+    analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     submitter_id: int
     submitter_name: str
     created_at: datetime
@@ -165,6 +181,14 @@ class ProblemDetailRead(BaseModel):
 class AcceptanceCriteriaItem(BaseModel):
     description: str
     type: str = Field(pattern="^(quantified|behavioral)$")
+
+
+class TaskDraftDefinition(BaseModel):
+    goal: str = Field(min_length=1)
+    scope: str = Field(min_length=1)
+    due_date: date
+    acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
+    self_reflection: str = Field(min_length=1)
 
 
 class TaskDefinition(BaseModel):
@@ -188,10 +212,29 @@ class TaskDefinition(BaseModel):
         return self
 
 
+class PricingDefinition(BaseModel):
+    level: TaskLevel
+    reward_total: float
+    proposer_ratio: float = Field(ge=0.2, le=0.3)
+    accepter_id: int
+    points: int = 0
+    badge: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_reward_range(self) -> "PricingDefinition":
+        low, high = LEVEL_REWARD_RANGE[self.level]
+        if not (low <= self.reward_total <= high):
+            raise ValueError(f"{self.level} reward range must be {low}-{high}")
+        return self
+
+
 class ProblemReview(BaseModel):
     approve: bool
+    final_reject: bool = False
+    review_comment: Optional[str] = None
     reject_reason: Optional[str] = None
     merge_to_problem_id: Optional[int] = None
+    pricing: Optional[PricingDefinition] = None
     task: Optional[TaskDefinition] = None
     analysis_id: Optional[int] = None
     analysis_acceptance: Optional[str] = None
@@ -199,12 +242,12 @@ class ProblemReview(BaseModel):
     @model_validator(mode="after")
     def validate_payload(self) -> "ProblemReview":
         if self.approve:
-            if self.task is None:
-                raise ValueError("立项时必须提供任务定义")
+            if self.pricing is None and self.task is None:
+                raise ValueError("pricing or task payload is required when approve=true")
             if self.analysis_id is not None and not self.analysis_acceptance:
-                raise ValueError("立项时必须填写对论证建议的采纳意见")
-        if not self.approve and not self.reject_reason:
-            raise ValueError("不立项时必须填写原因")
+                raise ValueError("analysis_acceptance is required when analysis_id is provided")
+        if not self.approve and not (self.review_comment or self.reject_reason):
+            raise ValueError("review_comment is required when approve=false")
         return self
 
 
@@ -219,6 +262,32 @@ class TaskRead(BaseModel):
     due_date: date
     status: str
     created_at: datetime
+
+
+class ProblemReviewResult(BaseModel):
+    status: ProblemStatus
+    task: Optional[TaskRead] = None
+    message: Optional[str] = None
+    # backward-compatible flat task fields
+    id: Optional[int] = None
+    problem_id: Optional[int] = None
+    title: Optional[str] = None
+    scenario: Optional[Scenario] = None
+    level: Optional[TaskLevel] = None
+    reward_total: Optional[float] = None
+    active_claim_count: Optional[int] = None
+    due_date: Optional[date] = None
+    created_at: Optional[datetime] = None
+
+
+class ProblemSubmitResult(BaseModel):
+    id: int
+    status: ProblemStatus
+
+
+class ProblemBudgetReview(BaseModel):
+    approve: bool
+    comment: Optional[str] = None
 
 
 class TaskDetailRead(BaseModel):
@@ -409,10 +478,15 @@ class ClaimApprovalThresholdConfig(BaseModel):
     threshold: int = Field(ge=1, le=100)
 
 
+class BudgetReviewThresholdConfig(BaseModel):
+    threshold: float = Field(ge=0, le=1000000)
+
+
 class SystemConfigOverviewRead(BaseModel):
     feishu_sync_frequency_minutes: int
     release_overdue_frequency_minutes: int
     claim_approval_overdue_threshold: int
+    budget_review_threshold: float
     acceptance_templates: "AcceptanceTemplatesConfig"
 
 
@@ -667,3 +741,4 @@ class ProblemDetailWithAnalysisRead(ProblemDetailRead):
     analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     analysis: Optional[ProblemAnalysisRead] = None
     analysis_ref: Optional[ProblemReviewAnalysisRefRead] = None
+

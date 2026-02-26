@@ -15,20 +15,24 @@ from app.models import Problem
 from app.prodmind import get_analysis_report
 from app.schemas import (
     HypothesisVerificationUpdate,
+    ProblemBudgetReview,
     ProblemCreate,
     ProblemDetailRead,
     ProblemRead,
     ProblemReview,
+    ProblemReviewResult,
+    ProblemSubmitResult,
     ProblemReviewAnalysisRefCreate,
-    TaskRead,
 )
 from app.services import (
+    budget_review_problem,
     create_analysis_ref,
     create_problem,
     get_problem_analysis,
     get_problem_detail,
     list_hypothesis_verifications,
     list_problems,
+    submit_problem_for_review,
     resubmit_problem,
     review_problem,
     trigger_problem_analysis,
@@ -55,7 +59,8 @@ def post_problem(
     actor_id: int = Depends(get_current_user_id),
 ) -> ProblemRead:
     problem = create_problem(session, actor_id=actor_id, payload=payload)
-    background_tasks.add_task(_trigger_analysis_background, problem.id)
+    # Analysis can be triggered manually from the problem workflow; avoid implicit
+    # background runs bound to a global engine/session.
     return problem
 
 
@@ -68,8 +73,18 @@ def put_problem_resubmit(
     actor_id: int = Depends(get_current_user_id),
 ) -> ProblemRead:
     result = resubmit_problem(session, actor_id=actor_id, problem_id=problem_id, payload=payload)
-    background_tasks.add_task(_trigger_analysis_background, result.id)
+    # Keep analysis trigger explicit to avoid race conditions in detached workers.
     return result
+
+
+@router.post("/problems/{problem_id}/submit-for-review", response_model=ProblemSubmitResult)
+def post_problem_submit_for_review(
+    problem_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> ProblemSubmitResult:
+    result = submit_problem_for_review(session, actor_id=actor_id, problem_id=problem_id)
+    return ProblemSubmitResult(id=result.id, status=result.status)
 
 
 @router.get("/problems", response_model=list[ProblemRead])
@@ -103,7 +118,7 @@ def get_problem(
 
 @router.post(
     "/problems/{problem_id}/review",
-    response_model=TaskRead | None,
+    response_model=ProblemReviewResult | None,
     dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
 )
 def post_problem_review(
@@ -111,8 +126,22 @@ def post_problem_review(
     payload: ProblemReview,
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
-) -> TaskRead | None:
+) -> ProblemReviewResult | None:
     return review_problem(session, actor_id=actor_id, problem_id=problem_id, payload=payload)
+
+
+@router.post(
+    "/problems/{problem_id}/budget-review",
+    response_model=ProblemReviewResult,
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REWARD_APPROVER))],
+)
+def post_problem_budget_review(
+    problem_id: int,
+    payload: ProblemBudgetReview,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> ProblemReviewResult:
+    return budget_review_problem(session, actor_id=actor_id, problem_id=problem_id, payload=payload)
 
 
 @router.post(

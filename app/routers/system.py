@@ -47,6 +47,7 @@ from app.schemas import (
     AIModelCreate,
     AIModelRead,
     AIModelUpdate,
+    BudgetReviewThresholdConfig,
     ClaimApprovalThresholdConfig,
     DashboardDistribution,
     DashboardRankings,
@@ -62,8 +63,10 @@ from app.schemas import (
 from app.services import (
     get_claim_approval_overdue_threshold,
     dashboard_overview,
+    get_budget_review_threshold,
     list_operation_logs,
     release_overdue_claims,
+    set_budget_review_threshold,
     set_claim_approval_overdue_threshold,
 )
 
@@ -218,6 +221,7 @@ def get_system_config_overview(session: Session = Depends(get_session)) -> Syste
         feishu_sync_frequency_minutes=get_sync_frequency_minutes(session),
         release_overdue_frequency_minutes=get_release_overdue_frequency_minutes(session),
         claim_approval_overdue_threshold=get_claim_approval_overdue_threshold(session),
+        budget_review_threshold=get_budget_review_threshold(session),
         acceptance_templates=get_acceptance_templates(session),
     )
 
@@ -286,6 +290,28 @@ def put_claim_approval_threshold(
 ) -> ClaimApprovalThresholdConfig:
     value = set_claim_approval_overdue_threshold(session, payload.threshold)
     return ClaimApprovalThresholdConfig(threshold=value)
+
+
+@router.get(
+    "/system/config/budget-review-threshold",
+    response_model=BudgetReviewThresholdConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.REWARD_APPROVER))],
+)
+def get_budget_threshold(session: Session = Depends(get_session)) -> BudgetReviewThresholdConfig:
+    return BudgetReviewThresholdConfig(threshold=get_budget_review_threshold(session))
+
+
+@router.put(
+    "/system/config/budget-review-threshold",
+    response_model=BudgetReviewThresholdConfig,
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def put_budget_threshold(
+    payload: BudgetReviewThresholdConfig,
+    session: Session = Depends(get_session),
+) -> BudgetReviewThresholdConfig:
+    value = set_budget_review_threshold(session, payload.threshold)
+    return BudgetReviewThresholdConfig(threshold=value)
 
 
 @router.get(

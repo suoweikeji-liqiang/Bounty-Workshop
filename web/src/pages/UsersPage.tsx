@@ -8,9 +8,9 @@ type Props = {
   userId: number
 }
 
-type RoleName = 'admin' | 'reviewer' | 'acceptor' | 'employee'
+type RoleName = 'admin' | 'reviewer' | 'reward_approver' | 'acceptor' | 'employee'
 
-const allRoles: RoleName[] = ['admin', 'reviewer', 'acceptor', 'employee']
+const allRoles: RoleName[] = ['admin', 'reviewer', 'reward_approver', 'acceptor', 'employee']
 
 function toggleRole(current: RoleName[], role: RoleName): RoleName[] {
   if (current.includes(role)) {
@@ -34,6 +34,9 @@ function roleLabel(role: RoleName) {
   }
   if (role === 'acceptor') {
     return '验收人'
+  }
+  if (role === 'reward_approver') {
+    return '资金复核'
   }
   return '员工'
 }

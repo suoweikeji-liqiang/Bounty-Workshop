@@ -64,10 +64,26 @@ class Problem(SQLModel, table=True):
     value_statement: str
     current_solution: Optional[str] = None
     attachment_urls: str = Field(default="[]")
+    draft_goal: Optional[str] = None
+    draft_scope: Optional[str] = None
+    draft_due_date: Optional[date] = Field(default=None, index=True)
+    draft_acceptance_criteria_json: str = Field(default="[]")
+    submitter_reflection: Optional[str] = None
     submitter_id: int = Field(foreign_key="user.id", index=True)
-    status: ProblemStatus = Field(default=ProblemStatus.PENDING_REVIEW, index=True)
+    status: ProblemStatus = Field(default=ProblemStatus.DRAFT, index=True)
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = Field(default=None, foreign_key="problem.id")
+    reviewer_comment: Optional[str] = None
+    priced_level: Optional[TaskLevel] = None
+    priced_reward_total: Optional[float] = None
+    priced_proposer_ratio: Optional[float] = None
+    priced_accepter_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    priced_points: int = Field(default=0)
+    priced_badge: Optional[str] = None
+    priced_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    budget_review_comment: Optional[str] = None
+    budget_reviewed_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    budget_reviewed_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     analysis_id: Optional[int] = Field(default=None)

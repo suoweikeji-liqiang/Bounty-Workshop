@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AIModelConfigPage } from './pages/AIModelConfigPage'
 import { AttachmentsPage } from './pages/AttachmentsPage'
+import { BudgetReviewPage } from './pages/BudgetReviewPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ClaimApprovalPage } from './pages/ClaimApprovalPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -74,6 +75,7 @@ export default function App(props: Props) {
   const { userId, profile } = props
   const isAdmin = hasAnyRole(profile, ['admin'])
   const canReviewOrAdmin = hasAnyRole(profile, ['admin', 'reviewer'])
+  const canBudgetReview = hasAnyRole(profile, ['admin', 'reward_approver'])
   const canAcceptOrAdmin = hasAnyRole(profile, ['admin', 'acceptor'])
 
   return (
@@ -89,6 +91,7 @@ export default function App(props: Props) {
           {(canReviewOrAdmin || isAdmin) && <NavLink to="/review">审核工作台</NavLink>}
           <NavLink to="/tasks">任务大厅</NavLink>
           <NavLink to="/claim-approvals">揭榜审批</NavLink>
+          {canBudgetReview && <NavLink to="/budget-review">资金复核</NavLink>}
           <NavLink to="/execution">执行闭环</NavLink>
           <NavLink to="/knowledge">知识库</NavLink>
 
@@ -126,6 +129,14 @@ export default function App(props: Props) {
             <Route
               path="/claim-approvals"
               element={<ClaimApprovalPage userId={userId} profile={profile} />}
+            />
+            <Route
+              path="/budget-review"
+              element={
+                <Guard profile={profile} roles={['admin', 'reward_approver']}>
+                  <BudgetReviewPage userId={userId} />
+                </Guard>
+              }
             />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
