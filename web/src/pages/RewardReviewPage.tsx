@@ -23,6 +23,26 @@ function buildQuery(filter: RewardFilter, page: number) {
   return query ? `/rewards?${query}` : '/rewards'
 }
 
+function formatStatus(status: string) {
+  if (status === 'generated') {
+    return '待确认'
+  }
+  if (status === 'confirmed') {
+    return '已确认'
+  }
+  return status
+}
+
+function formatRoleType(roleType: string) {
+  if (roleType === 'proposer') {
+    return '问题提交人'
+  }
+  if (roleType === 'executor') {
+    return '揭榜执行人'
+  }
+  return roleType
+}
+
 export function RewardReviewPage({ userId, profile: _profile }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<Reward[]>([])
@@ -31,6 +51,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
   const hasNext = useMemo(() => rows.length === rewardPageSize, [rows.length])
 
   const load = useCallback(async () => {
@@ -40,7 +61,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
       const payload = await requestJson<Reward[]>(buildQuery(filter, page), { userId })
       setRows(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load rewards')
+      setError(err instanceof Error ? err.message : '加载奖励列表失败')
     } finally {
       setLoading(false)
     }
@@ -51,15 +72,20 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
   }, [load])
 
   const confirmReward = async (reward: Reward) => {
+    const ok = window.confirm(`确认发放奖励 #${reward.id} 吗？该操作不可撤销。`)
+    if (!ok) {
+      return
+    }
+
     try {
       await requestJson(`/rewards/${reward.id}/confirm`, {
         method: 'POST',
         userId,
       })
-      setMessage(`Reward #${reward.id} confirmed`)
+      setMessage(`奖励 #${reward.id} 已确认`) 
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm reward')
+      setError(err instanceof Error ? err.message : '奖励确认失败')
     }
   }
 
@@ -80,21 +106,28 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>婵€鍔卞鏍</h2>
-        <p>鏌ョ湅缁堣瘎鑱斿姩鍚庣殑婵€鍔辩姸鎬侊紝澶勭悊鍐荤粨婵€鍔辩殑澶嶆牳纭銆</p>
+        <h2>奖励复核</h2>
+        <p>查看奖励记录并确认发放状态。</p>
       </header>
 
       <article className="panel form-grid">
         <label>
-          绛涢€?          <select value={filter} onChange={(event) => { setFilter(event.target.value as RewardFilter); setPage(1) }}>
-            <option value="generated">寰呯'璁</option>
-            <option value="confirmed">宸茬'璁</option>
-            <option value="all">鍏ㄩ儴</option>
+          筛选
+          <select
+            value={filter}
+            onChange={(event) => {
+              setFilter(event.target.value as RewardFilter)
+              setPage(1)
+            }}
+          >
+            <option value="generated">待确认</option>
+            <option value="confirmed">已确认</option>
+            <option value="all">全部</option>
           </select>
         </label>
         <div className="button-row">
           <button type="button" onClick={() => void load()} disabled={loading}>
-            {loading ? '鍔犺浇涓?..' : '鍒锋柊'}
+            {loading ? '加载中...' : '刷新'}
           </button>
         </div>
       </article>
@@ -103,39 +136,47 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>浠诲姟</span>
-            <span>鐢ㄦ埛</span>
-            <span>瑙掕壊</span>
-            <span>閲戦</span>
-            <span>鐘舵€</span>
-            <span>鎿嶄綔</span>
+            <span>任务</span>
+            <span>用户</span>
+            <span>角色</span>
+            <span>金额</span>
+            <span>状态</span>
+            <span>操作</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
               <span>#{item.task_id}</span>
               <span>#{item.user_id}</span>
-              <span>{item.role_type}</span>
-              <span>楼{item.amount.toFixed(2)}</span>
-              <span>{item.status}</span>
+              <span>{formatRoleType(item.role_type)}</span>
+              <span>¥{item.amount.toFixed(2)}</span>
+              <span>{formatStatus(item.status)}</span>
               <span>
                 {item.status === 'generated' ? (
                   <button type="button" onClick={() => void confirmReward(item)}>
-                    confirm
+                    确认发放
                   </button>
                 ) : (
-                  'Confirmed'
+                  '已确认'
                 )}
               </span>
             </div>
           ))}
         </div>
         <div className="button-row">
-          <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
+          <button
+            type="button"
+            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+            disabled={page <= 1 || loading}
+          >
             上一页
           </button>
           <span className="muted">第 {page} 页</span>
-          <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
+          <button
+            type="button"
+            onClick={() => setPage((prev) => prev + 1)}
+            disabled={!hasNext || loading}
+          >
             下一页
           </button>
         </div>
@@ -143,4 +184,3 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
     </section>
   )
 }
-

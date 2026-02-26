@@ -1663,3 +1663,309 @@ def test_claim_limit_two_active_claims_per_user(tmp_path: Path) -> None:
     assert retry_third_claim_resp.status_code == 200
 
     app.dependency_overrides.clear()
+
+def test_accept_deliverable_rejects_when_already_finalized(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "AcceptStateReviewer",
+            "employee_no": "R950",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AcceptStateDev", "employee_no": "E950", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "accept-state-problem",
+            "scenario": "rd",
+            "background": "state guard",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "verify accept status guard",
+            "value_reduce_effort": True,
+            "value_statement": "prevent repeated acceptance",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "accept-state-task",
+                "goal": "validate accept status guard",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(employee_id),
+        json={"summary": "done", "criteria_results": ["ok"], "evidence_urls": []},
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    first_accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "ok"},
+    )
+    assert first_accept_resp.status_code == 200
+
+    second_accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "rejected", "comment": "should be blocked"},
+    )
+    assert second_accept_resp.status_code == 400
+
+    app.dependency_overrides.clear()
+
+
+def test_acceptor_cannot_accept_own_deliverable(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    worker_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "SelfAcceptUser",
+            "employee_no": "E951",
+            "department": "RD",
+            "roles": ["employee", "acceptor"],
+        },
+    )
+    assert worker_resp.status_code == 200
+    worker_id = worker_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(worker_id),
+        json={
+            "title": "self-accept-problem",
+            "scenario": "rd",
+            "background": "self accept check",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "self accept should be forbidden",
+            "value_reduce_effort": True,
+            "value_statement": "conflict check",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(1),
+        json={
+            "approve": True,
+            "task": {
+                "title": "self-accept-task",
+                "goal": "self accept forbidden",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": worker_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(worker_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(worker_id),
+        json={"summary": "done", "criteria_results": ["ok"], "evidence_urls": []},
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(worker_id),
+        json={"result": "approved", "comment": "self"},
+    )
+    assert accept_resp.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_overdue_claim_can_be_abandoned_and_count_reduced(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "OverdueFixReviewer",
+            "employee_no": "R952",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "OverdueFixDev", "employee_no": "E952", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(employee_id),
+        json={
+            "title": "overdue-fix-problem",
+            "scenario": "ops",
+            "background": "overdue recovery",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "allow overdue claim to exit",
+            "value_reduce_effort": True,
+            "value_statement": "overdue should not deadlock",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "overdue-fix-task",
+                "goal": "make claim overdue",
+                "scope": "single",
+                "due_date": (date.today() - timedelta(days=1)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(employee_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    release_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
+    assert release_resp.status_code == 200
+    assert release_resp.json()["released_claims"] >= 1
+
+    before_resp = client.get(f"/users/{employee_id}", headers=_headers(1))
+    assert before_resp.status_code == 200
+    assert before_resp.json()["overdue_count"] >= 1
+
+    abandon_resp = client.post(f"/claims/{claim_id}/abandon", headers=_headers(employee_id))
+    assert abandon_resp.status_code == 200
+    assert abandon_resp.json()["status"] == "abandoned"
+
+    after_resp = client.get(f"/users/{employee_id}", headers=_headers(1))
+    assert after_resp.status_code == 200
+    assert after_resp.json()["overdue_count"] == max(0, before_resp.json()["overdue_count"] - 1)
+
+    app.dependency_overrides.clear()
+
+
+def test_submitter_cannot_review_own_problem(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(1),
+        json={
+            "title": "self-review-problem",
+            "scenario": "rd",
+            "background": "self review check",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "submitter should not review own problem",
+            "value_reduce_effort": True,
+            "value_statement": "conflict check",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(1),
+        json={
+            "approve": True,
+            "task": {
+                "title": "self-review-task",
+                "goal": "forbidden",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=3)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": 1,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 403
+
+    app.dependency_overrides.clear()

@@ -15,6 +15,7 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { OperationLogsPage } from './pages/OperationLogsPage'
 import { PersonalCenterPage } from './pages/PersonalCenterPage'
 import { ProblemsPage } from './pages/ProblemsPage'
+import { RewardReviewPage } from './pages/RewardReviewPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
 import { SystemConfigPage } from './pages/SystemConfigPage'
 import { SystemGuidePage } from './pages/SystemGuidePage'
@@ -124,6 +125,7 @@ export default function App(props: Props) {
           <NavLink to="/claim-approvals">揭榜审批</NavLink>
           {canBudgetReview && <NavLink to="/budget-review">资金复核</NavLink>}
           <NavLink to="/execution">执行闭环</NavLink>
+          {canReviewOrAdmin && <NavLink to="/reward-review">奖励复核</NavLink>}
           <NavLink to="/knowledge">知识库</NavLink>
 
           <p className="sidenav-group-title">个人操作</p>
@@ -167,6 +169,14 @@ export default function App(props: Props) {
               }
             />
             <Route path="/execution" element={<ExecutionLoopPage userId={userId} profile={profile} />} />
+            <Route
+              path="/reward-review"
+              element={
+                <Guard profile={profile} roles={['admin', 'reviewer']}>
+                  <RewardReviewPage userId={userId} profile={profile} />
+                </Guard>
+              }
+            />
             <Route path="/knowledge" element={<KnowledgePage userId={userId} />} />
             <Route path="/guide" element={<SystemGuidePage />} />
             <Route path="/attachments" element={<AttachmentsPage userId={userId} />} />

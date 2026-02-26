@@ -429,6 +429,8 @@ def review_problem(
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="problem not found")
+    if problem.submitter_id == actor_id:
+        raise HTTPException(status_code=403, detail="submitter cannot review own problem")
 
     is_legacy_direct_review = problem.status == ProblemStatus.DRAFT and payload.task is not None
     if (
@@ -560,6 +562,8 @@ def budget_review_problem(
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="problem not found")
+    if problem.submitter_id == actor_id:
+        raise HTTPException(status_code=403, detail="submitter cannot budget-review own problem")
     if problem.status != ProblemStatus.BUDGET_PENDING:
         raise HTTPException(status_code=409, detail="problem is not waiting budget review")
     if problem.priced_level is None or problem.priced_reward_total is None or problem.priced_accepter_id is None:

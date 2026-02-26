@@ -8,6 +8,11 @@ type Props = {
   userId: number
 }
 
+type VerificationDraft = {
+  hypothesisId: number
+  status: 'verified' | 'rejected'
+}
+
 export function HypothesisVerificationPage({ userId }: Props) {
   const toast = useToast()
   const [problems, setProblems] = useState<Problem[]>([])
@@ -17,7 +22,11 @@ export function HypothesisVerificationPage({ userId }: Props) {
   const [loading, setLoading] = useState(false)
   const [loadingProblems, setLoadingProblems] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [savingVerification, setSavingVerification] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [verificationDraft, setVerificationDraft] = useState<VerificationDraft | null>(null)
+  const [verificationMethod, setVerificationMethod] = useState('')
+  const [verificationResult, setVerificationResult] = useState('')
 
   const selectedProblem = useMemo(
     () => problems.find((item) => String(item.id) === problemId) ?? null,
@@ -121,6 +130,44 @@ export function HypothesisVerificationPage({ userId }: Props) {
       await loadAnalysis()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '更新失败')
+    }
+  }
+
+  const openVerificationEditor = (hypothesisId: number, status: 'verified' | 'rejected') => {
+    setVerificationDraft({ hypothesisId, status })
+    setVerificationMethod('')
+    setVerificationResult('')
+  }
+
+  const closeVerificationEditor = () => {
+    if (savingVerification) {
+      return
+    }
+    setVerificationDraft(null)
+    setVerificationMethod('')
+    setVerificationResult('')
+  }
+
+  const submitVerification = async () => {
+    if (!verificationDraft) {
+      return
+    }
+    const method = verificationMethod.trim()
+    if (!method) {
+      setError('请填写验证方法')
+      return
+    }
+    try {
+      setSavingVerification(true)
+      await updateHypothesis(
+        verificationDraft.hypothesisId,
+        verificationDraft.status,
+        method,
+        verificationResult.trim(),
+      )
+      closeVerificationEditor()
+    } finally {
+      setSavingVerification(false)
     }
   }
 
@@ -299,28 +346,10 @@ export function HypothesisVerificationPage({ userId }: Props) {
                 <p className="hypothesis-content">{hyp.hypothesis_content}</p>
                 {hyp.verification_status === 'pending' && (
                   <div className="hypothesis-actions">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const method = prompt('验证方法：')
-                        if (method) {
-                          const result = prompt('验证结果：') || ''
-                          void updateHypothesis(hyp.id, 'verified', method, result)
-                        }
-                      }}
-                    >
+                    <button type="button" onClick={() => openVerificationEditor(hyp.id, 'verified')}>
                       标记已验证
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const method = prompt('验证方法：')
-                        if (method) {
-                          const result = prompt('验证结果：') || ''
-                          void updateHypothesis(hyp.id, 'rejected', method, result)
-                        }
-                      }}
-                    >
+                    <button type="button" onClick={() => openVerificationEditor(hyp.id, 'rejected')}>
                       标记已拒绝
                     </button>
                   </div>
@@ -341,6 +370,49 @@ export function HypothesisVerificationPage({ userId }: Props) {
             ))}
             {hypotheses.length === 0 && <p style={{ color: '#888' }}>暂无假设</p>}
           </article>
+
+          {verificationDraft && (
+            <div className="modal-backdrop" onClick={closeVerificationEditor}>
+              <div
+                className="modal-card"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="verification-dialog-title"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="panel-headline">
+                  <h3 id="verification-dialog-title">
+                    {verificationDraft.status === 'verified' ? '标记已验证' : '标记已拒绝'}
+                  </h3>
+                  <button type="button" onClick={closeVerificationEditor} disabled={savingVerification}>
+                    关闭
+                  </button>
+                </div>
+                <label className="wide">
+                  验证方法
+                  <textarea
+                    value={verificationMethod}
+                    onChange={(event) => setVerificationMethod(event.target.value)}
+                    placeholder="说明你如何验证该假设"
+                    required
+                  />
+                </label>
+                <label className="wide">
+                  验证结果
+                  <textarea
+                    value={verificationResult}
+                    onChange={(event) => setVerificationResult(event.target.value)}
+                    placeholder="填写验证结果（可选）"
+                  />
+                </label>
+                <div className="button-row">
+                  <button className="primary-btn" type="button" onClick={() => void submitVerification()} disabled={savingVerification}>
+                    {savingVerification ? '提交中...' : '提交'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </section>

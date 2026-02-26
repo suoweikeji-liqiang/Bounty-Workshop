@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, datetime
 
@@ -79,10 +79,10 @@ def set_claim_approval_overdue_threshold(session: Session, threshold: int) -> in
 def _load_claim_and_task(session: Session, claim_id: int) -> tuple[Claim, Task]:
     claim = session.get(Claim, claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="claim not found")
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
     return claim, task
 
 
@@ -97,7 +97,7 @@ def _has_claim_access(actor_id: int, actor_roles: set[Role], claim: Claim, task:
 
 def _ensure_claim_access(actor_id: int, actor_roles: set[Role], claim: Claim, task: Task) -> None:
     if not _has_claim_access(actor_id, actor_roles, claim, task):
-        raise HTTPException(status_code=403, detail="无权查看该揭榜详情")
+        raise HTTPException(status_code=403, detail="permission denied")
 
 
 def _approval_request_to_read(session: Session, row: ClaimApprovalRequest) -> ClaimApprovalRequestRead:
@@ -363,9 +363,9 @@ def claim_task(
 ) -> dict:
     task = session.get(Task, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
     if task.status not in {TaskStatus.OPEN, TaskStatus.IN_PROGRESS}:
-        raise HTTPException(status_code=400, detail="当前任务不可揭榜")
+        raise HTTPException(status_code=400, detail="褰撳墠浠诲姟涓嶅彲鎻")
 
     lead_user_id = payload.lead_user_id or actor_id
     lead_user = _ensure_user_exists(session, lead_user_id)
@@ -419,7 +419,7 @@ def claim_task(
         )
     ).first()
     if existing_active is not None:
-        raise HTTPException(status_code=400, detail="该负责人已有进行中的揭榜记录")
+        raise HTTPException(status_code=400, detail="璇ヨ礋璐ｄ汉宸叉湁杩涜涓殑鎻璁板綍")
 
     active_claim_count = int(
         session.exec(
@@ -431,7 +431,7 @@ def claim_task(
     if active_claim_count >= MAX_ACTIVE_CLAIMS_PER_USER:
         raise HTTPException(
             status_code=400,
-            detail=f"每人同时最多进行{MAX_ACTIVE_CLAIMS_PER_USER}个揭榜",
+            detail=f"each user can have at most {MAX_ACTIVE_CLAIMS_PER_USER} active claims",
         )
 
     claim = Claim(task_id=task_id, lead_user_id=lead_user_id, mode=payload.mode)
@@ -443,10 +443,10 @@ def claim_task(
     else:
         member_ids = {member.user_id for member in payload.members}
         if lead_user_id not in member_ids:
-            raise HTTPException(status_code=400, detail="联合揭榜成员中必须包含主负责人")
+            raise HTTPException(status_code=400, detail="team members must include lead user")
         total_ratio = sum(member.ratio for member in payload.members)
         if abs(total_ratio - 1.0) > 0.01:
-            raise HTTPException(status_code=400, detail=f"团队成员分配比例之和必须为1.0，当前为{total_ratio}")
+            raise HTTPException(status_code=400, detail=f"鍥㈤槦鎴愬憳鍒嗛厤姣斾緥涔嬪拰蹇呴』涓?.0锛屽綋鍓嶄负{total_ratio}")
         for member in payload.members:
             _ensure_user_exists(session, member.user_id)
             session.add(ClaimMember(claim_id=claim.id, user_id=member.user_id, ratio=member.ratio))
@@ -488,16 +488,17 @@ def abandon_claim(session: Session, actor_id: int, claim_id: int) -> dict:
     _ensure_user_exists(session, actor_id)
     claim = session.get(Claim, claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
-    if claim.status != ClaimStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="当前揭榜状态不可放弃")
+        raise HTTPException(status_code=404, detail="claim not found")
+    if claim.status not in {ClaimStatus.ACTIVE, ClaimStatus.OVERDUE}:
+        raise HTTPException(status_code=400, detail="claim cannot be abandoned in current status")
     if actor_id != claim.lead_user_id:
-        raise HTTPException(status_code=403, detail="仅揭榜主负责人可放弃")
+        raise HTTPException(status_code=403, detail="浠呮彮姒滀富璐熻矗浜哄彲鏀惧純")
 
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
 
+    was_overdue = claim.status == ClaimStatus.OVERDUE
     claim.status = ClaimStatus.ABANDONED
     active_claims = session.exec(
         select(func.count())
@@ -505,6 +506,10 @@ def abandon_claim(session: Session, actor_id: int, claim_id: int) -> dict:
         .where(Claim.task_id == task.id, Claim.status == ClaimStatus.ACTIVE)
     ).one()
     task.status = TaskStatus.IN_PROGRESS if int(active_claims) > 0 else TaskStatus.OPEN
+    if was_overdue:
+        lead = session.get(User, claim.lead_user_id)
+        if lead is not None and lead.overdue_count > 0:
+            lead.overdue_count -= 1
 
     _log(
         session,
@@ -523,18 +528,18 @@ def submit_deliverable(
 ) -> dict:
     claim = session.get(Claim, claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="claim not found")
     if claim.status != ClaimStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="当前揭榜状态不可提交成果")
+        raise HTTPException(status_code=400, detail="claim is not active")
 
     if claim.mode == ClaimMode.TEAM and actor_id != claim.lead_user_id:
-        raise HTTPException(status_code=403, detail="联合揭榜仅主负责人可提交成果")
+        raise HTTPException(status_code=403, detail="鑱斿悎鎻浠呬富璐熻矗浜哄彲鎻愪氦鎴愭灉")
     if claim.mode == ClaimMode.INDIVIDUAL and actor_id != claim.lead_user_id:
-        raise HTTPException(status_code=403, detail="仅揭榜人可提交成果")
+        raise HTTPException(status_code=403, detail="only claim owner can submit deliverable")
 
     existing = session.exec(select(Deliverable).where(Deliverable.claim_id == claim_id)).first()
     if existing is not None and existing.status == DeliverableStatus.SUBMITTED:
-        raise HTTPException(status_code=400, detail="已有待验收成果，不能重复提交")
+        raise HTTPException(status_code=400, detail="宸叉湁寰呴獙鏀舵垚鏋滐紝涓嶈兘閲嶅鎻愪氦")
 
     evidence_urls = list(payload.evidence_urls)
     if existing is None:
@@ -568,7 +573,7 @@ def submit_deliverable(
 
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
     task.status = TaskStatus.PENDING_ACCEPTANCE
     _log(
         session,
@@ -591,15 +596,24 @@ def accept_deliverable(
 ) -> dict:
     deliverable = session.get(Deliverable, deliverable_id)
     if deliverable is None:
-        raise HTTPException(status_code=404, detail="成果不存在")
+        raise HTTPException(status_code=404, detail="deliverable not found")
+
+    if deliverable.status not in {DeliverableStatus.SUBMITTED, DeliverableStatus.NEEDS_REWORK}:
+        raise HTTPException(status_code=400, detail="deliverable is not in an acceptable status")
+
     claim = session.get(Claim, deliverable.claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="揭榜记录不存在")
+        raise HTTPException(status_code=404, detail="claim not found")
+
     task = session.get(Task, claim.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
+
     if actor_id != task.accepter_id:
-        raise HTTPException(status_code=403, detail="仅任务验收人可执行验收")
+        raise HTTPException(status_code=403, detail="only task accepter can perform acceptance")
+
+    if actor_id == claim.lead_user_id:
+        raise HTTPException(status_code=403, detail="accepter cannot accept own deliverable")
 
     acceptance = Acceptance(
         deliverable_id=deliverable.id,
@@ -631,7 +645,7 @@ def accept_deliverable(
         deliverable.status = DeliverableStatus.APPROVED
         claim.status = ClaimStatus.COMPLETED
         task.status = TaskStatus.COMPLETED
-        # 清理同任务下其他活跃揭榜，避免悬挂
+        # Clear other active claims under the same task to avoid hanging records.
         other_active_claims = session.exec(
             select(Claim).where(
                 Claim.task_id == task.id,
@@ -642,6 +656,7 @@ def accept_deliverable(
         for other_claim in other_active_claims:
             other_claim.status = ClaimStatus.ABANDONED
         from app.services_rewards import _generate_rewards_and_knowledge
+
         _generate_rewards_and_knowledge(session, task, claim, deliverable)
 
     _log(
@@ -654,7 +669,6 @@ def accept_deliverable(
     )
     session.commit()
     return {"deliverable_id": deliverable_id, "result": result.value, "task_status": task.status.value}
-
 
 def release_overdue_claims(
     session: Session,
@@ -690,3 +704,4 @@ def release_overdue_claims(
         )
     session.commit()
     return {"released_claims": released, "rule": "due_date < today"}
+
