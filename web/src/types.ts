@@ -53,6 +53,7 @@ export type Problem = {
   reject_reason?: string | null
   merged_problem_id?: number | null
   submitter_id: number
+  submitter_name: string
   created_at: string
 }
 
@@ -74,6 +75,7 @@ export type ProblemDetail = {
   reject_reason: string | null
   merged_problem_id: number | null
   submitter_id: number
+  submitter_name: string
   created_at: string
   // ProdMind analysis fields
   analysis_id?: number | null

@@ -285,7 +285,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
               <span>#{item.id}</span>
               <span>{item.title}</span>
               <span>{item.scenario}</span>
-              <span>#{item.submitter_id}</span>
+              <span>{item.submitter_name || `#${item.submitter_id}`}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
               <span className="actions">
                 <button type="button" onClick={() => pickProblem(item)}>
@@ -304,38 +304,49 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             {analysisLoading ? (
               <p>正在加载论证报告...</p>
             ) : selectedAnalysis ? (
-              <div className="analysis-summary">
-                <div className="analysis-header">
-                  <span className="recommendation">
-                    立项建议：{selectedAnalysis.recommendation || '未提供'}
-                    {selectedAnalysis.confidence ? `（置信度 ${Math.round(selectedAnalysis.confidence * 100)}%）` : ''}
-                  </span>
+              selectedAnalysis.status === 'failed' ? (
+                <div className="no-analysis">
+                  <p style={{ color: 'red' }}>论证失败：{selectedAnalysis.error_message || '未知错误'}</p>
+                  <p>由于模型配置或调用失败，未能生成立项建议。您可以稍后再次尝试或手动进行立项。</p>
                 </div>
-                {selectedAnalysis.report?.grounder?.hypothesis_list && selectedAnalysis.report.grounder.hypothesis_list.length > 0 && (
-                  <div className="hypothesis-list">
-                    <h4>假设清单</h4>
-                    {selectedAnalysis.report.grounder.hypothesis_list.map((h, idx) => (
-                      <div key={idx} className={`hypothesis-item risk-${h.risk_level}`}>
-                        <span className="hypothesis-type">{h.hypothesis_type}</span>
-                        <span className="hypothesis-risk">{h.risk_level}</span>
-                        <span className="hypothesis-content">{h.content}</span>
-                      </div>
-                    ))}
+              ) : selectedAnalysis.status === 'analyzing' || selectedAnalysis.status === 'pending' ? (
+                <div className="no-analysis">
+                  <p>正在执行 ProdMind 论证，请稍候...</p>
+                </div>
+              ) : (
+                <div className="analysis-summary">
+                  <div className="analysis-header">
+                    <span className="recommendation">
+                      立项建议：{selectedAnalysis.recommendation || '未提供'}
+                      {selectedAnalysis.confidence ? `（置信度 ${Math.round(selectedAnalysis.confidence * 100)}%）` : ''}
+                    </span>
                   </div>
-                )}
-                {selectedAnalysis.report?.assassin?.risks_identified && selectedAnalysis.report.assassin.risks_identified.length > 0 && (
-                  <div className="risks-section">
-                    <h4>关键风险点</h4>
-                    <ul>
-                      {selectedAnalysis.report.assassin.risks_identified.map((r, idx) => (
-                        <li key={idx}>
-                          {r.risk}（{r.severity}）
-                        </li>
+                  {selectedAnalysis.report?.grounder?.hypothesis_list && selectedAnalysis.report.grounder.hypothesis_list.length > 0 && (
+                    <div className="hypothesis-list">
+                      <h4>假设清单</h4>
+                      {selectedAnalysis.report.grounder.hypothesis_list.map((h, idx) => (
+                        <div key={idx} className={`hypothesis-item risk-${h.risk_level}`}>
+                          <span className="hypothesis-type">{h.hypothesis_type}</span>
+                          <span className="hypothesis-risk">{h.risk_level}</span>
+                          <span className="hypothesis-content">{h.content}</span>
+                        </div>
                       ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
+                  {selectedAnalysis.report?.assassin?.risks_identified && selectedAnalysis.report.assassin.risks_identified.length > 0 && (
+                    <div className="risks-section">
+                      <h4>关键风险点</h4>
+                      <ul>
+                        {selectedAnalysis.report.assassin.risks_identified.map((r, idx) => (
+                          <li key={idx}>
+                            {r.risk}（{r.severity}）
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
             ) : (
               <div className="no-analysis">
                 <p>该问题尚未完成 ProdMind 论证</p>
@@ -505,7 +516,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                   </button>
                 </div>
               ))}
-              </div>
+            </div>
             <label className="wide">
               对论证建议的采纳意见
               <textarea

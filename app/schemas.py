@@ -136,6 +136,7 @@ class ProblemRead(BaseModel):
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = None
     submitter_id: int
+    submitter_name: str
     created_at: datetime
 
 
@@ -157,6 +158,7 @@ class ProblemDetailRead(BaseModel):
     reject_reason: Optional[str] = None
     merged_problem_id: Optional[int] = None
     submitter_id: int
+    submitter_name: str
     created_at: datetime
 
 

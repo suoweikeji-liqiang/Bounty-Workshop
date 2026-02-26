@@ -21,7 +21,7 @@ from app.schemas import ProblemCreate, ProblemDetailRead, ProblemRead, ProblemRe
 from app.services_common import _ensure_role, _ensure_user_exists, _from_json_list, _log, _to_json
 
 
-def _problem_to_read(problem: Problem) -> ProblemRead:
+def _problem_to_read(problem: Problem, submitter_name: str) -> ProblemRead:
     return ProblemRead(
         id=problem.id,
         title=problem.title,
@@ -30,11 +30,12 @@ def _problem_to_read(problem: Problem) -> ProblemRead:
         reject_reason=problem.reject_reason,
         merged_problem_id=problem.merged_problem_id,
         submitter_id=problem.submitter_id,
+        submitter_name=submitter_name,
         created_at=problem.created_at,
     )
 
 
-def _problem_to_detail(problem: Problem) -> ProblemDetailRead:
+def _problem_to_detail(problem: Problem, submitter_name: str) -> ProblemDetailRead:
     return ProblemDetailRead(
         id=problem.id,
         title=problem.title,
@@ -53,12 +54,13 @@ def _problem_to_detail(problem: Problem) -> ProblemDetailRead:
         reject_reason=problem.reject_reason,
         merged_problem_id=problem.merged_problem_id,
         submitter_id=problem.submitter_id,
+        submitter_name=submitter_name,
         created_at=problem.created_at,
     )
 
 
 def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> ProblemRead:
-    _ensure_user_exists(session, actor_id)
+    user = _ensure_user_exists(session, actor_id)
     attachment_urls = list(payload.attachment_urls)
     problem = Problem(
         title=payload.title,
@@ -96,7 +98,7 @@ def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> P
         detail={"title": payload.title},
     )
     session.commit()
-    return _problem_to_read(problem)
+    return _problem_to_read(problem, user.name)
 
 
 def get_problem_detail(
@@ -114,7 +116,8 @@ def get_problem_detail(
         and Role.REVIEWER not in actor_roles
     ):
         raise HTTPException(status_code=403, detail="无权查看该问题详情")
-    return _problem_to_detail(problem)
+    user = session.get(User, problem.submitter_id)
+    return _problem_to_detail(problem, user.name if user else "")
 
 
 def resubmit_problem(
@@ -171,7 +174,8 @@ def resubmit_problem(
     )
     session.commit()
     session.refresh(problem)
-    return _problem_to_read(problem)
+    user = session.get(User, problem.submitter_id)
+    return _problem_to_read(problem, user.name if user else "")
 
 
 def list_problems(
@@ -185,7 +189,7 @@ def list_problems(
     offset: int = 0,
     limit: int = 200,
 ) -> list[ProblemRead]:
-    statement = select(Problem)
+    statement = select(Problem, User.name.label("submitter_name")).join(User, Problem.submitter_id == User.id)
     if mine_only:
         statement = statement.where(Problem.submitter_id == user_id)
     if status is not None:
@@ -202,10 +206,10 @@ def list_problems(
         )
     safe_offset = max(offset, 0)
     safe_limit = max(1, min(limit, 200))
-    problems = session.exec(
+    results = session.exec(
         statement.order_by(Problem.created_at.desc()).offset(safe_offset).limit(safe_limit)
     ).all()
-    return [_problem_to_read(item) for item in problems]
+    return [_problem_to_read(prob, name) for prob, name in results]
 
 
 def review_problem(session: Session, actor_id: int, problem_id: int, payload: ProblemReview) -> TaskRead | None:
