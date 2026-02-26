@@ -94,7 +94,7 @@ export default function App(props: Props) {
 
           <p className="sidenav-group-title">个人操作</p>
           <NavLink to="/personal">个人中心</NavLink>
-          <NavLink to="/change-password">修改密码</NavLink>
+          {profile?.has_password && <NavLink to="/change-password">修改密码</NavLink>}
 
           <p className="sidenav-group-title">设置操作</p>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}

@@ -100,4 +100,5 @@ def user_to_read(session: Session, user: User) -> UserRead:
         status=user.status.value,
         overdue_count=user.overdue_count,
         roles=[row.role for row in roles],
+        has_password=bool(user.password_hash),
     )

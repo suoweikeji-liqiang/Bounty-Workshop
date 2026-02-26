@@ -53,6 +53,7 @@ class UserRead(BaseModel):
     status: str
     overdue_count: int
     roles: list[Role]
+    has_password: bool = False
 
 
 class AdminLoginRequest(BaseModel):

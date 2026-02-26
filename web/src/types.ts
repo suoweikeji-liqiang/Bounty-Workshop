@@ -157,6 +157,7 @@ export type UserProfile = {
   status: string
   overdue_count: number
   roles: string[]
+  has_password: boolean
 }
 
 export type AuthLoginResponse = {
