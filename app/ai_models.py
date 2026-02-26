@@ -5,8 +5,7 @@ from cryptography.fernet import Fernet
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import select
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.models import AIModel
 
