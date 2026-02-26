@@ -81,6 +81,15 @@ function normalizeCriteria(
   }))
 }
 
+function formatAnalysisStatus(status?: string) {
+  if (!status) return '-'
+  if (status === 'pending') return '待触发'
+  if (status === 'analyzing') return '论证中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  return status
+}
+
 export function ProblemsPage({ userId }: Props) {
   const toast = useToast()
   const [form, setForm] = useState<ProblemForm>(defaultForm)
@@ -243,10 +252,24 @@ export function ProblemsPage({ userId }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`问题 #${problemId} 已提交评审`)
+      setMessage(`问题 #${problemId} 已提交评审，ProdMind 已自动开始论证`)
       await loadMine()
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交评审失败')
+    }
+  }
+
+  const triggerAnalysisNow = async (problemId: number) => {
+    try {
+      setError(null)
+      await requestJson(`/problems/${problemId}/analyze`, {
+        method: 'POST',
+        userId,
+      })
+      setMessage(`问题 #${problemId} 已触发 ProdMind 论证`)
+      await loadMine()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '触发论证失败')
     }
   }
 
@@ -269,7 +292,7 @@ export function ProblemsPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>{editingProblemId ? '编辑问题草稿' : '问题草稿提交'}</h2>
-        <p>先由提交人完善任务定义，再送审。</p>
+        <p>先由提交人完善任务定义，再送审。提交评审后会自动触发 ProdMind 论证。</p>
       </header>
 
       <form className="panel form-grid" onSubmit={submit}>
@@ -453,21 +476,23 @@ export function ProblemsPage({ userId }: Props) {
           <button type="button" onClick={() => void loadMine()} disabled={loading}>刷新</button>
         </div>
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head wide-row problems-row">
             <span>ID</span>
             <span>标题</span>
             <span>场景</span>
             <span>状态</span>
+            <span>论证状态</span>
             <span>评审意见</span>
             <span>时间</span>
             <span>操作</span>
           </div>
           {list.map((item) => (
-            <div className="row wide-row" key={item.id}>
+            <div className="row wide-row problems-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{item.title}</span>
               <span>{item.scenario}</span>
               <span>{item.status}</span>
+              <span>{formatAnalysisStatus(item.analysis_status)}</span>
               <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
               <span>{new Date(item.created_at).toLocaleDateString()}</span>
               <span className="actions">
@@ -476,6 +501,9 @@ export function ProblemsPage({ userId }: Props) {
                 )}
                 {item.status === 'draft' && (
                   <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
+                )}
+                {item.status !== 'archived' && item.status !== 'rejected' && (
+                  <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
                 )}
               </span>
             </div>

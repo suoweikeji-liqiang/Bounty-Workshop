@@ -288,6 +288,10 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                   />
                 </label>
               </>
+            ) : selectedProblemDetail.analysis_status === 'analyzing' ? (
+              <p>论证进行中，请稍后刷新。</p>
+            ) : selectedProblemDetail.analysis_status === 'failed' ? (
+              <p>论证失败，可让提交人或审核人点击“立即论证”重试。</p>
             ) : (
               <p>暂无可用论证结果</p>
             )}

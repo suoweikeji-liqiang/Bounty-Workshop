@@ -353,6 +353,10 @@ button:disabled {
   grid-template-columns: 90px 1.2fr 1fr 1fr 1fr 220px;
 }
 
+.row.problems-row {
+  grid-template-columns: 80px 1.2fr 80px 110px 100px 1fr 120px 220px;
+}
+
 .actions {
   display: flex;
   gap: 8px;

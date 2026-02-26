@@ -186,3 +186,34 @@ def test_reviewer_prices_but_does_not_define_task_content(tmp_path: Path) -> Non
     assert payload["scope"] == "build script + CI integration"
 
     app.dependency_overrides.clear()
+
+
+def test_submit_for_review_auto_triggers_analysis(tmp_path: Path, monkeypatch) -> None:
+    client = _setup_client(tmp_path)
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "Carol", "employee_no": "E004", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, employee_id)
+
+    called_problem_ids: list[int] = []
+
+    def fake_trigger(problem_id: int) -> None:
+        called_problem_ids.append(problem_id)
+
+    monkeypatch.setattr("app.routers.problems._trigger_analysis_background", fake_trigger)
+
+    submit_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(employee_id),
+    )
+    assert submit_resp.status_code == 200
+    assert submit_resp.json()["status"] == "pending_review"
+    assert called_problem_ids == [problem_id]
+
+    app.dependency_overrides.clear()
