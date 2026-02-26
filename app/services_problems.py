@@ -438,6 +438,10 @@ def review_problem(
         and not is_legacy_direct_review
     ):
         raise HTTPException(status_code=409, detail="problem is not in a reviewable status")
+    # Reviewer pricing flow should wait while analysis is still running,
+    # but must not be hard-blocked by failed/missing analysis results.
+    if payload.approve and payload.task is None and problem.analysis_status == AnalysisStatus.ANALYZING:
+        raise HTTPException(status_code=409, detail="analysis is still running")
 
     if not payload.approve:
         review_comment = (payload.review_comment or payload.reject_reason or "").strip()

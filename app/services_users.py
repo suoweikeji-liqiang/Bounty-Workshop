@@ -76,12 +76,14 @@ def get_my_profile(session: Session, user_id: int) -> UserRead:
 
 
 def get_my_summary(session: Session, user_id: int) -> PersonalSummaryRead:
-    from app.services_rewards import list_rewards
+    from app.services_rewards import list_rewards, list_user_badges
 
     user = _ensure_user_exists(session, user_id, allow_disabled=True)
     rewards = list_rewards(session, user_id=user_id)
     confirmed_rewards = [item for item in rewards if item.status == RewardStatus.CONFIRMED.value]
-    badges = sorted({item.badge for item in confirmed_rewards if item.badge})
+    reward_badges = {item.badge for item in confirmed_rewards if item.badge}
+    badge_details = list_user_badges(session, user_id)
+    badges = sorted(reward_badges | {str(item["code"]) for item in badge_details})
     stats = PersonalRewardStats(
         total_records=len(rewards),
         confirmed_records=len(confirmed_rewards),
@@ -93,6 +95,7 @@ def get_my_summary(session: Session, user_id: int) -> PersonalSummaryRead:
         user=user_to_read(session, user),
         stats=stats,
         badges=badges,
+        badge_details=badge_details,
         rewards=rewards,
     )
 

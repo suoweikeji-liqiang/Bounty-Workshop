@@ -126,7 +126,12 @@ export function OperationLogsPage({ userId }: Props) {
               <span>
                 {item.target_type}#{item.target_id ?? '-'}
               </span>
-              <span>{JSON.stringify(item.detail)}</span>
+              <span>
+                <details>
+                  <summary>查看详情</summary>
+                  <pre style={{ margin: 0 }}>{JSON.stringify(item.detail, null, 2)}</pre>
+                </details>
+              </span>
             </div>
           ))}
         </div>

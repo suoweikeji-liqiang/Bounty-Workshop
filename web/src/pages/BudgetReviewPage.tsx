@@ -8,6 +8,13 @@ type Props = {
   userId: number
 }
 
+const pointsRangeByLevel: Record<string, { min: number; max: number }> = {
+  S: { min: 80, max: 150 },
+  A: { min: 40, max: 80 },
+  B: { min: 15, max: 40 },
+  C: { min: 5, max: 15 },
+}
+
 export function BudgetReviewPage({ userId }: Props) {
   const toast = useToast()
   const [items, setItems] = useState<Problem[]>([])
@@ -18,10 +25,19 @@ export function BudgetReviewPage({ userId }: Props) {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const selected = useMemo(
-    () => items.find((item) => item.id === selectedId) ?? null,
-    [items, selectedId],
-  )
+  const selected = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId])
+
+  const pointsCompliance = useMemo(() => {
+    if (!detail?.priced_level || typeof detail.priced_points !== 'number') {
+      return null
+    }
+    const range = pointsRangeByLevel[detail.priced_level]
+    if (!range) {
+      return null
+    }
+    const ok = detail.priced_points >= range.min && detail.priced_points <= range.max
+    return { ok, range }
+  }, [detail])
 
   const load = useCallback(async () => {
     try {
@@ -99,7 +115,9 @@ export function BudgetReviewPage({ userId }: Props) {
       <article className="panel">
         <div className="panel-headline">
           <h3>待复核问题（{items.length}）</h3>
-          <button type="button" onClick={() => void load()} disabled={loading}>刷新</button>
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            刷新
+          </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
@@ -135,14 +153,26 @@ export function BudgetReviewPage({ userId }: Props) {
           <p><strong>提交人分成：</strong>{detail.priced_proposer_ratio ?? '-'}</p>
           <p><strong>验收人：</strong>{detail.priced_accepter_id ?? '-'}</p>
           <p><strong>积分/徽章：</strong>{detail.priced_points ?? 0} / {detail.priced_badge ?? '-'}</p>
+          {pointsCompliance && (
+            <p className={pointsCompliance.ok ? 'muted' : ''}>
+              <strong>积分区间校验：</strong>
+              {pointsCompliance.ok
+                ? `通过（${pointsCompliance.range.min}-${pointsCompliance.range.max}）`
+                : `不通过（应为 ${pointsCompliance.range.min}-${pointsCompliance.range.max}）`}
+            </p>
+          )}
 
           <label className="wide">
             复核意见
             <textarea value={comment} onChange={(event) => setComment(event.target.value)} />
           </label>
           <div className="button-row wide">
-            <button className="primary-btn" type="button" onClick={() => void submit(true)}>通过并立项</button>
-            <button type="button" onClick={() => void submit(false)}>退回重新定价</button>
+            <button className="primary-btn" type="button" onClick={() => void submit(true)}>
+              通过并立项
+            </button>
+            <button type="button" onClick={() => void submit(false)}>
+              退回重新定价
+            </button>
           </div>
         </article>
       )}

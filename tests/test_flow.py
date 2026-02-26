@@ -184,7 +184,7 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
                 "reward_total": 600,
                 "proposer_ratio": 0.3,
                 "accepter_id": reviewer_id,
-                "points": 20,
+                "points": 10,
                 "badge": "效率之星",
                 "acceptance_criteria": [
                     {"description": "脚本稳定运行7天", "type": "quantified"},
@@ -299,7 +299,7 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert me_summary["stats"]["total_records"] == 2
     assert me_summary["stats"]["confirmed_records"] == 2
     assert me_summary["stats"]["confirmed_reward_amount"] > 0
-    assert me_summary["stats"]["confirmed_points"] >= 20
+    assert me_summary["stats"]["confirmed_points"] >= 10
     assert isinstance(me_summary["badges"], list)
     assert len(me_summary["rewards"]) == 2
 
@@ -733,7 +733,7 @@ def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
                 "reward_total": 800,
                 "proposer_ratio": 0.25,
                 "accepter_id": reviewer_id,
-                "points": 30,
+                "points": 10,
                 "badge": "efficiency-star",
                 "acceptance_criteria": [
                     {"description": "script runs stably", "type": "quantified"}
@@ -1967,5 +1967,201 @@ def test_submitter_cannot_review_own_problem(tmp_path: Path) -> None:
         },
     )
     assert review_resp.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_deliverable_rework_has_max_attempts(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ReworkReviewer",
+            "employee_no": "R980",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReworkSubmitter", "employee_no": "E980", "department": "OPS", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    executor_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReworkExecutor", "employee_no": "E981", "department": "RD", "roles": ["employee"]},
+    )
+    assert executor_resp.status_code == 200
+    executor_id = executor_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(submitter_id),
+        json={
+            "title": "rework-limit-problem",
+            "scenario": "ops",
+            "background": "rework limit",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "limit rework attempts",
+            "value_reduce_effort": True,
+            "value_statement": "prevent endless loop",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "rework-limit-task",
+                "goal": "validate rework cap",
+                "scope": "single",
+                "due_date": (date.today() + timedelta(days=2)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "acceptance_criteria": [{"description": "ok", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(executor_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(executor_id),
+        json={"summary": "round1", "criteria_results": ["ok"], "evidence_urls": []},
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    for round_no in range(3):
+        accept_resp = client.post(
+            f"/deliverables/{deliverable_id}/accept",
+            headers=_headers(reviewer_id),
+            json={"result": "rework", "comment": f"round-{round_no + 1}"},
+        )
+        assert accept_resp.status_code == 200
+        resubmit_resp = client.post(
+            f"/claims/{claim_id}/deliverables",
+            headers=_headers(executor_id),
+            json={"summary": f"round{round_no + 2}", "criteria_results": ["ok"], "evidence_urls": []},
+        )
+        assert resubmit_resp.status_code == 200
+
+    blocked_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "rework", "comment": "round-4"},
+    )
+    assert blocked_resp.status_code == 400
+    assert "max rework attempts reached" in blocked_resp.text
+
+    app.dependency_overrides.clear()
+
+
+def test_pricing_review_requires_completed_analysis(tmp_path: Path, monkeypatch) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "AnalysisGateReviewer",
+            "employee_no": "R981",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AnalysisGateSubmitter", "employee_no": "E982", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    create_resp = client.post(
+        "/problems",
+        headers=_headers(submitter_id),
+        json={
+            "title": "analysis-required-problem",
+            "scenario": "rd",
+            "background": "analysis gate",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "approval should wait for analysis",
+            "value_reduce_effort": True,
+            "value_statement": "quality gate",
+            "task_draft": {
+                "goal": "ship mvp",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "acceptance_criteria": [{"description": "works", "type": "quantified"}],
+                "self_reflection": "validated by submitter",
+            },
+        },
+    )
+    assert create_resp.status_code == 200
+    problem_id = create_resp.json()["id"]
+
+    submit_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(submitter_id),
+    )
+    assert submit_resp.status_code == 200
+
+    def fake_trigger(problem_id: int) -> None:
+        return None
+
+    monkeypatch.setattr("app.routers.problems._trigger_analysis_background", fake_trigger)
+    analyze_resp = client.post(
+        f"/problems/{problem_id}/analyze",
+        headers=_headers(submitter_id),
+    )
+    assert analyze_resp.status_code == 200
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "pricing": {
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "badge": None,
+            },
+        },
+    )
+    assert review_resp.status_code == 409
+    assert "analysis is still running" in review_resp.text
 
     app.dependency_overrides.clear()

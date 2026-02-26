@@ -3,6 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.badges import is_valid_badge_code
 from app.enums import (
     AcceptanceResult,
     AIProvider,
@@ -25,6 +26,13 @@ LEVEL_REWARD_RANGE = {
     TaskLevel.A: (3000.0, 8000.0),
     TaskLevel.B: (1000.0, 3000.0),
     TaskLevel.C: (200.0, 1000.0),
+}
+
+LEVEL_POINTS_RANGE = {
+    TaskLevel.S: (80, 150),
+    TaskLevel.A: (40, 80),
+    TaskLevel.B: (15, 40),
+    TaskLevel.C: (5, 15),
 }
 
 
@@ -209,6 +217,13 @@ class TaskDefinition(BaseModel):
         low, high = LEVEL_REWARD_RANGE[self.level]
         if not (low <= self.reward_total <= high):
             raise ValueError(f"{self.level} 等级激励范围应在 {low}-{high}")
+        points_low, points_high = LEVEL_POINTS_RANGE[self.level]
+        if self.points == 0:
+            self.points = points_low
+        if not (points_low <= self.points <= points_high):
+            raise ValueError(f"{self.level} 等级积分范围应在 {points_low}-{points_high}")
+        if self.badge and not is_valid_badge_code(self.badge):
+            raise ValueError("invalid badge code")
         return self
 
 
@@ -225,6 +240,13 @@ class PricingDefinition(BaseModel):
         low, high = LEVEL_REWARD_RANGE[self.level]
         if not (low <= self.reward_total <= high):
             raise ValueError(f"{self.level} reward range must be {low}-{high}")
+        points_low, points_high = LEVEL_POINTS_RANGE[self.level]
+        if self.points == 0:
+            self.points = points_low
+        if not (points_low <= self.points <= points_high):
+            raise ValueError(f"{self.level} points range must be {points_low}-{points_high}")
+        if self.badge and not is_valid_badge_code(self.badge):
+            raise ValueError("invalid badge code")
         return self
 
 
@@ -387,6 +409,21 @@ class RewardRead(BaseModel):
     confirmed_at: Optional[datetime]
 
 
+class BadgeDefinitionRead(BaseModel):
+    code: str
+    name: str
+    category: str
+    description: str
+    icon: str
+    auto_enabled: bool
+
+
+class UserBadgeRead(BadgeDefinitionRead):
+    source_type: str
+    source_id: Optional[int] = None
+    earned_at: datetime
+
+
 class PersonalRewardStats(BaseModel):
     total_records: int
     confirmed_records: int
@@ -399,6 +436,7 @@ class PersonalSummaryRead(BaseModel):
     user: UserRead
     stats: PersonalRewardStats
     badges: list[str]
+    badge_details: list[UserBadgeRead] = Field(default_factory=list)
     rewards: list[RewardRead]
 
 

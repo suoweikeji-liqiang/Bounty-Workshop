@@ -289,6 +289,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   }
 
   const abandonClaim = async (targetClaimId: number) => {
+    const ok = window.confirm(`确认放弃揭榜 #${targetClaimId} 吗？该操作不可撤销。`)
+    if (!ok) {
+      return
+    }
     try {
       await requestJson(`/claims/${targetClaimId}/abandon`, {
         method: 'POST',
@@ -584,9 +588,15 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
 
       {detailOpen && detail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="claim-detail-title"
+          >
             <div className="panel-headline">
-              <h3>Claim #{detail.claim_id} Detail</h3>
+              <h3 id="claim-detail-title">Claim #{detail.claim_id} Detail</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
                 Close
               </button>

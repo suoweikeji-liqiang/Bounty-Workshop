@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.enums import (
@@ -45,6 +46,8 @@ from app.services_common import (
     _log,
     _to_json,
 )
+
+MAX_DELIVERABLE_REWORK_ATTEMPTS = 3
 
 
 def get_claim_approval_overdue_threshold(session: Session) -> int:
@@ -431,7 +434,7 @@ def claim_task(
     if active_claim_count >= MAX_ACTIVE_CLAIMS_PER_USER:
         raise HTTPException(
             status_code=400,
-            detail=f"each user can have at most {MAX_ACTIVE_CLAIMS_PER_USER} active claims",
+            detail=f"每人最多进行{MAX_ACTIVE_CLAIMS_PER_USER}个揭榜（each user can have at most {MAX_ACTIVE_CLAIMS_PER_USER} active claims）",
         )
 
     claim = Claim(task_id=task_id, lead_user_id=lead_user_id, mode=payload.mode)
@@ -480,7 +483,17 @@ def claim_task(
                 "overdue_threshold": overdue_threshold,
             },
         )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        text = str(exc).lower()
+        if "uq_claim_task_lead_active" in text or "unique constraint failed: claim.task_id, claim.lead_user_id" in text:
+            raise HTTPException(
+                status_code=409,
+                detail="active claim already exists for this task and lead user",
+            ) from exc
+        raise
     return {"claim_id": claim.id, "task_id": task_id, "status": claim.status.value}
 
 
@@ -624,7 +637,13 @@ def accept_deliverable(
     session.add(acceptance)
 
     if result == AcceptanceResult.REWORK:
+        if deliverable.rework_count >= MAX_DELIVERABLE_REWORK_ATTEMPTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max rework attempts reached ({MAX_DELIVERABLE_REWORK_ATTEMPTS})",
+            )
         deliverable.status = DeliverableStatus.NEEDS_REWORK
+        deliverable.rework_count += 1
         task.status = TaskStatus.IN_PROGRESS
     elif result == AcceptanceResult.REJECTED:
         deliverable.status = DeliverableStatus.REJECTED

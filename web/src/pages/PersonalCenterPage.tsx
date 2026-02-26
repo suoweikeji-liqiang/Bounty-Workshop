@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { PersonalSummary } from '../types'
@@ -47,6 +48,12 @@ function formatRewardStatus(status: string) {
   return rewardStatusLabelMap[status] ?? status
 }
 
+function rewardTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (status === 'confirmed') return 'success'
+  if (status === 'generated') return 'warn'
+  return 'muted'
+}
+
 export function PersonalCenterPage({ userId }: Props) {
   const toast = useToast()
   const [summary, setSummary] = useState<PersonalSummary | null>(null)
@@ -71,7 +78,7 @@ export function PersonalCenterPage({ userId }: Props) {
     void load()
   }, [load])
 
-  const badgeList = useMemo(() => summary?.badges ?? [], [summary])
+  const badgeList = useMemo(() => summary?.badge_details ?? [], [summary])
   const rewards = useMemo(() => summary?.rewards ?? [], [summary])
 
   useEffect(() => {
@@ -143,13 +150,26 @@ export function PersonalCenterPage({ userId }: Props) {
           <article className="panel">
             <h3>徽章</h3>
             {badgeList.length === 0 ? (
-              <p className="muted">暂无已确认徽章。</p>
+              <p className="muted">暂无已授予徽章。</p>
             ) : (
-              <div className="personal-badges">
+              <div className="table">
+                <div className="row head wide-row">
+                  <span>徽章</span>
+                  <span>编码</span>
+                  <span>类别</span>
+                  <span>说明</span>
+                  <span>来源</span>
+                  <span>获得时间</span>
+                </div>
                 {badgeList.map((badge) => (
-                  <span className="personal-badge" key={badge}>
-                    {badge}
-                  </span>
+                  <div className="row wide-row" key={`${badge.code}-${badge.earned_at}`}>
+                    <span>{badge.name}</span>
+                    <span>{badge.icon} / {badge.code}</span>
+                    <span>{badge.category}</span>
+                    <span>{badge.description}</span>
+                    <span>{badge.source_type}</span>
+                    <span>{new Date(badge.earned_at).toLocaleString()}</span>
+                  </div>
                 ))}
               </div>
             )}
@@ -179,7 +199,9 @@ export function PersonalCenterPage({ userId }: Props) {
                     <span>¥ {item.amount.toFixed(2)}</span>
                     <span>{item.points}</span>
                     <span>{item.badge ?? '-'}</span>
-                    <span>{formatRewardStatus(item.status)}</span>
+                    <span>
+                      <StatusBadge tone={rewardTone(item.status)}>{formatRewardStatus(item.status)}</StatusBadge>
+                    </span>
                     <span>{item.confirmed_at ? new Date(item.confirmed_at).toLocaleString() : '-'}</span>
                   </div>
                 ))}

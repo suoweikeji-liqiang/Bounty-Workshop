@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -40,6 +40,7 @@ export function FeishuPage({ userId, profile }: Props) {
   const [departments, setDepartments] = useState<Department[]>([])
   const [frequency, setFrequency] = useState(60)
   const [releaseFrequency, setReleaseFrequency] = useState(1440)
+  const [syncingMode, setSyncingMode] = useState<'all' | 'users' | 'departments' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,23 +56,26 @@ export function FeishuPage({ userId, profile }: Props) {
   }, [userId])
 
   const loadFrequency = useCallback(async () => {
+    if (!canAdmin) {
+      return
+    }
     try {
       const [feishu, release] = await Promise.all([
-        requestJson<{ frequency_minutes: number }>('/system/config/feishu-sync-frequency', {
-          userId,
-        }),
-        requestJson<{ frequency_minutes: number }>('/system/config/release-overdue-frequency', {
-          userId,
-        }),
+        requestJson<{ frequency_minutes: number }>('/system/config/feishu-sync-frequency', { userId }),
+        requestJson<{ frequency_minutes: number }>('/system/config/release-overdue-frequency', { userId }),
       ])
       setFrequency(feishu.frequency_minutes)
       setReleaseFrequency(release.frequency_minutes)
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取频率失败')
     }
-  }, [userId])
+  }, [canAdmin, userId])
 
   const saveReleaseFrequency = async () => {
+    if (!Number.isInteger(releaseFrequency) || releaseFrequency < 5 || releaseFrequency > 10080) {
+      setError('超期检查频率范围应为 5-10080 分钟')
+      return
+    }
     try {
       setError(null)
       await requestJson('/system/config/release-overdue-frequency', {
@@ -86,6 +90,10 @@ export function FeishuPage({ userId, profile }: Props) {
   }
 
   const saveFrequency = async () => {
+    if (!Number.isInteger(frequency) || frequency < 5 || frequency > 10080) {
+      setError('同步频率范围应为 5-10080 分钟')
+      return
+    }
     try {
       setError(null)
       await requestJson('/system/config/feishu-sync-frequency', {
@@ -99,15 +107,33 @@ export function FeishuPage({ userId, profile }: Props) {
     }
   }
 
+  const releaseOverdueNow = async () => {
+    if (!canAdmin) {
+      return
+    }
+    const ok = window.confirm('确认立即执行一次超期揭榜释放吗？')
+    if (!ok) {
+      return
+    }
+    try {
+      setError(null)
+      const res = await requestJson<{ released_claims: number }>('/jobs/release-overdue', {
+        method: 'POST',
+        userId,
+      })
+      setMessage(`已执行超期释放，本次释放 ${res.released_claims} 条`) 
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '执行超期释放失败')
+    }
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadDepartments()
-      if (canAdmin) {
-        void loadFrequency()
-      }
+      void loadFrequency()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [canAdmin, loadDepartments, loadFrequency])
+  }, [loadDepartments, loadFrequency])
 
   const generateLoginUrl = async () => {
     try {
@@ -122,10 +148,15 @@ export function FeishuPage({ userId, profile }: Props) {
 
   const callbackLogin = async (event: FormEvent) => {
     event.preventDefault()
+    const trimmedCode = code.trim()
+    if (!trimmedCode) {
+      setError('请先输入授权码 code')
+      return
+    }
     try {
       setError(null)
       const query = new URLSearchParams()
-      query.set('code', code)
+      query.set('code', trimmedCode)
       if (state.trim()) {
         query.set('state', state.trim())
       }
@@ -140,14 +171,18 @@ export function FeishuPage({ userId, profile }: Props) {
   const sync = async (mode: 'all' | 'users' | 'departments') => {
     try {
       setError(null)
+      setSyncingMode(mode)
       const res = await requestJson<SyncResult>(`/integrations/feishu/sync?mode=${mode}`, {
         method: 'POST',
         userId,
       })
       setSyncResult(res)
       await loadDepartments()
+      setMessage(`同步完成：部门 ${res.synced_departments}，人员 ${res.synced_users}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '同步失败')
+    } finally {
+      setSyncingMode(null)
     }
   }
 
@@ -207,14 +242,14 @@ export function FeishuPage({ userId, profile }: Props) {
         <h3>通讯录同步</h3>
         {canAdmin ? (
           <div className="button-row">
-            <button type="button" onClick={() => void sync('all')}>
-              同步全部
+            <button type="button" onClick={() => void sync('all')} disabled={syncingMode !== null}>
+              {syncingMode === 'all' ? '同步中...' : '同步全部'}
             </button>
-            <button type="button" onClick={() => void sync('departments')}>
-              仅同步部门
+            <button type="button" onClick={() => void sync('departments')} disabled={syncingMode !== null}>
+              {syncingMode === 'departments' ? '同步中...' : '仅同步部门'}
             </button>
-            <button type="button" onClick={() => void sync('users')}>
-              仅同步人员
+            <button type="button" onClick={() => void sync('users')} disabled={syncingMode !== null}>
+              {syncingMode === 'users' ? '同步中...' : '仅同步人员'}
             </button>
           </div>
         ) : (
@@ -259,9 +294,14 @@ export function FeishuPage({ userId, profile }: Props) {
                 onChange={(event) => setReleaseFrequency(Number(event.target.value))}
               />
             </label>
-            <button type="button" onClick={() => void saveReleaseFrequency()}>
-              保存频率
-            </button>
+            <div className="button-row">
+              <button type="button" onClick={() => void saveReleaseFrequency()}>
+                保存频率
+              </button>
+              <button type="button" onClick={() => void releaseOverdueNow()}>
+                立即执行超期释放
+              </button>
+            </div>
           </article>
         </>
       )}
@@ -282,6 +322,11 @@ export function FeishuPage({ userId, profile }: Props) {
               <span>{new Date(dept.updated_at).toLocaleString()}</span>
             </div>
           ))}
+          {departments.length === 0 && (
+            <div className="row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>暂无部门数据，请先执行同步</span>
+            </div>
+          )}
         </div>
       </article>
     </section>

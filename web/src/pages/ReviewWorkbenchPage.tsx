@@ -1,9 +1,17 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { Problem, ProblemAnalysisReport, ProblemDetail, ProblemReviewResult, UserProfile } from '../types'
+import type {
+  BadgeDefinition,
+  Problem,
+  ProblemAnalysisReport,
+  ProblemDetail,
+  ProblemReviewResult,
+  UserProfile,
+} from '../types'
 
 type Props = {
   userId: number
@@ -27,21 +35,37 @@ const rewardRangeByLevel: Record<TaskLevel, { min: number; max: number }> = {
   C: { min: 200, max: 1000 },
 }
 
+const pointsRangeByLevel: Record<TaskLevel, { min: number; max: number }> = {
+  S: { min: 80, max: 150 },
+  A: { min: 40, max: 80 },
+  B: { min: 15, max: 40 },
+  C: { min: 5, max: 15 },
+}
+
 function buildDefaultPricingDraft(): PricingDraft {
   return {
     level: 'C',
     reward_total: '600',
     proposer_ratio: '0.3',
     accepter_id: '',
-    points: '0',
+    points: '5',
     badge: '',
   }
+}
+
+function problemTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (status === 'approved') return 'success'
+  if (status === 'pending_review' || status === 'pricing_revision_required') return 'warn'
+  if (status === 'rejected') return 'danger'
+  if (status === 'draft') return 'info'
+  return 'muted'
 }
 
 export function ReviewWorkbenchPage({ userId }: Props) {
   const toast = useToast()
   const [pendingProblems, setPendingProblems] = useState<Problem[]>([])
   const [acceptors, setAcceptors] = useState<UserProfile[]>([])
+  const [badges, setBadges] = useState<BadgeDefinition[]>([])
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(null)
   const [selectedProblemDetail, setSelectedProblemDetail] = useState<ProblemDetail | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<ProblemAnalysisReport | null>(null)
@@ -62,13 +86,15 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     setLoading(true)
     try {
       setError(null)
-      const [pending, repricing, accepterUsers] = await Promise.all([
+      const [pending, repricing, accepterUsers, badgeDefs] = await Promise.all([
         requestJson<Problem[]>('/problems?status=pending_review', { userId }),
         requestJson<Problem[]>('/problems?status=pricing_revision_required', { userId }),
         requestJson<UserProfile[]>('/users/acceptors', { userId }),
+        requestJson<BadgeDefinition[]>('/badges', { userId }),
       ])
       setPendingProblems([...pending, ...repricing])
       setAcceptors(accepterUsers)
+      setBadges(badgeDefs)
       setPricingDraft((prev) => {
         if (prev.accepter_id || accepterUsers.length === 0) return prev
         return { ...prev, accepter_id: String(accepterUsers[0].id) }
@@ -104,7 +130,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
           reward_total: String(detail.priced_reward_total),
           proposer_ratio: String(detail.priced_proposer_ratio ?? 0.3),
           accepter_id: String(detail.priced_accepter_id ?? ''),
-          points: String(detail.priced_points ?? 0),
+          points: String(detail.priced_points ?? pointsRangeByLevel[detail.priced_level as TaskLevel].min),
           badge: detail.priced_badge ?? '',
         })
       }
@@ -151,6 +177,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     const accepterId = Number(pricingDraft.accepter_id)
     const points = Number(pricingDraft.points || '0')
     const range = rewardRangeByLevel[pricingDraft.level]
+    const pointRange = pointsRangeByLevel[pricingDraft.level]
 
     if (!Number.isFinite(reward) || reward < range.min || reward > range.max) {
       setError(`奖励总额需在 ${range.min}-${range.max} 区间`)
@@ -162,6 +189,10 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     }
     if (!Number.isInteger(accepterId) || accepterId <= 0) {
       setError('请选择验收人')
+      return
+    }
+    if (!Number.isInteger(points) || points < pointRange.min || points > pointRange.max) {
+      setError(`积分需在 ${pointRange.min}-${pointRange.max} 区间`)
       return
     }
 
@@ -179,7 +210,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             reward_total: reward,
             proposer_ratio: proposerRatio,
             accepter_id: accepterId,
-            points: Number.isFinite(points) ? points : 0,
+            points,
             badge: pricingDraft.badge.trim() || null,
           },
         },
@@ -218,7 +249,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       <article className="panel">
         <div className="panel-headline">
           <h3>待评审问题（{pendingProblems.length}）</h3>
-          <button type="button" onClick={() => void load()} disabled={loading}>刷新</button>
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            刷新
+          </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
@@ -233,7 +266,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{item.title}</span>
-              <span>{item.status}</span>
+              <span>
+                <StatusBadge tone={problemTone(item.status)}>{item.status}</StatusBadge>
+              </span>
               <span>{item.submitter_name || `#${item.submitter_id}`}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
               <span className="actions">
@@ -276,7 +311,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             <h3>ProdMind 论证参考</h3>
             {selectedAnalysis ? (
               <>
-                <p>建议：{selectedAnalysis.recommendation || '未提供'}
+                <p>
+                  建议：{selectedAnalysis.recommendation || '未提供'}
                   {selectedAnalysis.confidence ? `（置信度 ${Math.round(selectedAnalysis.confidence * 100)}%）` : ''}
                 </p>
                 <label>
@@ -306,6 +342,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                 onChange={(event) => {
                   const level = event.target.value as TaskLevel
                   const range = rewardRangeByLevel[level]
+                  const pointRange = pointsRangeByLevel[level]
                   setPricingDraft((prev) => ({
                     ...prev,
                     level,
@@ -313,6 +350,10 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                       Number(prev.reward_total) < range.min || Number(prev.reward_total) > range.max
                         ? String(range.min)
                         : prev.reward_total,
+                    points:
+                      Number(prev.points) < pointRange.min || Number(prev.points) > pointRange.max
+                        ? String(pointRange.min)
+                        : prev.points,
                   }))
                 }}
               >
@@ -324,30 +365,68 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             </label>
             <label>
               奖励总额
-              <input type="number" value={pricingDraft.reward_total} onChange={(e) => setPricingDraft((p) => ({ ...p, reward_total: e.target.value }))} required />
+              <input
+                type="number"
+                value={pricingDraft.reward_total}
+                onChange={(e) => setPricingDraft((p) => ({ ...p, reward_total: e.target.value }))}
+                required
+              />
             </label>
             <label>
               提交人分成比例（0.2-0.3）
-              <input type="number" min="0.2" max="0.3" step="0.01" value={pricingDraft.proposer_ratio} onChange={(e) => setPricingDraft((p) => ({ ...p, proposer_ratio: e.target.value }))} required />
+              <input
+                type="number"
+                min="0.2"
+                max="0.3"
+                step="0.01"
+                value={pricingDraft.proposer_ratio}
+                onChange={(e) => setPricingDraft((p) => ({ ...p, proposer_ratio: e.target.value }))}
+                required
+              />
             </label>
             <label>
               验收人
-              <select value={pricingDraft.accepter_id} onChange={(e) => setPricingDraft((p) => ({ ...p, accepter_id: e.target.value }))} required>
+              <select
+                value={pricingDraft.accepter_id}
+                onChange={(e) => setPricingDraft((p) => ({ ...p, accepter_id: e.target.value }))}
+                required
+              >
                 <option value="">请选择</option>
                 {acceptors.map((item) => (
-                  <option key={item.id} value={item.id}>#{item.id} {item.name}</option>
+                  <option key={item.id} value={item.id}>
+                    #{item.id} {item.name}
+                  </option>
                 ))}
               </select>
             </label>
             <label>
               积分
-              <input type="number" value={pricingDraft.points} onChange={(e) => setPricingDraft((p) => ({ ...p, points: e.target.value }))} />
+              <input
+                type="number"
+                value={pricingDraft.points}
+                onChange={(e) => setPricingDraft((p) => ({ ...p, points: e.target.value }))}
+              />
+              <small className="muted">
+                当前等级积分区间：{pointsRangeByLevel[pricingDraft.level].min}-{pointsRangeByLevel[pricingDraft.level].max}
+              </small>
             </label>
             <label>
               徽章（可选）
-              <input value={pricingDraft.badge} onChange={(e) => setPricingDraft((p) => ({ ...p, badge: e.target.value }))} />
+              <select
+                value={pricingDraft.badge}
+                onChange={(e) => setPricingDraft((p) => ({ ...p, badge: e.target.value }))}
+              >
+                <option value="">不授予</option>
+                {badges.map((badge) => (
+                  <option key={badge.code} value={badge.code}>
+                    {badge.name} ({badge.code})
+                  </option>
+                ))}
+              </select>
             </label>
-            <button className="primary-btn" type="submit">通过并提交定价</button>
+            <button className="primary-btn" type="submit">
+              通过并提交定价
+            </button>
           </form>
 
           <form className="panel form-grid" onSubmit={submitRequestChanges}>

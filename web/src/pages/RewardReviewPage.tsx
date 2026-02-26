@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Reward, UserProfile } from '../types'
@@ -24,22 +25,20 @@ function buildQuery(filter: RewardFilter, page: number) {
 }
 
 function formatStatus(status: string) {
-  if (status === 'generated') {
-    return '待确认'
-  }
-  if (status === 'confirmed') {
-    return '已确认'
-  }
+  if (status === 'generated') return '待确认'
+  if (status === 'confirmed') return '已确认'
   return status
 }
 
+function rewardTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (status === 'confirmed') return 'success'
+  if (status === 'generated') return 'warn'
+  return 'muted'
+}
+
 function formatRoleType(roleType: string) {
-  if (roleType === 'proposer') {
-    return '问题提交人'
-  }
-  if (roleType === 'executor') {
-    return '揭榜执行人'
-  }
+  if (roleType === 'proposer') return '问题提交人'
+  if (roleType === 'executor') return '揭榜执行人'
   return roleType
 }
 
@@ -82,7 +81,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`奖励 #${reward.id} 已确认`) 
+      setMessage(`奖励 #${reward.id} 已确认`)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '奖励确认失败')
@@ -90,16 +89,12 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
   }
 
   useEffect(() => {
-    if (!message) {
-      return
-    }
+    if (!message) return
     toast.success(message)
   }, [message, toast])
 
   useEffect(() => {
-    if (!error) {
-      return
-    }
+    if (!error) return
     toast.error(error)
   }, [error, toast])
 
@@ -150,7 +145,9 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
               <span>#{item.user_id}</span>
               <span>{formatRoleType(item.role_type)}</span>
               <span>¥{item.amount.toFixed(2)}</span>
-              <span>{formatStatus(item.status)}</span>
+              <span>
+                <StatusBadge tone={rewardTone(item.status)}>{formatStatus(item.status)}</StatusBadge>
+              </span>
               <span>
                 {item.status === 'generated' ? (
                   <button type="button" onClick={() => void confirmReward(item)}>
@@ -164,19 +161,11 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
           ))}
         </div>
         <div className="button-row">
-          <button
-            type="button"
-            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-            disabled={page <= 1 || loading}
-          >
+          <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
             上一页
           </button>
           <span className="muted">第 {page} 页</span>
-          <button
-            type="button"
-            onClick={() => setPage((prev) => prev + 1)}
-            disabled={!hasNext || loading}
-          >
+          <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
             下一页
           </button>
         </div>

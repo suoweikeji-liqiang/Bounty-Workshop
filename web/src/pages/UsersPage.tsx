@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -26,28 +26,16 @@ function normalizeRoles(roles: string[]): RoleName[] {
 }
 
 function roleLabel(role: RoleName) {
-  if (role === 'admin') {
-    return '管理员'
-  }
-  if (role === 'reviewer') {
-    return '评审'
-  }
-  if (role === 'acceptor') {
-    return '验收人'
-  }
-  if (role === 'reward_approver') {
-    return '资金复核'
-  }
+  if (role === 'admin') return '管理员'
+  if (role === 'reviewer') return '评审'
+  if (role === 'acceptor') return '验收人'
+  if (role === 'reward_approver') return '资金复核'
   return '员工'
 }
 
 function statusLabel(status: string) {
-  if (status === 'enabled') {
-    return '启用'
-  }
-  if (status === 'disabled') {
-    return '禁用'
-  }
+  if (status === 'enabled') return '启用'
+  if (status === 'disabled') return '禁用'
   return status
 }
 
@@ -56,6 +44,10 @@ export function UsersPage({ userId }: Props) {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [roleDrafts, setRoleDrafts] = useState<Record<number, RoleName[]>>({})
   const [loading, setLoading] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
+  const [passwordUserId, setPasswordUserId] = useState<number | null>(null)
+  const [passwordDraft, setPasswordDraft] = useState('')
+  const [forceChange, setForceChange] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,6 +101,10 @@ export function UsersPage({ userId }: Props) {
 
   const toggleUserStatus = async (target: UserProfile) => {
     const nextStatus = target.status === 'enabled' ? 'disabled' : 'enabled'
+    const ok = window.confirm(`确认将用户 #${target.id} 设置为${statusLabel(nextStatus)}吗？`)
+    if (!ok) {
+      return
+    }
     try {
       setError(null)
       await requestJson(`/users/${target.id}/status`, {
@@ -120,6 +116,54 @@ export function UsersPage({ userId }: Props) {
       await loadUsers()
     } catch (err) {
       setError(err instanceof Error ? err.message : '状态更新失败')
+    }
+  }
+
+  const openPasswordReset = (targetUserId: number) => {
+    setPasswordUserId(targetUserId)
+    setPasswordDraft('')
+    setForceChange(true)
+  }
+
+  const closePasswordReset = () => {
+    if (savingPassword) {
+      return
+    }
+    setPasswordUserId(null)
+    setPasswordDraft('')
+    setForceChange(true)
+  }
+
+  const submitPasswordReset = async () => {
+    if (!passwordUserId) {
+      return
+    }
+    if (passwordDraft.length < 8) {
+      setError('新密码至少 8 位')
+      return
+    }
+    const ok = window.confirm(`确认重置用户 #${passwordUserId} 的密码吗？`)
+    if (!ok) {
+      return
+    }
+
+    try {
+      setSavingPassword(true)
+      setError(null)
+      await requestJson(`/admin/users/${passwordUserId}/password`, {
+        method: 'POST',
+        userId,
+        body: {
+          new_password: passwordDraft,
+          force_change: forceChange,
+        },
+      })
+      setMessage(`用户 #${passwordUserId} 密码已重置`)
+      closePasswordReset()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '密码重置失败')
+    } finally {
+      setSavingPassword(false)
     }
   }
 
@@ -141,7 +185,7 @@ export function UsersPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>角色分配</h2>
-        <p>用户来源统一为飞书登录/同步，本页仅用于分配角色和启停用账号。</p>
+        <p>用户来源统一为飞书登录+同步，本页用于角色分配、状态管理和密码重置。</p>
       </header>
 
       <article className="panel">
@@ -192,11 +236,49 @@ export function UsersPage({ userId }: Props) {
                 <button type="button" onClick={() => void toggleUserStatus(item)}>
                   {item.status === 'enabled' ? '禁用' : '启用'}
                 </button>
+                <button type="button" onClick={() => openPasswordReset(item.id)}>
+                  重置密码
+                </button>
               </span>
             </div>
           ))}
         </div>
       </article>
+
+      {passwordUserId && (
+        <div className="modal-backdrop" onClick={closePasswordReset}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+            <div className="panel-headline">
+              <h3 id="reset-password-title">重置密码（用户 #{passwordUserId}）</h3>
+              <button type="button" onClick={closePasswordReset} disabled={savingPassword}>
+                关闭
+              </button>
+            </div>
+            <label>
+              新密码（至少 8 位）
+              <input
+                type="password"
+                value={passwordDraft}
+                onChange={(event) => setPasswordDraft(event.target.value)}
+                placeholder="请输入新密码"
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={forceChange}
+                onChange={(event) => setForceChange(event.target.checked)}
+              />
+              下次登录强制修改密码
+            </label>
+            <div className="button-row">
+              <button className="primary-btn" type="button" onClick={() => void submitPasswordReset()} disabled={savingPassword}>
+                {savingPassword ? '提交中...' : '确认重置'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

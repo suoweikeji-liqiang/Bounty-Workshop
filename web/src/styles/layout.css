@@ -144,6 +144,11 @@
   color: var(--brand-primary);
 }
 
+.sidenav a:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
 .sidenav a.active {
   background: var(--gradient-card);
   color: var(--brand-primary);

@@ -1,4 +1,4 @@
-@media (max-width: 1200px) {
+﻿@media (max-width: 1200px) {
   .kpi-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
@@ -14,50 +14,75 @@
   .app-shell {
     padding: 12px;
   }
+
   .content-shell {
     grid-template-columns: 1fr;
     margin-top: 12px;
     gap: 12px;
   }
+
   .sidenav {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow-y: auto;
+    max-height: 42vh;
     position: static;
     padding: 10px;
   }
-  .form-grid {
-    grid-template-columns: 1fr;
+
+  .sidenav-group-title {
+    grid-column: 1 / -1;
   }
+
+  .sidenav a {
+    text-align: center;
+  }
+
+  .form-grid,
   .nested-form {
     grid-template-columns: 1fr;
   }
+
+  .table {
+    overflow-x: auto;
+    display: block;
+  }
+
   .row,
   .row.head,
-  .row.wide-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .row.wide-row,
+  .row.problems-row,
+  .row.personal-row,
+  .row.approval-row,
+  .row.approval-review-row,
+  .row.op-log-row {
+    min-width: 980px;
     font-size: 12px;
     padding: 8px 10px;
   }
+
   .attachment-item {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 760px;
   }
-  .personal-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+
   .personal-head {
     align-items: stretch;
     flex-direction: column;
   }
+
   .page-wrap {
     padding: 16px;
   }
+
   .panel {
     padding: 14px;
   }
+
   .topbar {
     padding: 14px 16px;
   }
+
   .topbar h1 {
     font-size: clamp(18px, 3.5vw, 28px);
   }

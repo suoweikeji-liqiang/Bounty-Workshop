@@ -78,6 +78,8 @@ from app.services_claims import (  # noqa: F401
 from app.services_rewards import (  # noqa: F401
     list_rewards,
     confirm_reward,
+    list_badges,
+    list_user_badges,
     list_knowledge,
     get_knowledge_detail,
 )

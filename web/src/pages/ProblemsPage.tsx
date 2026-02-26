@@ -2,6 +2,7 @@
 import type { FormEvent } from 'react'
 
 import { AttachmentField } from '../components/AttachmentField'
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { Attachment, Problem, ProblemDetail } from '../types'
@@ -88,6 +89,22 @@ function formatAnalysisStatus(status?: string) {
   if (status === 'completed') return '已完成'
   if (status === 'failed') return '失败'
   return status
+}
+
+function analysisTone(status?: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (!status || status === 'pending') return 'muted'
+  if (status === 'analyzing') return 'info'
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'muted'
+}
+
+function problemStatusTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (status === 'approved' || status === 'archived') return 'success'
+  if (status === 'pending_review' || status === 'budget_pending' || status === 'pricing_revision_required') return 'warn'
+  if (status === 'rejected') return 'danger'
+  if (status === 'draft') return 'info'
+  return 'muted'
 }
 
 export function ProblemsPage({ userId }: Props) {
@@ -491,8 +508,14 @@ export function ProblemsPage({ userId }: Props) {
               <span>#{item.id}</span>
               <span>{item.title}</span>
               <span>{item.scenario}</span>
-              <span>{item.status}</span>
-              <span>{formatAnalysisStatus(item.analysis_status)}</span>
+              <span>
+                <StatusBadge tone={problemStatusTone(item.status)}>{item.status}</StatusBadge>
+              </span>
+              <span>
+                <StatusBadge tone={analysisTone(item.analysis_status)}>
+                  {formatAnalysisStatus(item.analysis_status)}
+                </StatusBadge>
+              </span>
               <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
               <span>{new Date(item.created_at).toLocaleDateString()}</span>
               <span className="actions">

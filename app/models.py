@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import Optional
 
+from sqlalchemy import Index, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from app.enums import (
@@ -109,6 +110,16 @@ class Task(SQLModel, table=True):
 
 
 class Claim(SQLModel, table=True):
+    __table_args__ = (
+        Index(
+            "uq_claim_task_lead_active",
+            "task_id",
+            "lead_user_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     task_id: int = Field(foreign_key="task.id", index=True)
     lead_user_id: int = Field(foreign_key="user.id", index=True)
@@ -140,6 +151,7 @@ class Deliverable(SQLModel, table=True):
     summary: str
     evidence_urls: str = Field(default="[]")
     criteria_results_json: str = Field(default="[]")
+    rework_count: int = Field(default=0)
     status: DeliverableStatus = Field(default=DeliverableStatus.SUBMITTED, index=True)
     submitted_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -165,6 +177,19 @@ class Reward(SQLModel, table=True):
     status: RewardStatus = Field(default=RewardStatus.GENERATED, index=True)
     confirmed_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserBadge(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("user_id", "badge_code", name="uq_user_badge"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    badge_code: str = Field(index=True)
+    source_type: str
+    source_id: Optional[int] = None
+    earned_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Knowledge(SQLModel, table=True):

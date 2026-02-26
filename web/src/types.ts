@@ -202,7 +202,23 @@ export type PersonalSummary = {
   user: UserProfile
   stats: PersonalRewardStats
   badges: string[]
+  badge_details: UserBadgeDetail[]
   rewards: Reward[]
+}
+
+export type BadgeDefinition = {
+  code: string
+  name: string
+  category: string
+  description: string
+  icon: string
+  auto_enabled: boolean
+}
+
+export type UserBadgeDetail = BadgeDefinition & {
+  source_type: string
+  source_id: number | null
+  earned_at: string
 }
 
 export type ClaimApprovalThresholdConfig = {

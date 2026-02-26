@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -27,18 +27,10 @@ const pageSize = 20
 
 function buildQuery(filters: FilterState, page: number): string {
   const params = new URLSearchParams()
-  if (filters.keyword.trim()) {
-    params.set('keyword', filters.keyword.trim())
-  }
-  if (filters.scenario) {
-    params.set('scenario', filters.scenario)
-  }
-  if (filters.level) {
-    params.set('level', filters.level)
-  }
-  if (filters.recommended !== 'all') {
-    params.set('recommended', filters.recommended)
-  }
+  if (filters.keyword.trim()) params.set('keyword', filters.keyword.trim())
+  if (filters.scenario) params.set('scenario', filters.scenario)
+  if (filters.level) params.set('level', filters.level)
+  if (filters.recommended !== 'all') params.set('recommended', filters.recommended)
   params.set('offset', String((Math.max(page, 1) - 1) * pageSize))
   params.set('limit', String(pageSize))
   return `?${params.toString()}`
@@ -61,10 +53,7 @@ export function KnowledgePage({ userId }: Props) {
       setLoading(true)
       try {
         setError(null)
-        const data = await requestJson<KnowledgeItem[]>(
-          `/knowledge${buildQuery(nextFilters, nextPage)}`,
-          { userId },
-        )
+        const data = await requestJson<KnowledgeItem[]>(`/knowledge${buildQuery(nextFilters, nextPage)}`, { userId })
         setRows(data)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载知识条目失败')
@@ -76,24 +65,22 @@ export function KnowledgePage({ userId }: Props) {
   )
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load(filters, page)
-    }, 0)
-    return () => window.clearTimeout(timer)
+    void load(filters, page)
   }, [filters, page, load])
 
   useEffect(() => {
-    if (!detailOpen) {
-      return
-    }
+    if (!detailOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setDetailOpen(false)
-      }
+      if (event.key === 'Escape') setDetailOpen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [detailOpen])
+
+  useEffect(() => {
+    if (!error) return
+    toast.error(error)
+  }, [error, toast])
 
   const submitFilters = async (event: FormEvent) => {
     event.preventDefault()
@@ -121,13 +108,6 @@ export function KnowledgePage({ userId }: Props) {
     }
   }
 
-  useEffect(() => {
-    if (!error) {
-      return
-    }
-    toast.error(error)
-  }, [error, toast])
-
   return (
     <section className="page-wrap">
       <header className="page-head">
@@ -138,7 +118,7 @@ export function KnowledgePage({ userId }: Props) {
       <form className="panel form-grid" onSubmit={submitFilters}>
         <h3>筛选条件</h3>
         <label>
-          关键词
+          关键字
           <input
             value={filters.keyword}
             onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
@@ -161,10 +141,7 @@ export function KnowledgePage({ userId }: Props) {
         </label>
         <label>
           等级
-          <select
-            value={filters.level}
-            onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
-          >
+          <select value={filters.level} onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}>
             <option value="">全部</option>
             <option value="S">S</option>
             <option value="A">A</option>
@@ -176,9 +153,7 @@ export function KnowledgePage({ userId }: Props) {
           推荐
           <select
             value={filters.recommended}
-            onChange={(event) =>
-              setFilters((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
-            }
+            onChange={(event) => setFilters((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))}
           >
             <option value="all">全部</option>
             <option value="true">是</option>
@@ -235,12 +210,23 @@ export function KnowledgePage({ userId }: Props) {
               </span>
             </div>
           ))}
+          {rows.length === 0 && !loading && (
+            <div className="row wide-row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>暂无数据</span>
+            </div>
+          )}
         </div>
       </article>
 
       {detailOpen && detail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="知识详情"
+          >
             <div className="panel-headline">
               <h3>知识条目 #{detail.id}</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>

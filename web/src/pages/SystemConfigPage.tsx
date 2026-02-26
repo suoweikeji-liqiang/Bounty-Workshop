@@ -26,6 +26,7 @@ export function SystemConfigPage({ userId }: Props) {
   const [rejectedTemplates, setRejectedTemplates] = useState('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [releasing, setReleasing] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -134,6 +135,27 @@ export function SystemConfigPage({ userId }: Props) {
     }
   }
 
+  const runReleaseOverdueNow = async () => {
+    const ok = window.confirm('确认立即执行一次超期揭榜释放吗？')
+    if (!ok) {
+      return
+    }
+    try {
+      setReleasing(true)
+      setError(null)
+      const result = await requestJson<{ released_claims: number; rule: string }>('/jobs/release-overdue', {
+        method: 'POST',
+        userId,
+      })
+      setMessage(`已执行超期释放，本次处理 ${result.released_claims} 条揭榜`)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '执行超期释放失败')
+    } finally {
+      setReleasing(false)
+    }
+  }
+
   useEffect(() => {
     if (!message) return
     toast.success(message)
@@ -185,6 +207,9 @@ export function SystemConfigPage({ userId }: Props) {
 
         <div className="button-row wide">
           <button type="button" onClick={() => void load()} disabled={loading}>刷新</button>
+          <button type="button" onClick={() => void runReleaseOverdueNow()} disabled={releasing}>
+            {releasing ? '执行中...' : '立即释放超期揭榜'}
+          </button>
           <button className="primary-btn" type="button" onClick={() => void saveAll()} disabled={saving}>
             {saving ? '保存中...' : '保存全部'}
           </button>

@@ -46,6 +46,7 @@ from app.schemas import (
     AcceptanceTemplatesConfig,
     AIModelCreate,
     AIModelRead,
+    BadgeDefinitionRead,
     AIModelUpdate,
     BudgetReviewThresholdConfig,
     ClaimApprovalThresholdConfig,
@@ -66,6 +67,7 @@ from app.services import (
     get_claim_approval_overdue_threshold,
     dashboard_overview,
     get_budget_review_threshold,
+    list_badges,
     list_operation_logs,
     release_overdue_claims,
     set_budget_review_threshold,
@@ -81,6 +83,13 @@ def get_system_version() -> SystemVersionRead:
         backend_version=get_backend_version(),
         backend_git_sha=get_backend_git_sha(),
     )
+
+
+@router.get("/badges", response_model=list[BadgeDefinitionRead])
+def get_badges(
+    _: int = Depends(get_current_user_id),
+) -> list[BadgeDefinitionRead]:
+    return [BadgeDefinitionRead(**item) for item in list_badges()]
 
 
 @router.get("/departments", response_model=list[DepartmentRead])

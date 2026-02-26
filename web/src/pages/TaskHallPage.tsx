@@ -690,9 +690,15 @@ export function TaskHallPage({ userId, profile }: Props) {
 
       {detailOpen && taskDetail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="task-detail-title"
+          >
             <div className="panel-headline">
-              <h3>Task #{taskDetail.id} detail</h3>
+              <h3 id="task-detail-title">Task #{taskDetail.id} detail</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>Close</button>
             </div>
             <p className="line-metric"><span>Title</span><strong>{taskDetail.title}</strong></p>

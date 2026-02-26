@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
+
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { AIModel, AIProvider } from '../types'
@@ -35,9 +36,19 @@ const defaultForm: ModelForm = {
 
 const providerOptions: { value: AIProvider; label: string; defaultUrl: string; defaultModel: string }[] = [
   { value: 'openai', label: 'OpenAI', defaultUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'anthropic', label: 'Anthropic (Claude)', defaultUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-3-sonnet-20240229' },
+  {
+    value: 'anthropic',
+    label: 'Anthropic (Claude)',
+    defaultUrl: 'https://api.anthropic.com/v1',
+    defaultModel: 'claude-3-sonnet-20240229',
+  },
   { value: 'deepseek', label: 'DeepSeek', defaultUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { value: 'siliconflow', label: '硅基流动', defaultUrl: 'https://api.siliconflow.cn/v1', defaultModel: 'Qwen/Qwen2.5-7B-Instruct' },
+  {
+    value: 'siliconflow',
+    label: '硅基流动',
+    defaultUrl: 'https://api.siliconflow.cn/v1',
+    defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
+  },
   { value: 'ollama', label: 'Ollama (本地)', defaultUrl: 'http://localhost:11434', defaultModel: 'llama3' },
   { value: 'custom', label: '自定义 (OpenAI 兼容)', defaultUrl: '', defaultModel: '' },
 ]
@@ -50,6 +61,8 @@ export function AIModelConfigPage({ userId }: Props) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<number | 'form' | null>(null)
+  const [loadingApiKeyId, setLoadingApiKeyId] = useState<number | null>(null)
+  const [revealedApiKeys, setRevealedApiKeys] = useState<Record<number, string>>({})
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -102,13 +115,26 @@ export function AIModelConfigPage({ userId }: Props) {
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个模型配置吗？')) return
+    if (!window.confirm('确定要删除这个模型配置吗？')) return
     try {
       await requestJson(`/ai/models/${id}`, { method: 'DELETE', userId })
       setMessage('模型已删除')
       await loadModels()
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const handleRevealApiKey = async (id: number) => {
+    try {
+      setLoadingApiKeyId(id)
+      setError(null)
+      const payload = await requestJson<{ api_key: string }>(`/ai/models/${id}/api-key`, { userId })
+      setRevealedApiKeys((prev) => ({ ...prev, [id]: payload.api_key }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取 API Key 失败')
+    } finally {
+      setLoadingApiKeyId(null)
     }
   }
 
@@ -138,20 +164,17 @@ export function AIModelConfigPage({ userId }: Props) {
     }
     setTesting('form')
     try {
-      const res = await requestJson<{ ok: boolean; latency_ms: number; error: string | null }>(
-        '/ai/models/test',
-        {
-          method: 'POST',
-          userId,
-          body: {
-            api_base_url: form.api_base_url,
-            api_key: form.api_key,
-            model: form.model,
-            provider: form.provider,
-            timeout: form.timeout,
-          },
+      const res = await requestJson<{ ok: boolean; latency_ms: number; error: string | null }>('/ai/models/test', {
+        method: 'POST',
+        userId,
+        body: {
+          api_base_url: form.api_base_url,
+          api_key: form.api_key,
+          model: form.model,
+          provider: form.provider,
+          timeout: form.timeout,
         },
-      )
+      })
       if (res.ok) {
         toast.success(`连接成功 (${res.latency_ms}ms)`)
       } else {
@@ -254,7 +277,7 @@ export function AIModelConfigPage({ userId }: Props) {
             type="password"
             value={form.api_key}
             onChange={(e) => setForm((p) => ({ ...p, api_key: e.target.value }))}
-            placeholder={editingId ? '(保留为空则不修改)' : '请输入 API Key'}
+            placeholder={editingId ? '(留空表示不修改)' : '请输入 API Key'}
           />
         </label>
         <label>
@@ -321,11 +344,7 @@ export function AIModelConfigPage({ userId }: Props) {
               取消编辑
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => void handleTestForm()}
-            disabled={testing === 'form'}
-          >
+          <button type="button" onClick={() => void handleTestForm()} disabled={testing === 'form'}>
             {testing === 'form' ? '测试中...' : '测试连接'}
           </button>
           <button className="primary-btn" type="submit" disabled={saving}>
@@ -357,15 +376,18 @@ export function AIModelConfigPage({ userId }: Props) {
               <span>{item.name}</span>
               <span>{item.provider}</span>
               <span>{item.model}</span>
-              <span>{item.is_default ? '✓' : '-'}</span>
+              <span>{item.is_default ? '是' : '-'}</span>
               <span>{item.enabled ? '启用' : '禁用'}</span>
               <span className="actions">
+                <button type="button" onClick={() => void handleTestSaved(item.id)} disabled={testing === item.id}>
+                  {testing === item.id ? '测试中...' : '测试'}
+                </button>
                 <button
                   type="button"
-                  onClick={() => void handleTestSaved(item.id)}
-                  disabled={testing === item.id}
+                  onClick={() => void handleRevealApiKey(item.id)}
+                  disabled={loadingApiKeyId === item.id}
                 >
-                  {testing === item.id ? '测试中...' : '测试'}
+                  {loadingApiKeyId === item.id ? '读取中...' : '查看Key'}
                 </button>
                 <button type="button" onClick={() => handleEdit(item)}>
                   编辑
@@ -373,14 +395,17 @@ export function AIModelConfigPage({ userId }: Props) {
                 <button type="button" onClick={() => handleDelete(item.id)}>
                   删除
                 </button>
+                {revealedApiKeys[item.id] && (
+                  <code style={{ maxWidth: 220, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+                    {revealedApiKeys[item.id]}
+                  </code>
+                )}
               </span>
             </div>
           ))}
           {models.length === 0 && !loading && (
             <div className="row wide-row">
-              <span style={{ textAlign: 'center', color: '#888', gridColumn: '1 / -1' }}>
-                暂无配置，请添加模型
-              </span>
+              <span style={{ textAlign: 'center', color: '#888', gridColumn: '1 / -1' }}>暂无配置，请先添加模型</span>
             </div>
           )}
         </div>

@@ -53,6 +53,14 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
   }, [load])
 
   const act = async (id: number, action: 'approve' | 'reject') => {
+    const ok = window.confirm(
+      action === 'approve'
+        ? `确认通过审批请求 #${id} 吗？`
+        : `确认驳回审批请求 #${id} 吗？`,
+    )
+    if (!ok) {
+      return
+    }
     try {
       setError(null)
       const comment = (commentDraft[id] ?? '').trim()
