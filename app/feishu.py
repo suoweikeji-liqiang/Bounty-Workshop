@@ -116,6 +116,20 @@ class HttpFeishuProvider:
     redirect_uri: str | None = None
     provider_name: str = "feishu-http"
 
+    def _get_app_access_token(self) -> str:
+        """获取飞书 app_access_token（内部应用）"""
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+                json={"app_id": self.app_id, "app_secret": self.app_secret},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            token = data.get("app_access_token") or data.get("tenant_access_token")
+            if not token:
+                raise HTTPException(status_code=502, detail="获取飞书 app_access_token 失败")
+            return token
+
     @staticmethod
     def _dig(data: dict, *keys: str):
         for key in keys:
@@ -139,16 +153,17 @@ class HttpFeishuProvider:
         return f"{self.authorize_url}?{urlencode(query)}"
 
     def fetch_profile_by_code(self, code: str) -> dict:
+        app_token = self._get_app_access_token()
         token_payload = {
             "grant_type": "authorization_code",
             "code": code,
-            "client_id": self.app_id,
-            "client_secret": self.app_secret,
         }
-        if self.redirect_uri:
-            token_payload["redirect_uri"] = self.redirect_uri
         with httpx.Client(timeout=10) as client:
-            token_resp = client.post(self.token_url, json=token_payload)
+            token_resp = client.post(
+                self.token_url,
+                json=token_payload,
+                headers={"Authorization": f"Bearer {app_token}"},
+            )
             token_resp.raise_for_status()
             token_data = token_resp.json()
             access_token = self._dig(token_data, "access_token", "user_access_token")
@@ -171,8 +186,9 @@ class HttpFeishuProvider:
         }
 
     def _list_from_endpoint(self, url: str) -> list[dict]:
+        app_token = self._get_app_access_token()
         with httpx.Client(timeout=10) as client:
-            resp = client.get(url, headers={"X-Feishu-App-Id": self.app_id, "X-Feishu-App-Secret": self.app_secret})
+            resp = client.get(url, headers={"Authorization": f"Bearer {app_token}"})
             resp.raise_for_status()
             payload = resp.json()
         if isinstance(payload, list):
