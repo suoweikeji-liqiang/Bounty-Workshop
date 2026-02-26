@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { HypothesisVerification, ProblemAnalysisReport } from '../types'
+import type { HypothesisVerification, Problem, ProblemAnalysisReport } from '../types'
 
 type Props = {
   userId: number
@@ -9,18 +10,52 @@ type Props = {
 
 export function HypothesisVerificationPage({ userId }: Props) {
   const toast = useToast()
+  const [problems, setProblems] = useState<Problem[]>([])
   const [problemId, setProblemId] = useState('')
   const [analysis, setAnalysis] = useState<ProblemAnalysisReport | null>(null)
   const [hypotheses, setHypotheses] = useState<HypothesisVerification[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingProblems, setLoadingProblems] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const selectedProblem = useMemo(
+    () => problems.find((item) => String(item.id) === problemId) ?? null,
+    [problemId, problems],
+  )
+
+  const parseProblemId = useCallback(() => {
+    const id = Number(problemId)
+    return Number.isInteger(id) && id > 0 ? id : null
+  }, [problemId])
+
+  const loadProblemOptions = useCallback(async () => {
+    try {
+      setLoadingProblems(true)
+      setError(null)
+      const rows = await requestJson<Problem[]>('/problems?mine_only=true&limit=200', { userId })
+      setProblems(rows)
+      setProblemId((prev) => {
+        if (prev && rows.some((item) => String(item.id) === prev)) {
+          return prev
+        }
+        return rows.length > 0 ? String(rows[0].id) : ''
+      })
+      if (rows.length === 0) {
+        setAnalysis(null)
+        setHypotheses([])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载问题列表失败')
+    } finally {
+      setLoadingProblems(false)
+    }
+  }, [userId])
+
   const loadAnalysis = useCallback(async () => {
-    if (!problemId.trim()) return
-    const id = Number(problemId.trim())
-    if (!Number.isInteger(id) || id <= 0) {
-      setError('请输入有效的问题 ID')
+    const id = parseProblemId()
+    if (!id) {
+      setError('请先选择问题')
       return
     }
 
@@ -40,13 +75,12 @@ export function HypothesisVerificationPage({ userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [problemId, userId])
+  }, [parseProblemId, userId])
 
   const handleAnalyze = async () => {
-    if (!problemId.trim()) return
-    const id = Number(problemId.trim())
-    if (!Number.isInteger(id) || id <= 0) {
-      setError('请输入有效的问题 ID')
+    const id = parseProblemId()
+    if (!id) {
+      setError('请先选择问题')
       return
     }
 
@@ -66,10 +100,16 @@ export function HypothesisVerificationPage({ userId }: Props) {
     hypothesisId: number,
     status: 'verified' | 'rejected',
     method: string,
-    result: string
+    result: string,
   ) => {
+    const id = parseProblemId()
+    if (!id) {
+      setError('请先选择问题')
+      return
+    }
+
     try {
-      await requestJson(`/problems/${problemId}/hypotheses/${hypothesisId}`, {
+      await requestJson(`/problems/${id}/hypotheses/${hypothesisId}`, {
         method: 'PUT',
         userId,
         body: {
@@ -83,6 +123,10 @@ export function HypothesisVerificationPage({ userId }: Props) {
       toast.error(err instanceof Error ? err.message : '更新失败')
     }
   }
+
+  useEffect(() => {
+    void loadProblemOptions()
+  }, [loadProblemOptions])
 
   useEffect(() => {
     if (error) toast.error(error)
@@ -121,30 +165,44 @@ export function HypothesisVerificationPage({ userId }: Props) {
 
       <form
         className="panel form-grid"
-        onSubmit={(e) => {
-          e.preventDefault()
+        onSubmit={(event) => {
+          event.preventDefault()
           void loadAnalysis()
         }}
       >
         <label>
-          问题 ID
-          <input
-            type="number"
+          选择问题
+          <select
             value={problemId}
-            onChange={(e) => setProblemId(e.target.value)}
-            placeholder="输入问题 ID"
-            min={1}
-          />
+            onChange={(event) => {
+              setProblemId(event.target.value)
+              setAnalysis(null)
+              setHypotheses([])
+            }}
+            required
+          >
+            {problems.length === 0 && <option value="">暂无可选问题</option>}
+            {problems.map((item) => (
+              <option key={item.id} value={item.id}>
+                #{item.id} [{item.status}] {item.title}
+              </option>
+            ))}
+          </select>
         </label>
+        {selectedProblem && (
+          <p className="wide muted">
+            当前问题：#{selectedProblem.id} / 场景 {selectedProblem.scenario} / 论证状态{' '}
+            {selectedProblem.analysis_status ?? 'pending'}
+          </p>
+        )}
         <div className="button-row">
-          <button className="primary-btn" type="submit" disabled={loading || !problemId.trim()}>
+          <button type="button" onClick={() => void loadProblemOptions()} disabled={loadingProblems}>
+            {loadingProblems ? '刷新中...' : '刷新问题'}
+          </button>
+          <button className="primary-btn" type="submit" disabled={loading || !problemId}>
             {loading ? '加载中...' : '加载报告'}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleAnalyze()}
-            disabled={analyzing || !problemId.trim()}
-          >
+          <button type="button" onClick={() => void handleAnalyze()} disabled={analyzing || !problemId}>
             {analyzing ? '论证中...' : '重新论证'}
           </button>
         </div>
@@ -207,20 +265,22 @@ export function HypothesisVerificationPage({ userId }: Props) {
             <h3>假设挑战（Assassin）</h3>
             <div className="analysis-section">
               {analysis.report.assassin.assumptions_challenged?.length > 0 ? (
-                analysis.report.assassin.assumptions_challenged.map((item: { assumption: string; challenge: string }, idx: number) => (
-                  <div key={idx} className="analysis-item">
-                    <p>
-                      <strong>假设：</strong>
-                      {item.assumption}
-                    </p>
-                    <p>
-                      <strong>挑战：</strong>
-                      {item.challenge}
-                    </p>
-                  </div>
-                ))
+                analysis.report.assassin.assumptions_challenged.map(
+                  (item: { assumption: string; challenge: string }, idx: number) => (
+                    <div key={idx} className="analysis-item">
+                      <p>
+                        <strong>假设：</strong>
+                        {item.assumption}
+                      </p>
+                      <p>
+                        <strong>挑战：</strong>
+                        {item.challenge}
+                      </p>
+                    </div>
+                  ),
+                )
               ) : (
-                <p style={{ color: '#888' }}>无</p>
+                <p style={{ color: '#888' }}>暂无</p>
               )}
             </div>
           </article>
@@ -230,10 +290,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
             {hypotheses.map((hyp) => (
               <div key={hyp.id} className="hypothesis-card">
                 <div className="hypothesis-header">
-                  <span
-                    className="risk-badge"
-                    style={{ backgroundColor: getRiskColor(hyp.risk_level) }}
-                  >
+                  <span className="risk-badge" style={{ backgroundColor: getRiskColor(hyp.risk_level) }}>
                     {hyp.risk_level}
                   </span>
                   <span className="type-badge">{hyp.hypothesis_type}</span>
