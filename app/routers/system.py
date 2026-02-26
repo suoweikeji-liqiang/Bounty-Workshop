@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
@@ -12,6 +13,7 @@ from app.ai_models import (
     delete_ai_model,
     get_ai_model,
     list_ai_models,
+    test_ai_model_connection,
     update_ai_model,
 )
 from app.auth import get_current_user_id, require_roles
@@ -434,3 +436,47 @@ def get_ai_model_api_key(
     if not m.api_key_encrypted:
         raise HTTPException(status_code=404, detail="No API key configured")
     return {"api_key": decrypt_api_key(m.api_key_encrypted)}
+
+
+@router.post(
+    "/ai/models/{model_id}/test",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def post_test_saved_model(
+    model_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    m = get_ai_model(session, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not m.api_key_encrypted:
+        raise HTTPException(status_code=400, detail="No API key configured")
+    return test_ai_model_connection(
+        api_base_url=m.api_base_url,
+        api_key=decrypt_api_key(m.api_key_encrypted),
+        model=m.model,
+        provider=m.provider.value if hasattr(m.provider, "value") else m.provider,
+        timeout=min(m.timeout, 30),
+    )
+
+
+class _TestModelPayload(BaseModel):
+    api_base_url: str
+    api_key: str
+    model: str
+    provider: str = "openai"
+    timeout: int = 15
+
+
+@router.post(
+    "/ai/models/test",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def post_test_model_config(payload: _TestModelPayload) -> dict:
+    return test_ai_model_connection(
+        api_base_url=payload.api_base_url,
+        api_key=payload.api_key,
+        model=payload.model,
+        provider=payload.provider,
+        timeout=min(payload.timeout, 30),
+    )

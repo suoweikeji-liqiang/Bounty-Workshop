@@ -49,6 +49,7 @@ export function AIModelConfigPage({ userId }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState<number | 'form' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -108,6 +109,58 @@ export function AIModelConfigPage({ userId }: Props) {
       await loadModels()
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const handleTestSaved = async (id: number) => {
+    setTesting(id)
+    try {
+      const res = await requestJson<{ ok: boolean; latency_ms: number; error: string | null }>(
+        `/ai/models/${id}/test`,
+        { method: 'POST', userId },
+      )
+      if (res.ok) {
+        toast.success(`连接成功 (${res.latency_ms}ms)`)
+      } else {
+        toast.error(`连接失败: ${res.error}`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '测试失败')
+    } finally {
+      setTesting(null)
+    }
+  }
+
+  const handleTestForm = async () => {
+    if (!form.api_base_url.trim() || !form.api_key.trim() || !form.model.trim()) {
+      toast.error('请先填写 API 地址、API Key 和模型名称')
+      return
+    }
+    setTesting('form')
+    try {
+      const res = await requestJson<{ ok: boolean; latency_ms: number; error: string | null }>(
+        '/ai/models/test',
+        {
+          method: 'POST',
+          userId,
+          body: {
+            api_base_url: form.api_base_url,
+            api_key: form.api_key,
+            model: form.model,
+            provider: form.provider,
+            timeout: form.timeout,
+          },
+        },
+      )
+      if (res.ok) {
+        toast.success(`连接成功 (${res.latency_ms}ms)`)
+      } else {
+        toast.error(`连接失败: ${res.error}`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '测试失败')
+    } finally {
+      setTesting(null)
     }
   }
 
@@ -268,6 +321,13 @@ export function AIModelConfigPage({ userId }: Props) {
               取消编辑
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void handleTestForm()}
+            disabled={testing === 'form'}
+          >
+            {testing === 'form' ? '测试中...' : '测试连接'}
+          </button>
           <button className="primary-btn" type="submit" disabled={saving}>
             {saving ? '保存中...' : editingId ? '更新模型' : '创建模型'}
           </button>
@@ -300,6 +360,13 @@ export function AIModelConfigPage({ userId }: Props) {
               <span>{item.is_default ? '✓' : '-'}</span>
               <span>{item.enabled ? '启用' : '禁用'}</span>
               <span className="actions">
+                <button
+                  type="button"
+                  onClick={() => void handleTestSaved(item.id)}
+                  disabled={testing === item.id}
+                >
+                  {testing === item.id ? '测试中...' : '测试'}
+                </button>
                 <button type="button" onClick={() => handleEdit(item)}>
                   编辑
                 </button>

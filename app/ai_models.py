@@ -122,3 +122,53 @@ def delete_ai_model(session: Session, model_id: int) -> None:
         raise ValueError(f"Model {model_id} not found")
     session.delete(model)
     session.commit()
+
+
+def test_ai_model_connection(
+    api_base_url: str,
+    api_key: str,
+    model: str,
+    provider: str,
+    timeout: int = 15,
+) -> dict:
+    """向 AI 模型发送一条简单请求，验证连通性"""
+    import httpx
+    import time
+
+    headers = {"Content-Type": "application/json"}
+    url = api_base_url.rstrip("/")
+
+    if provider == "anthropic":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+        payload = {
+            "model": model,
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "Hi"}],
+        }
+        url = f"{url}/messages"
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+        payload = {
+            "model": model,
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "Hi"}],
+        }
+        url = f"{url}/chat/completions"
+
+    start = time.time()
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, json=payload, headers=headers)
+        latency_ms = int((time.time() - start) * 1000)
+
+        if resp.status_code >= 400:
+            body = resp.text[:500]
+            return {"ok": False, "latency_ms": latency_ms, "error": f"HTTP {resp.status_code}: {body}"}
+
+        return {"ok": True, "latency_ms": latency_ms, "error": None}
+    except httpx.TimeoutException:
+        return {"ok": False, "latency_ms": timeout * 1000, "error": "请求超时"}
+    except Exception as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        return {"ok": False, "latency_ms": latency_ms, "error": str(exc)}
