@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.cnblogs.com)",
+      "Bash(git stash:*)",
+      "Bash(npm run build:*)",
+      "Bash(git status:*)",
+      "Bash(wc:*)"
+    ]
+  }
+}

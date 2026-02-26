@@ -1,0 +1,55 @@
+Traceback (most recent call last):
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: no such column: problem.analysis_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\work\Bounty-Workshop-remote\test_db.py", line 8, in <module>
+    res = list_problems(session, user_id=1, status=ProblemStatus.PENDING_REVIEW)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\app\services_problems.py", line 205, in list_problems
+    problems = session.exec(
+               ^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlmodel\orm\session.py", line 81, in exec
+    results = super().execute(
+              ^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "D:\work\Bounty-Workshop-remote\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: problem.analysis_id
+[SQL: SELECT problem.id, problem.title, problem.scenario, problem.background, problem.frequency, problem.impact_scope, problem.description, problem.value_reduce_effort, problem.value_reduce_cost, problem.value_improve_quality, problem.value_statement, problem.current_solution, problem.attachment_urls, problem.submitter_id, problem.status, problem.reject_reason, problem.merged_problem_id, problem.created_at, problem.analysis_id, problem.analysis_status 
+FROM problem 
+WHERE problem.status = ? ORDER BY problem.created_at DESC
+ LIMIT ? OFFSET ?]
+[parameters: ('PENDING_REVIEW', 200, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

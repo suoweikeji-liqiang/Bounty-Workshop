@@ -81,6 +81,8 @@ app = FastAPI(title="揭榜挂帅任务管理系统 MVP", version="0.1.0", lifes
 async def log_requests(request: Request, call_next):
     try:
         print(f"[REQ] {request.method} {request.url}")
+        if request.method == "OPTIONS":
+            return await call_next(request)
         response = await call_next(request)
         print(f"[RESP] {response.status_code}")
         return response
@@ -93,10 +95,11 @@ cors_origins = [
     item.strip()
     for item in os.getenv(
         "CORS_ALLOW_ORIGINS",
-        "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173",
+        "*",
     ).split(",")
     if item.strip()
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
