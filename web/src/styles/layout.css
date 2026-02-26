@@ -64,6 +64,13 @@
   font-size: 12px;
 }
 
+.topbar-controls .version-line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 .topbar-controls button {
   padding: 8px 16px;
   font-size: 13px;

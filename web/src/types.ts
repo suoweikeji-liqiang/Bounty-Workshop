@@ -225,6 +225,11 @@ export type BudgetReviewThresholdConfig = {
   threshold: number
 }
 
+export type SystemVersion = {
+  backend_version: string
+  backend_git_sha: string
+}
+
 export type ClaimExecution = {
   claim_id: number
   claim_status: string

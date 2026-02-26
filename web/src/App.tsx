@@ -1,6 +1,7 @@
-import type { ReactElement } from 'react'
+﻿import { useEffect, useState, type ReactElement } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
+import { requestJson } from './lib/http'
 import { AIModelConfigPage } from './pages/AIModelConfigPage'
 import { AttachmentsPage } from './pages/AttachmentsPage'
 import { BudgetReviewPage } from './pages/BudgetReviewPage'
@@ -19,7 +20,7 @@ import { SystemConfigPage } from './pages/SystemConfigPage'
 import { SystemGuidePage } from './pages/SystemGuidePage'
 import { TaskHallPage } from './pages/TaskHallPage'
 import { UsersPage } from './pages/UsersPage'
-import type { UserProfile } from './types'
+import type { SystemVersion, UserProfile } from './types'
 
 type Props = {
   userId: number
@@ -41,6 +42,13 @@ function hasAnyRole(profile: UserProfile | null, allowedRoles: string[]) {
   return profile.roles.some((role) => allowedRoles.includes(role))
 }
 
+function formatShortSha(sha: string) {
+  if (!sha || sha === 'unknown') {
+    return 'unknown'
+  }
+  return sha.slice(0, 7)
+}
+
 function Guard({ profile, roles, children }: GuardProps) {
   if (hasAnyRole(profile, roles)) {
     return children
@@ -55,7 +63,7 @@ function Guard({ profile, roles, children }: GuardProps) {
   )
 }
 
-function TopBar({ onLogout }: Pick<Props, 'onLogout'>) {
+function TopBar({ onLogout, versionText }: Pick<Props, 'onLogout'> & { versionText: string }) {
   return (
     <header className="topbar">
       <div>
@@ -63,6 +71,7 @@ function TopBar({ onLogout }: Pick<Props, 'onLogout'>) {
         <h1>任务协作控制台</h1>
       </div>
       <div className="topbar-controls">
+        <p className="version-line">{versionText}</p>
         <button type="button" onClick={onLogout}>
           退出登录
         </button>
@@ -77,10 +86,32 @@ export default function App(props: Props) {
   const canReviewOrAdmin = hasAnyRole(profile, ['admin', 'reviewer'])
   const canBudgetReview = hasAnyRole(profile, ['admin', 'reward_approver'])
   const canAcceptOrAdmin = hasAnyRole(profile, ['admin', 'acceptor'])
+  const [backendVersion, setBackendVersion] = useState<string>('unknown')
+  const [backendSha, setBackendSha] = useState<string>('unknown')
+
+  useEffect(() => {
+    let active = true
+    requestJson<SystemVersion>('/system/version', {})
+      .then((data) => {
+        if (!active) return
+        setBackendVersion(data.backend_version || 'unknown')
+        setBackendSha(data.backend_git_sha || 'unknown')
+      })
+      .catch(() => {
+        if (!active) return
+        setBackendVersion('unreachable')
+        setBackendSha('unknown')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const versionText = `FE ${__APP_VERSION__} (${formatShortSha(__APP_GIT_SHA__)}) | BE ${backendVersion} (${formatShortSha(backendSha)})`
 
   return (
     <div className="app-shell">
-      <TopBar onLogout={props.onLogout} />
+      <TopBar onLogout={props.onLogout} versionText={versionText} />
       <div className="content-shell">
         <aside className="sidenav">
           <p className="sidenav-group-title">业务操作</p>
@@ -126,10 +157,7 @@ export default function App(props: Props) {
               }
             />
             <Route path="/tasks" element={<TaskHallPage userId={userId} profile={profile} />} />
-            <Route
-              path="/claim-approvals"
-              element={<ClaimApprovalPage userId={userId} profile={profile} />}
-            />
+            <Route path="/claim-approvals" element={<ClaimApprovalPage userId={userId} profile={profile} />} />
             <Route
               path="/budget-review"
               element={

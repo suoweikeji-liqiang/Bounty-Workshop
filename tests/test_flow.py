@@ -42,6 +42,20 @@ def _bearer_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_system_version_endpoint(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    resp = client.get("/system/version")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert isinstance(payload["backend_version"], str)
+    assert payload["backend_version"]
+    assert isinstance(payload["backend_git_sha"], str)
+    assert payload["backend_git_sha"]
+
+    app.dependency_overrides.clear()
+
+
 def test_auth_login_and_bearer_access(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 

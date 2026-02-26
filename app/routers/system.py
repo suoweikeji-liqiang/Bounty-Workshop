@@ -57,9 +57,11 @@ from app.schemas import (
     OperationLogRead,
     SyncFrequencyConfig,
     SystemConfigOverviewRead,
+    SystemVersionRead,
     TimeRange,
     TrendGranularity,
 )
+from app.versioning import get_backend_git_sha, get_backend_version
 from app.services import (
     get_claim_approval_overdue_threshold,
     dashboard_overview,
@@ -71,6 +73,14 @@ from app.services import (
 )
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/system/version", response_model=SystemVersionRead)
+def get_system_version() -> SystemVersionRead:
+    return SystemVersionRead(
+        backend_version=get_backend_version(),
+        backend_git_sha=get_backend_git_sha(),
+    )
 
 
 @router.get("/departments", response_model=list[DepartmentRead])

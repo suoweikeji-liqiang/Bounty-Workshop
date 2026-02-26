@@ -490,6 +490,11 @@ class SystemConfigOverviewRead(BaseModel):
     acceptance_templates: "AcceptanceTemplatesConfig"
 
 
+class SystemVersionRead(BaseModel):
+    backend_version: str
+    backend_git_sha: str
+
+
 class AcceptanceTemplatesConfig(BaseModel):
     approved: list[str] = Field(min_length=1)
     rework: list[str] = Field(min_length=1)
