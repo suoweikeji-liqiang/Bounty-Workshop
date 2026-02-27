@@ -8,6 +8,41 @@ type Props = {
   userId: number
 }
 
+function normalizeEnumToken(name: string) {
+  const text = (name || '').trim()
+  if (!text) return ''
+  const parts = text.split('.')
+  return parts[parts.length - 1].toLowerCase()
+}
+
+function formatScenarioName(name: string) {
+  const token = normalizeEnumToken(name)
+  const map: Record<string, string> = {
+    rd: '研发',
+    ops: '运维',
+    delivery: '交付',
+    support: '支持',
+    other: '其他',
+  }
+  return map[token] ?? name
+}
+
+function formatLevelName(name: string) {
+  const token = normalizeEnumToken(name).toUpperCase()
+  if (['S', 'A', 'B', 'C'].includes(token)) {
+    return token
+  }
+  return name
+}
+
+function formatDepartmentName(name: string) {
+  const token = normalizeEnumToken(name)
+  if (!token || ['unknown', 'none', 'null', 'undefined'].includes(token)) {
+    return '未分配'
+  }
+  return name
+}
+
 function RankingList({ title, items }: { title: string; items: RankingItem[] }) {
   return (
     <article className="panel">
@@ -144,7 +179,7 @@ export function DashboardPage({ userId }: Props) {
           <h3>场景分布</h3>
           {(distribution?.scenario_distribution ?? []).map((item) => (
             <p key={item.name} className="line-metric">
-              <span>{item.name}</span>
+              <span>{formatScenarioName(item.name)}</span>
               <strong>{item.count}</strong>
             </p>
           ))}
@@ -153,7 +188,7 @@ export function DashboardPage({ userId }: Props) {
           <h3>等级分布</h3>
           {(distribution?.level_distribution ?? []).map((item) => (
             <p key={item.name} className="line-metric">
-              <span>{item.name}</span>
+              <span>{formatLevelName(item.name)}</span>
               <strong>{item.count}</strong>
             </p>
           ))}
@@ -162,7 +197,7 @@ export function DashboardPage({ userId }: Props) {
           <h3>部门分布</h3>
           {(distribution?.department_distribution ?? []).map((item) => (
             <p key={item.name} className="line-metric">
-              <span>{item.name}</span>
+              <span>{formatDepartmentName(item.name)}</span>
               <strong>{item.count}</strong>
             </p>
           ))}

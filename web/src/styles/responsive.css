@@ -1,4 +1,4 @@
-﻿@media (max-width: 1200px) {
+@media (max-width: 1200px) {
   .kpi-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
@@ -52,6 +52,7 @@
   .row,
   .row.head,
   .row.wide-row,
+  .row.users-row,
   .row.problems-row,
   .row.personal-row,
   .row.approval-row,
@@ -102,5 +103,13 @@
     left: 0;
     right: auto;
     width: 100%;
+  }
+
+  .users-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .users-toolbar-actions {
+    justify-content: flex-start;
   }
 }

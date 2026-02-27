@@ -1,5 +1,6 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type { UserProfile } from '../types'
@@ -9,6 +10,8 @@ type Props = {
 }
 
 type RoleName = 'admin' | 'reviewer' | 'reward_approver' | 'acceptor' | 'employee'
+type UserStatusFilter = 'all' | 'enabled' | 'disabled'
+type RoleFilter = 'all' | RoleName
 
 const allRoles: RoleName[] = ['admin', 'reviewer', 'reward_approver', 'acceptor', 'employee']
 
@@ -39,10 +42,19 @@ function statusLabel(status: string) {
   return status
 }
 
+function statusTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
+  if (status === 'enabled') return 'success'
+  if (status === 'disabled') return 'danger'
+  return 'muted'
+}
+
 export function UsersPage({ userId }: Props) {
   const toast = useToast()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [roleDrafts, setRoleDrafts] = useState<Record<number, RoleName[]>>({})
+  const [keyword, setKeyword] = useState('')
+  const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [loading, setLoading] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
   const [passwordUserId, setPasswordUserId] = useState<number | null>(null)
@@ -52,6 +64,30 @@ export function UsersPage({ userId }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const userCount = useMemo(() => users.length, [users])
+  const filteredUsers = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase()
+
+    return users.filter((item) => {
+      if (statusFilter !== 'all' && item.status !== statusFilter) {
+        return false
+      }
+      if (roleFilter !== 'all' && !normalizeRoles(item.roles).includes(roleFilter)) {
+        return false
+      }
+      if (!normalizedKeyword) {
+        return true
+      }
+
+      const rowText = [String(item.id), item.name, item.employee_no ?? '', item.department ?? '', item.email ?? '']
+        .join(' ')
+        .toLowerCase()
+
+      return rowText.includes(normalizedKeyword)
+    })
+  }, [keyword, roleFilter, statusFilter, users])
+
+  const filteredCount = useMemo(() => filteredUsers.length, [filteredUsers])
+  const hasActiveFilters = keyword.trim().length > 0 || statusFilter !== 'all' || roleFilter !== 'all'
 
   const loadUsers = useCallback(async () => {
     setLoading(true)
@@ -181,6 +217,12 @@ export function UsersPage({ userId }: Props) {
     toast.error(error)
   }, [error, toast])
 
+  const resetFilters = () => {
+    setKeyword('')
+    setStatusFilter('all')
+    setRoleFilter('all')
+  }
+
   return (
     <section className="page-wrap">
       <header className="page-head">
@@ -189,31 +231,80 @@ export function UsersPage({ userId }: Props) {
       </header>
 
       <article className="panel">
+        <div className="users-toolbar">
+          <label className="users-toolbar-search">
+            关键词搜索
+            <input
+              type="search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="搜索 ID / 姓名 / 工号 / 部门 / 邮箱"
+            />
+          </label>
+          <label>
+            状态
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
+            >
+              <option value="all">全部</option>
+              <option value="enabled">启用</option>
+              <option value="disabled">禁用</option>
+            </select>
+          </label>
+          <label>
+            角色
+            <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
+              <option value="all">全部</option>
+              {allRoles.map((role) => (
+                <option key={`filter-role-${role}`} value={role}>
+                  {roleLabel(role)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="users-toolbar-actions">
+            <button type="button" onClick={resetFilters} disabled={!hasActiveFilters}>
+              重置筛选
+            </button>
+          </div>
+        </div>
+
         <div className="panel-headline">
-          <h3>用户列表（{userCount}）</h3>
+          <h3>
+            用户列表（{filteredCount} / {userCount}）
+          </h3>
           <button type="button" onClick={() => void loadUsers()} disabled={loading}>
             刷新
           </button>
         </div>
+
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head users-row">
             <span>ID</span>
-            <span>姓名</span>
+            <span>用户</span>
             <span>部门</span>
             <span>状态</span>
             <span>角色</span>
             <span>操作</span>
           </div>
-          {users.map((item) => (
-            <div className="row wide-row" key={item.id}>
+          {filteredUsers.map((item) => (
+            <div className="row users-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>{item.name}</span>
-              <span>{item.department ?? '-'}</span>
-              <span>{statusLabel(item.status)}</span>
+              <span className="users-name-cell">
+                <strong>{item.name}</strong>
+                <small>
+                  {item.employee_no ? `工号 ${item.employee_no}` : '无工号'} / {item.email ?? '无邮箱'}
+                </small>
+              </span>
+              <span className="users-department-cell">{item.department ?? '未分配'}</span>
               <span>
-                <div className="actions">
+                <StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge>
+              </span>
+              <span>
+                <div className="users-role-grid">
                   {allRoles.map((role) => (
-                    <label key={`row-${item.id}-${role}`}>
+                    <label className="users-role-item" key={`row-${item.id}-${role}`}>
                       <input
                         type="checkbox"
                         checked={(roleDrafts[item.id] ?? normalizeRoles(item.roles)).includes(role)}
@@ -229,7 +320,7 @@ export function UsersPage({ userId }: Props) {
                   ))}
                 </div>
               </span>
-              <span className="actions">
+              <span className="users-action-group">
                 <button type="button" onClick={() => void saveRoles(item.id)}>
                   保存角色
                 </button>
@@ -242,6 +333,20 @@ export function UsersPage({ userId }: Props) {
               </span>
             </div>
           ))}
+          {filteredUsers.length === 0 && (
+            <div className="row users-row users-empty-row">
+              <span>-</span>
+              <span className="muted">当前筛选条件下没有匹配用户</span>
+              <span>-</span>
+              <span>-</span>
+              <span>-</span>
+              <span>
+                <button type="button" onClick={resetFilters} disabled={!hasActiveFilters}>
+                  清空筛选
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       </article>
 

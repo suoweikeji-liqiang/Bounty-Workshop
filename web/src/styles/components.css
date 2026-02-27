@@ -353,6 +353,104 @@ button:disabled {
   grid-template-columns: 90px 1.2fr 1fr 1fr 1fr 220px;
 }
 
+.users-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) repeat(2, minmax(160px, 1fr)) auto;
+  gap: 12px 14px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.users-toolbar label {
+  margin: 0;
+}
+
+.users-toolbar-search {
+  min-width: 0;
+}
+
+.users-toolbar-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: end;
+  gap: 8px;
+}
+
+.row.users-row {
+  grid-template-columns: 80px 1.8fr 1fr 120px 1.4fr 230px;
+  align-items: start;
+}
+
+.row.head.users-row {
+  align-items: center;
+}
+
+.users-name-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.users-name-cell strong {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.users-name-cell small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.users-department-cell {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.users-role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 6px 10px;
+}
+
+.users-role-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.users-role-item input {
+  width: auto;
+  min-width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.users-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.users-action-group button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.users-empty-row {
+  align-items: center;
+}
+
 .row.problems-row {
   grid-template-columns: 80px 1.2fr 80px 110px 100px 1fr 120px 220px;
 }
