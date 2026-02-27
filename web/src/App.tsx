@@ -50,6 +50,15 @@ function formatShortSha(sha: string) {
   return sha.slice(0, 7)
 }
 
+function formatVersionLabel(kind: 'FE' | 'BE', version: string, sha: string) {
+  const safeVersion = !version || version === 'unknown' ? 'dev' : version
+  const shortSha = formatShortSha(sha)
+  if (shortSha === 'unknown') {
+    return `${kind} v${safeVersion}`
+  }
+  return `${kind} v${safeVersion} (${shortSha})`
+}
+
 function Guard({ profile, roles, children }: GuardProps) {
   if (hasAnyRole(profile, roles)) {
     return children
@@ -64,7 +73,12 @@ function Guard({ profile, roles, children }: GuardProps) {
   )
 }
 
-function TopBar({ onLogout, versionText }: Pick<Props, 'onLogout'> & { versionText: string }) {
+function TopBar({
+  onLogout,
+  profile,
+  versionText,
+}: Pick<Props, 'onLogout' | 'profile'> & { versionText: string }) {
+  const userName = profile?.name || '当前用户'
   return (
     <header className="topbar">
       <div>
@@ -73,9 +87,19 @@ function TopBar({ onLogout, versionText }: Pick<Props, 'onLogout'> & { versionTe
       </div>
       <div className="topbar-controls">
         <p className="version-line">{versionText}</p>
-        <button type="button" onClick={onLogout}>
-          退出登录
-        </button>
+        <details className="account-menu">
+          <summary>
+            <span className="account-menu-name">{userName}</span>
+            <span className="account-menu-entry">个人中心</span>
+          </summary>
+          <div className="account-menu-panel">
+            <NavLink to="/personal">进入个人中心</NavLink>
+            {profile?.has_password && <NavLink to="/change-password">修改密码</NavLink>}
+            <button type="button" onClick={onLogout}>
+              退出登录
+            </button>
+          </div>
+        </details>
       </div>
     </header>
   )
@@ -108,11 +132,11 @@ export default function App(props: Props) {
     }
   }, [])
 
-  const versionText = `FE ${__APP_VERSION__} (${formatShortSha(__APP_GIT_SHA__)}) | BE ${backendVersion} (${formatShortSha(backendSha)})`
+  const versionText = `${formatVersionLabel('FE', __APP_VERSION__, __APP_GIT_SHA__)} | ${formatVersionLabel('BE', backendVersion, backendSha)}`
 
   return (
     <div className="app-shell">
-      <TopBar onLogout={props.onLogout} versionText={versionText} />
+      <TopBar onLogout={props.onLogout} profile={profile} versionText={versionText} />
       <div className="content-shell">
         <aside className="sidenav">
           <p className="sidenav-group-title">业务操作</p>
@@ -128,10 +152,6 @@ export default function App(props: Props) {
           {canReviewOrAdmin && <NavLink to="/reward-review">奖励复核</NavLink>}
           {canReviewOrAdmin && <NavLink to="/hypothesis">假设验证（审核）</NavLink>}
           <NavLink to="/knowledge">知识库</NavLink>
-
-          <p className="sidenav-group-title">个人操作</p>
-          <NavLink to="/personal">个人中心</NavLink>
-          {profile?.has_password && <NavLink to="/change-password">修改密码</NavLink>}
 
           <p className="sidenav-group-title">设置操作</p>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}

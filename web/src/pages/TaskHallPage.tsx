@@ -6,7 +6,6 @@ import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
   Attachment,
-  ClaimApprovalThresholdConfig,
   ClaimExecution,
   ClaimExecutionDetail,
   Task,
@@ -37,24 +36,6 @@ type CriteriaDraft = {
   key: string
   label: string
   value: string
-}
-
-const claimStorageKey = 'bw_claim_records'
-
-function saveClaimRecord(taskId: number, claimId: number) {
-  const raw = localStorage.getItem(claimStorageKey)
-  const map = raw ? (JSON.parse(raw) as Record<string, number>) : {}
-  map[String(taskId)] = claimId
-  localStorage.setItem(claimStorageKey, JSON.stringify(map))
-}
-
-function getClaimByTask(taskId: number): number | null {
-  const raw = localStorage.getItem(claimStorageKey)
-  if (!raw) {
-    return null
-  }
-  const map = JSON.parse(raw) as Record<string, number>
-  return map[String(taskId)] ?? null
 }
 
 function buildDefaultMembers(userId: number): TeamMemberDraft[] {
@@ -123,7 +104,7 @@ export function TaskHallPage({ userId, profile }: Props) {
   const [claimMode, setClaimMode] = useState<ClaimMode>('individual')
   const [leadUserId, setLeadUserId] = useState(String(userId))
   const [members, setMembers] = useState<TeamMemberDraft[]>(buildDefaultMembers(userId))
-  const [claimId, setClaimId] = useState('')
+  const [deliverableClaimId, setDeliverableClaimId] = useState('')
   const [summary, setSummary] = useState('')
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
   const [criteriaDrafts, setCriteriaDrafts] = useState<CriteriaDraft[]>([
@@ -132,20 +113,18 @@ export function TaskHallPage({ userId, profile }: Props) {
   const [loadingClaimCriteria, setLoadingClaimCriteria] = useState(false)
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [deliverableOpen, setDeliverableOpen] = useState(false)
+  const [activeDeliverableClaim, setActiveDeliverableClaim] = useState<ClaimExecution | null>(null)
   const [filters, setFilters] = useState<TaskFilters>({
     level: '',
     scenario: '',
     rewardMin: '',
     rewardMax: '',
   })
-  const [policyThreshold, setPolicyThreshold] = useState<number | null>(null)
-  const [policyDraft, setPolicyDraft] = useState('')
-  const [savingPolicy, setSavingPolicy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canApproveForOthers = useMemo(() => hasAnyRole(profile, ['admin', 'reviewer']), [profile])
-  const canEditPolicy = useMemo(() => hasAnyRole(profile, ['admin']), [profile])
 
   const handleUploadedAttachmentsChange = (next: Attachment[]) => {
     setUploadedAttachments(next)
@@ -210,26 +189,6 @@ export function TaskHallPage({ userId, profile }: Props) {
     }
   }, [filters.level, filters.rewardMax, filters.rewardMin, filters.scenario, userId])
 
-  const loadPolicyThreshold = useCallback(async () => {
-    if (!canApproveForOthers) {
-      setPolicyThreshold(null)
-      setPolicyDraft('')
-      return
-    }
-    try {
-      const payload = await requestJson<ClaimApprovalThresholdConfig>(
-        '/system/config/claim-approval-overdue-threshold',
-        { userId },
-      )
-      setPolicyThreshold(payload.threshold)
-      setPolicyDraft(String(payload.threshold))
-    } catch (err) {
-      setPolicyThreshold(null)
-      setPolicyDraft('')
-      setError(err instanceof Error ? err.message : '加载审批阈值失败')
-    }
-  }, [canApproveForOthers, userId])
-
   const loadClaimCriteria = useCallback(
     async (targetClaimId: string) => {
       const parsed = Number(targetClaimId)
@@ -253,10 +212,9 @@ export function TaskHallPage({ userId, profile }: Props) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load()
-      void loadPolicyThreshold()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [load, loadPolicyThreshold])
+  }, [load])
 
   useEffect(() => {
     setLeadUserId(String(userId))
@@ -264,35 +222,29 @@ export function TaskHallPage({ userId, profile }: Props) {
   }, [userId])
 
   useEffect(() => {
-    if (deliverableClaimOptions.length === 0) {
-      setClaimId('')
-      setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
+    if (!deliverableOpen) {
       return
     }
-    if (!deliverableClaimOptions.some((item) => String(item.claim_id) === claimId)) {
-      setClaimId(String(deliverableClaimOptions[0].claim_id))
-    }
-  }, [claimId, deliverableClaimOptions])
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadClaimCriteria(claimId)
+      void loadClaimCriteria(deliverableClaimId)
     }, 200)
     return () => window.clearTimeout(timer)
-  }, [claimId, loadClaimCriteria])
+  }, [deliverableClaimId, deliverableOpen, loadClaimCriteria])
 
   useEffect(() => {
-    if (!detailOpen) {
+    if (!detailOpen && !deliverableOpen) {
       return
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDetailOpen(false)
+        setDeliverableOpen(false)
+        setActiveDeliverableClaim(null)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [detailOpen])
+  }, [deliverableOpen, detailOpen])
 
   const addMemberRow = () => {
     setMembers((prev) => [...prev, { user_id: '', ratio: '' }])
@@ -325,8 +277,6 @@ export function TaskHallPage({ userId, profile }: Props) {
           userId,
           body,
         })
-        saveClaimRecord(taskId, res.claim_id)
-        setClaimId(String(res.claim_id))
         setMessage(`揭榜已提交：任务 #${taskId}，揭榜 #${res.claim_id}`)
         await load()
         return
@@ -369,8 +319,6 @@ export function TaskHallPage({ userId, profile }: Props) {
           members: parsedMembers,
         },
       })
-      saveClaimRecord(taskId, res.claim_id)
-      setClaimId(String(res.claim_id))
       setMessage(`组队揭榜已提交：任务 #${taskId}，揭榜 #${res.claim_id}`)
       setMembers(buildDefaultMembers(userId))
       await load()
@@ -379,40 +327,30 @@ export function TaskHallPage({ userId, profile }: Props) {
     }
   }
 
-  const savePolicy = async () => {
-    if (!canEditPolicy) {
-      return
-    }
-    const threshold = Number(policyDraft)
-    if (!Number.isInteger(threshold) || threshold < 1) {
-      setError('阈值必须是大于等于 1 的整数')
-      return
-    }
+  const openDeliverableEditor = (claim: ClaimExecution) => {
+    setActiveDeliverableClaim(claim)
+    setDeliverableClaimId(String(claim.claim_id))
+    setSummary('')
+    setUploadedAttachments([])
+    setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
+    setDeliverableOpen(true)
+  }
 
-    try {
-      setSavingPolicy(true)
-      setError(null)
-      const payload = await requestJson<ClaimApprovalThresholdConfig>(
-        '/system/config/claim-approval-overdue-threshold',
-        {
-          method: 'PUT',
-          userId,
-          body: { threshold },
-        },
-      )
-      setPolicyThreshold(payload.threshold)
-      setPolicyDraft(String(payload.threshold))
-      setMessage(`阈值已更新为 ${payload.threshold}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '更新阈值失败')
-    } finally {
-      setSavingPolicy(false)
+  const closeDeliverableEditor = () => {
+    if (loadingClaimCriteria) {
+      return
     }
+    setDeliverableOpen(false)
+    setActiveDeliverableClaim(null)
+    setDeliverableClaimId('')
+    setSummary('')
+    setUploadedAttachments([])
+    setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
   }
 
   const submitDeliverable = async (event: FormEvent) => {
     event.preventDefault()
-    const parsedClaimId = Number(claimId)
+    const parsedClaimId = Number(deliverableClaimId)
     if (!Number.isInteger(parsedClaimId) || parsedClaimId <= 0) {
       setError('请选择有效的揭榜记录')
       return
@@ -437,10 +375,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         },
       })
       setMessage('成果已提交')
-      setClaimId('')
-      setSummary('')
-      setUploadedAttachments([])
-      setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
+      closeDeliverableEditor()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '成果提交失败')
@@ -478,36 +413,6 @@ export function TaskHallPage({ userId, profile }: Props) {
         <h2>任务大厅</h2>
         <p>浏览任务、提交揭榜并上传执行成果。</p>
       </header>
-
-      {canApproveForOthers && (
-        <article className="panel form-grid">
-          <h3>揭榜审批策略</h3>
-          <p className="wide muted">
-            当超期次数达到阈值时，普通用户不能再直接揭榜，需要审核人/管理员审批。
-          </p>
-          <label>
-            当前阈值
-            <input value={policyThreshold ?? '-'} disabled />
-          </label>
-          <label>
-            新阈值
-            <input
-              type="number"
-              min={1}
-              value={policyDraft}
-              onChange={(event) => setPolicyDraft(event.target.value)}
-              disabled={!canEditPolicy}
-            />
-          </label>
-          {canEditPolicy && (
-            <div className="button-row wide">
-              <button type="button" className="primary-btn" onClick={() => void savePolicy()} disabled={savingPolicy}>
-                {savingPolicy ? '保存中...' : '保存策略'}
-              </button>
-            </div>
-          )}
-        </article>
-      )}
 
       <form
         className="panel form-grid"
@@ -653,69 +558,90 @@ export function TaskHallPage({ userId, profile }: Props) {
       </form>
 
       <article className="panel">
-        <h3>执行中任务（含本地揭榜映射）</h3>
+        <div className="panel-headline">
+          <h3>我的执行任务</h3>
+          <button type="button" onClick={() => void load()}>刷新</button>
+        </div>
+        <p className="muted">提交成果请从任务操作进入，不在页面外层单独暴露。</p>
         <div className="table">
-          <div className="row head">
-            <span>ID</span><span>标题</span><span>场景</span><span>状态</span><span>揭榜数</span><span>揭榜ID</span>
+          <div className="row head wide-row">
+            <span>揭榜ID</span><span>任务</span><span>模式</span><span>揭榜状态</span><span>成果状态</span><span>截止日</span><span>操作</span>
           </div>
-          {inProgressTasks.map((task) => (
-            <div className="row" key={task.id}>
-              <span>#{task.id}</span>
-              <span>{task.title}</span>
-              <span>{formatScenario(task.scenario)}</span>
-              <span>{formatTaskStatus(task.status)}</span>
-              <span>{task.active_claim_count}</span>
-              <span>{getClaimByTask(task.id) ?? '-'}</span>
+          {deliverableClaimOptions.map((item) => (
+            <div className="row wide-row" key={item.claim_id}>
+              <span>#{item.claim_id}</span>
+              <span>{item.task_title}</span>
+              <span>{item.claim_mode === 'team' ? '组队' : '个人'}</span>
+              <span>{formatTaskStatus(item.claim_status)}</span>
+              <span>{formatTaskStatus(item.deliverable_status)}</span>
+              <span>{item.due_date}</span>
+              <span className="actions">
+                <button type="button" onClick={() => void openTaskDetail(item.task_id)}>任务详情</button>
+                <button type="button" onClick={() => openDeliverableEditor(item)}>提交成果</button>
+              </span>
             </div>
           ))}
+          {deliverableClaimOptions.length === 0 && <p className="muted">暂无进行中的揭榜任务</p>}
         </div>
       </article>
 
-      <form className="panel form-grid" onSubmit={submitDeliverable}>
-        <h3>提交成果</h3>
-        <label>
-          揭榜
-          <select value={claimId} onChange={(event) => setClaimId(event.target.value)} required>
-            {deliverableClaimOptions.length === 0 && <option value="">暂无可提交的进行中揭榜</option>}
-            {deliverableClaimOptions.map((item) => (
-              <option key={`deliverable-claim-${item.claim_id}`} value={item.claim_id}>
-                #{item.claim_id} [{formatTaskStatus(item.claim_status)}] {item.task_title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="wide">
-          成果说明
-          <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
-        </label>
-        <AttachmentField
-          userId={userId}
-          value={uploadedAttachments}
-          onChange={handleUploadedAttachmentsChange}
-          label="证据附件"
-        />
-        <div className="wide">
-          <div className="panel-headline">
-            <h3>验收项结果</h3>
-            <button type="button" onClick={() => void loadClaimCriteria(claimId)} disabled={loadingClaimCriteria}>
-              {loadingClaimCriteria ? '加载中...' : '重新加载验收项'}
-            </button>
-          </div>
-          {criteriaDrafts.map((item, idx) => (
-            <label className="wide" key={item.key}>
-              {item.label}
-              <textarea
-                value={item.value}
-                onChange={(event) =>
-                  setCriteriaDrafts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, value: event.target.value } : row))
-                }
-                placeholder="填写该验收项的结果"
+      {deliverableOpen && activeDeliverableClaim && (
+        <div className="modal-backdrop" onClick={closeDeliverableEditor}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deliverable-editor-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-headline">
+              <h3 id="deliverable-editor-title">提交成果（揭榜 #{activeDeliverableClaim.claim_id}）</h3>
+              <button type="button" onClick={closeDeliverableEditor}>关闭</button>
+            </div>
+            <p className="muted">
+              任务：{activeDeliverableClaim.task_title} / 截止日：{activeDeliverableClaim.due_date}
+            </p>
+            <form className="form-grid" onSubmit={submitDeliverable}>
+              <label className="wide">
+                成果说明
+                <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
+              </label>
+              <AttachmentField
+                userId={userId}
+                value={uploadedAttachments}
+                onChange={handleUploadedAttachmentsChange}
+                label="证据附件"
               />
-            </label>
-          ))}
+              <div className="wide">
+                <div className="panel-headline">
+                  <h3>验收项结果</h3>
+                  <button type="button" onClick={() => void loadClaimCriteria(deliverableClaimId)} disabled={loadingClaimCriteria}>
+                    {loadingClaimCriteria ? '加载中...' : '重新加载验收项'}
+                  </button>
+                </div>
+                {criteriaDrafts.map((item, idx) => (
+                  <label className="wide" key={item.key}>
+                    {item.label}
+                    <textarea
+                      value={item.value}
+                      onChange={(event) =>
+                        setCriteriaDrafts((prev) =>
+                          prev.map((row, rowIdx) => (rowIdx === idx ? { ...row, value: event.target.value } : row)),
+                        )
+                      }
+                      placeholder="填写该验收项的结果"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="button-row wide">
+                <button type="button" onClick={closeDeliverableEditor}>取消</button>
+                <button className="primary-btn" type="submit">提交成果</button>
+              </div>
+            </form>
+          </div>
         </div>
-        <button className="primary-btn" type="submit">提交成果</button>
-      </form>
+      )}
 
       {detailOpen && taskDetail && (
         <div className="modal-backdrop" onClick={() => setDetailOpen(false)}>

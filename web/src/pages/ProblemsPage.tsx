@@ -115,6 +115,7 @@ export function ProblemsPage({ userId }: Props) {
   const [list, setList] = useState<Problem[]>([])
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
   const [editingProblemId, setEditingProblemId] = useState<number | null>(null)
+  const [composerOpen, setComposerOpen] = useState(false)
   const [detailProblemId, setDetailProblemId] = useState<number | null>(null)
   const [detailData, setDetailData] = useState<ProblemDetail | null>(null)
   const [detailAttachments, setDetailAttachments] = useState<Attachment[]>([])
@@ -184,15 +185,24 @@ export function ProblemsPage({ userId }: Props) {
       })
       setUploadedAttachments(attachments)
       setEditingProblemId(problemId)
+      setComposerOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载问题详情失败')
     }
+  }
+
+  const startCreate = () => {
+    setEditingProblemId(null)
+    setForm(defaultForm)
+    setUploadedAttachments([])
+    setComposerOpen(true)
   }
 
   const cancelEdit = () => {
     setEditingProblemId(null)
     setForm(defaultForm)
     setUploadedAttachments([])
+    setComposerOpen(false)
   }
 
   const addCriteria = () => {
@@ -264,6 +274,7 @@ export function ProblemsPage({ userId }: Props) {
       setEditingProblemId(null)
       setForm(defaultForm)
       setUploadedAttachments([])
+      setComposerOpen(false)
       await loadMine()
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交失败')
@@ -368,144 +379,63 @@ export function ProblemsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>{editingProblemId ? '编辑问题草稿' : '问题草稿提交'}</h2>
-        <p>先由提交人完善任务定义，再送审。提交评审后会自动触发 ProdMind 论证。</p>
+        <h2>问题提报</h2>
+        <p>先查看你已提报的问题，再按需新建/编辑草稿并提交评审。提交评审后会自动触发 ProdMind 论证。</p>
       </header>
 
-      <form className="panel form-grid" onSubmit={submit}>
-        <label>
-          标题
-          <input value={form.title} maxLength={50} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} required />
-        </label>
-        <label>
-          场景
-          <select value={form.scenario} onChange={(e) => setForm((p) => ({ ...p, scenario: e.target.value }))}>
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
-          </select>
-        </label>
-        <label>
-          频率
-          <select value={form.frequency} onChange={(e) => setForm((p) => ({ ...p, frequency: e.target.value }))}>
-            <option value="daily">每日</option>
-            <option value="weekly">每周</option>
-            <option value="monthly">每月</option>
-            <option value="quarterly">季度</option>
-            <option value="occasional">偶发</option>
-          </select>
-        </label>
-        <label>
-          影响范围
-          <select value={form.impact_scope} onChange={(e) => setForm((p) => ({ ...p, impact_scope: e.target.value }))}>
-            <option value="individual">个人</option>
-            <option value="team">团队</option>
-            <option value="department">部门</option>
-            <option value="company">公司</option>
-          </select>
-        </label>
-        <label className="wide">
-          背景
-          <textarea value={form.background} onChange={(e) => setForm((p) => ({ ...p, background: e.target.value }))} required />
-        </label>
-        <label className="wide">
-          问题描述
-          <textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} required />
-        </label>
-        <label className="wide">
-          价值说明
-          <textarea value={form.value_statement} onChange={(e) => setForm((p) => ({ ...p, value_statement: e.target.value }))} required />
-        </label>
-        <label className="wide">
-          当前解决方式（可选）
-          <textarea value={form.current_solution} onChange={(e) => setForm((p) => ({ ...p, current_solution: e.target.value }))} />
-        </label>
-
-        <AttachmentField userId={userId} value={uploadedAttachments} onChange={handleUploadedAttachmentsChange} label="附件上传" />
-
-        <div className="wide checks">
-          <label>
-            <input type="checkbox" checked={form.value_reduce_effort} onChange={(e) => setForm((p) => ({ ...p, value_reduce_effort: e.target.checked }))} />
-            降低人力时间
-          </label>
-          <label>
-            <input type="checkbox" checked={form.value_reduce_cost} onChange={(e) => setForm((p) => ({ ...p, value_reduce_cost: e.target.checked }))} />
-            降低成本返工
-          </label>
-          <label>
-            <input type="checkbox" checked={form.value_improve_quality} onChange={(e) => setForm((p) => ({ ...p, value_improve_quality: e.target.checked }))} />
-            提升质量稳定性
-          </label>
+      <article className="panel">
+        <div className="panel-headline">
+          <h3>我的问题</h3>
+          <span className="actions">
+            <button type="button" onClick={() => void loadMine()} disabled={loading}>刷新</button>
+            {!composerOpen && <button type="button" onClick={startCreate}>新建草稿</button>}
+          </span>
         </div>
-
-        <h3 className="wide">提交人任务定义</h3>
-        <label className="wide">
-          任务目标
-          <textarea value={form.draft_goal} onChange={(e) => setForm((p) => ({ ...p, draft_goal: e.target.value }))} />
-        </label>
-        <label className="wide">
-          任务范围
-          <textarea value={form.draft_scope} onChange={(e) => setForm((p) => ({ ...p, draft_scope: e.target.value }))} />
-        </label>
-        <label>
-          目标截止日期
-          <input type="date" value={form.draft_due_date} onChange={(e) => setForm((p) => ({ ...p, draft_due_date: e.target.value }))} />
-        </label>
-        <label className="wide">
-          自我复盘
-          <textarea value={form.submitter_reflection} onChange={(e) => setForm((p) => ({ ...p, submitter_reflection: e.target.value }))} />
-        </label>
-
-        <div className="wide">
-          <div className="panel-headline">
-            <h3>验收标准</h3>
-            <button type="button" onClick={addCriteria}>新增</button>
+        <div className="table">
+          <div className="row head wide-row problems-row">
+            <span>ID</span>
+            <span>标题</span>
+            <span>场景</span>
+            <span>状态</span>
+            <span>论证状态</span>
+            <span>评审意见</span>
+            <span>时间</span>
+            <span>操作</span>
           </div>
-          {form.criteria.map((item) => (
-            <div key={item.key} className="acceptance-editor">
-              <label>
-                描述
-                <input
-                  value={item.description}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      criteria: prev.criteria.map((row) =>
-                        row.key === item.key ? { ...row, description: e.target.value } : row,
-                      ),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                类型
-                <select
-                  value={item.type}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      criteria: prev.criteria.map((row) =>
-                        row.key === item.key ? { ...row, type: e.target.value as 'quantified' | 'behavioral' } : row,
-                      ),
-                    }))
-                  }
-                >
-                  <option value="quantified">量化</option>
-                  <option value="behavioral">行为</option>
-                </select>
-              </label>
-              <button type="button" onClick={() => removeCriteria(item.key)}>删除</button>
+          {list.map((item) => (
+            <div className="row wide-row problems-row" key={item.id}>
+              <span>#{item.id}</span>
+              <span>{item.title}</span>
+              <span>{item.scenario}</span>
+              <span>
+                <StatusBadge tone={problemStatusTone(item.status)}>{item.status}</StatusBadge>
+              </span>
+              <span>
+                <StatusBadge tone={analysisTone(item.analysis_status)}>
+                  {formatAnalysisStatus(item.analysis_status)}
+                </StatusBadge>
+              </span>
+              <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
+              <span>{new Date(item.created_at).toLocaleDateString()}</span>
+              <span className="actions">
+                <button type="button" onClick={() => void openProblemDetail(item.id)}>查看详情</button>
+                {canEditStatus.has(item.status) && (
+                  <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
+                )}
+                {item.status === 'draft' && (
+                  <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
+                )}
+                {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
+                  <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
+                )}
+                {item.status !== 'archived' && item.status !== 'rejected' && (
+                  <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
+                )}
+              </span>
             </div>
           ))}
         </div>
-
-        <div className="button-row wide">
-          <button className="primary-btn" type="submit">{editingProblemId ? '保存草稿' : '创建草稿'}</button>
-          {editingProblemId && <button type="button" onClick={cancelEdit}>取消编辑</button>}
-        </div>
-      </form>
+      </article>
 
       <form className="panel form-grid" onSubmit={(event) => { event.preventDefault(); void loadMine() }}>
         <h3>我的问题筛选</h3>
@@ -547,55 +477,157 @@ export function ProblemsPage({ userId }: Props) {
         </div>
       </form>
 
-      <article className="panel">
+      <article className="panel form-grid">
         <div className="panel-headline">
-          <h3>我的问题</h3>
-          <button type="button" onClick={() => void loadMine()} disabled={loading}>刷新</button>
+          <h3>{editingProblemId ? '编辑问题草稿' : '新建问题草稿'}</h3>
+          <button type="button" onClick={() => {
+            if (composerOpen) {
+              cancelEdit()
+              return
+            }
+            startCreate()
+          }}>
+            {composerOpen ? '收起' : '展开'}
+          </button>
         </div>
-        <div className="table">
-          <div className="row head wide-row problems-row">
-            <span>ID</span>
-            <span>标题</span>
-            <span>场景</span>
-            <span>状态</span>
-            <span>论证状态</span>
-            <span>评审意见</span>
-            <span>时间</span>
-            <span>操作</span>
-          </div>
-          {list.map((item) => (
-            <div className="row wide-row problems-row" key={item.id}>
-              <span>#{item.id}</span>
-              <span>{item.title}</span>
-              <span>{item.scenario}</span>
-              <span>
-                <StatusBadge tone={problemStatusTone(item.status)}>{item.status}</StatusBadge>
-              </span>
-              <span>
-                <StatusBadge tone={analysisTone(item.analysis_status)}>
-                  {formatAnalysisStatus(item.analysis_status)}
-                </StatusBadge>
-              </span>
-              <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
-            <span>{new Date(item.created_at).toLocaleDateString()}</span>
-            <span className="actions">
-              <button type="button" onClick={() => void openProblemDetail(item.id)}>查看详情</button>
-              {canEditStatus.has(item.status) && (
-                <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
-              )}
-              {item.status === 'draft' && (
-                <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
-                )}
-                {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
-                  <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
-                )}
-                {item.status !== 'archived' && item.status !== 'rejected' && (
-                  <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
-                )}
-              </span>
+        {!composerOpen ? (
+          <p className="muted">默认先展示“我的问题”。如需新增或编辑草稿，请点击“展开”。</p>
+        ) : (
+          <form className="form-grid" onSubmit={submit}>
+            <label>
+              标题
+              <input value={form.title} maxLength={50} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} required />
+            </label>
+            <label>
+              场景
+              <select value={form.scenario} onChange={(e) => setForm((p) => ({ ...p, scenario: e.target.value }))}>
+                <option value="rd">研发</option>
+                <option value="ops">运维</option>
+                <option value="delivery">交付</option>
+                <option value="support">支持</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>
+              频率
+              <select value={form.frequency} onChange={(e) => setForm((p) => ({ ...p, frequency: e.target.value }))}>
+                <option value="daily">每日</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+                <option value="quarterly">季度</option>
+                <option value="occasional">偶发</option>
+              </select>
+            </label>
+            <label>
+              影响范围
+              <select value={form.impact_scope} onChange={(e) => setForm((p) => ({ ...p, impact_scope: e.target.value }))}>
+                <option value="individual">个人</option>
+                <option value="team">团队</option>
+                <option value="department">部门</option>
+                <option value="company">公司</option>
+              </select>
+            </label>
+            <label className="wide">
+              背景
+              <textarea value={form.background} onChange={(e) => setForm((p) => ({ ...p, background: e.target.value }))} required />
+            </label>
+            <label className="wide">
+              问题描述
+              <textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} required />
+            </label>
+            <label className="wide">
+              价值说明
+              <textarea value={form.value_statement} onChange={(e) => setForm((p) => ({ ...p, value_statement: e.target.value }))} required />
+            </label>
+            <label className="wide">
+              当前解决方式（可选）
+              <textarea value={form.current_solution} onChange={(e) => setForm((p) => ({ ...p, current_solution: e.target.value }))} />
+            </label>
+
+            <AttachmentField userId={userId} value={uploadedAttachments} onChange={handleUploadedAttachmentsChange} label="附件上传" />
+
+            <div className="wide checks">
+              <label>
+                <input type="checkbox" checked={form.value_reduce_effort} onChange={(e) => setForm((p) => ({ ...p, value_reduce_effort: e.target.checked }))} />
+                降低人力时间
+              </label>
+              <label>
+                <input type="checkbox" checked={form.value_reduce_cost} onChange={(e) => setForm((p) => ({ ...p, value_reduce_cost: e.target.checked }))} />
+                降低成本返工
+              </label>
+              <label>
+                <input type="checkbox" checked={form.value_improve_quality} onChange={(e) => setForm((p) => ({ ...p, value_improve_quality: e.target.checked }))} />
+                提升质量稳定性
+              </label>
             </div>
-          ))}
-        </div>
+
+            <h3 className="wide">提交人任务定义</h3>
+            <label className="wide">
+              任务目标
+              <textarea value={form.draft_goal} onChange={(e) => setForm((p) => ({ ...p, draft_goal: e.target.value }))} />
+            </label>
+            <label className="wide">
+              任务范围
+              <textarea value={form.draft_scope} onChange={(e) => setForm((p) => ({ ...p, draft_scope: e.target.value }))} />
+            </label>
+            <label>
+              目标截止日期
+              <input type="date" value={form.draft_due_date} onChange={(e) => setForm((p) => ({ ...p, draft_due_date: e.target.value }))} />
+            </label>
+            <label className="wide">
+              自我复盘
+              <textarea value={form.submitter_reflection} onChange={(e) => setForm((p) => ({ ...p, submitter_reflection: e.target.value }))} />
+            </label>
+
+            <div className="wide">
+              <div className="panel-headline">
+                <h3>验收标准</h3>
+                <button type="button" onClick={addCriteria}>新增</button>
+              </div>
+              {form.criteria.map((item) => (
+                <div key={item.key} className="acceptance-editor">
+                  <label>
+                    描述
+                    <input
+                      value={item.description}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          criteria: prev.criteria.map((row) =>
+                            row.key === item.key ? { ...row, description: e.target.value } : row,
+                          ),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    类型
+                    <select
+                      value={item.type}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          criteria: prev.criteria.map((row) =>
+                            row.key === item.key ? { ...row, type: e.target.value as 'quantified' | 'behavioral' } : row,
+                          ),
+                        }))
+                      }
+                    >
+                      <option value="quantified">量化</option>
+                      <option value="behavioral">行为</option>
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => removeCriteria(item.key)}>删除</button>
+                </div>
+              ))}
+            </div>
+
+            <div className="button-row wide">
+              <button className="primary-btn" type="submit">{editingProblemId ? '保存草稿' : '创建草稿'}</button>
+              {editingProblemId && <button type="button" onClick={cancelEdit}>取消编辑</button>}
+            </div>
+          </form>
+        )}
       </article>
 
       {detailProblemId !== null && (

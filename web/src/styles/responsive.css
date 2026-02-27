@@ -81,9 +81,26 @@
 
   .topbar {
     padding: 14px 16px;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .topbar h1 {
     font-size: clamp(18px, 3.5vw, 28px);
+  }
+
+  .topbar-controls {
+    justify-items: stretch;
+    min-width: 0;
+  }
+
+  .account-menu summary {
+    min-width: 0;
+  }
+
+  .account-menu-panel {
+    left: 0;
+    right: auto;
+    width: 100%;
   }
 }
