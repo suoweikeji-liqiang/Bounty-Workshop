@@ -33,9 +33,9 @@ type TemplateDraft = {
 }
 
 const defaultTemplates: AcceptanceTemplatesConfig = {
-  approved: ['Accepted: deliverable meets acceptance criteria.'],
-  rework: ['Needs rework: please address missing evidence and resubmit.'],
-  rejected: ['Rejected: core acceptance criteria were not met.'],
+  approved: ['验收通过：交付物满足验收标准。'],
+  rework: ['需整改：请补充证据并重新提交。'],
+  rejected: ['验收不通过：核心验收标准未满足。'],
 }
 
 function normalizeTemplates(payload: AcceptanceTemplatesConfig): AcceptanceTemplatesConfig {
@@ -71,12 +71,12 @@ function defaultComment(templates: AcceptanceTemplatesConfig, result: Acceptance
 
 function formatAcceptanceResult(result: AcceptanceResult) {
   if (result === 'approved') {
-    return 'Approved'
+    return '通过'
   }
   if (result === 'rework') {
-    return 'Rework'
+    return '整改'
   }
-  return 'Rejected'
+  return '不通过'
 }
 
 function formatCommonStatus(status: string | null | undefined) {
@@ -85,16 +85,16 @@ function formatCommonStatus(status: string | null | undefined) {
   }
 
   const map: Record<string, string> = {
-    active: 'Active',
-    in_progress: 'In Progress',
-    submitted: 'Submitted',
-    approved: 'Approved',
-    rework: 'Rework',
-    rejected: 'Rejected',
-    generated: 'Generated',
-    confirmed: 'Confirmed',
-    completed: 'Completed',
-    abandoned: 'Abandoned',
+    active: '进行中',
+    in_progress: '执行中',
+    submitted: '已提交',
+    approved: '通过',
+    rework: '待整改',
+    rejected: '不通过',
+    generated: '待确认',
+    confirmed: '已确认',
+    completed: '已完成',
+    abandoned: '已放弃',
   }
 
   return map[status] ?? status
@@ -183,7 +183,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         setRewards([])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load execution data')
+      setError(err instanceof Error ? err.message : '加载执行数据失败')
     }
   }, [canAccept, canConfirmReward, userId])
 
@@ -206,7 +206,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     event.preventDefault()
     const parsedClaimId = Number(claimId)
     if (!Number.isInteger(parsedClaimId) || parsedClaimId <= 0) {
-      setError('Please select a valid claim')
+      setError('请选择有效的揭榜记录')
       return
     }
 
@@ -218,18 +218,18 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         userId,
         body: {
           summary,
-          criteria_results: ['Submitted from execution loop'],
+          criteria_results: ['由执行闭环页面提交'],
           evidence_attachment_ids: evidenceAttachmentIds,
           evidence_urls: [],
         },
       })
-      setMessage('Deliverable submitted')
+      setMessage('成果已提交')
       setClaimId('')
       setSummary('')
       setUploadedAttachments([])
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Deliverable submission failed')
+      setError(err instanceof Error ? err.message : '成果提交失败')
     }
   }
 
@@ -240,7 +240,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       setDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load detail')
+      setError(err instanceof Error ? err.message : '加载详情失败')
     }
   }
 
@@ -267,11 +267,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         userId,
         body: { result: draft.result, comment: draft.comment },
       })
-      setMessage(`Acceptance submitted: ${formatAcceptanceResult(draft.result)}`)
+      setMessage(`验收已提交：${formatAcceptanceResult(draft.result)}`)
       setActiveAcceptanceId(null)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Acceptance submit failed')
+      setError(err instanceof Error ? err.message : '提交验收失败')
     }
   }
 
@@ -281,10 +281,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`Reward #${rewardId} confirmed`)
+      setMessage(`奖励 #${rewardId} 已确认`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reward confirm failed')
+      setError(err instanceof Error ? err.message : '奖励确认失败')
     }
   }
 
@@ -298,10 +298,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`Claim #${targetClaimId} abandoned`)
+      setMessage(`揭榜 #${targetClaimId} 已放弃`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Abandon claim failed')
+      setError(err instanceof Error ? err.message : '放弃揭榜失败')
     }
   }
 
@@ -317,7 +317,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     }
 
     if (payload.approved.length === 0 || payload.rework.length === 0 || payload.rejected.length === 0) {
-      setError('Each result type needs at least one template')
+      setError('每种结果至少需要一条模板')
       return
     }
 
@@ -332,9 +332,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       const normalized = normalizeTemplates(result)
       setTemplates(normalized)
       setTemplateDraft(templatesToDraft(normalized))
-      setMessage('Templates updated')
+      setMessage('模板已更新')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Template save failed')
+      setError(err instanceof Error ? err.message : '模板保存失败')
     } finally {
       setSavingTemplates(false)
     }
@@ -357,53 +357,53 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>Execution Loop</h2>
-        <p>Track claims, submit deliverables, perform acceptance, and confirm rewards.</p>
+        <h2>执行闭环</h2>
+        <p>跟踪揭榜进度、提交成果、执行验收并确认奖励。</p>
       </header>
 
       {canManageTemplates && (
         <article className="panel form-grid">
-          <h3>Acceptance Templates</h3>
+          <h3>验收模板</h3>
           <label className="wide">
-            Approved templates (one per line)
+            通过模板（每行一条）
             <textarea
               value={templateDraft.approved}
               onChange={(event) => setTemplateDraft((prev) => ({ ...prev, approved: event.target.value }))}
             />
           </label>
           <label className="wide">
-            Rework templates (one per line)
+            整改模板（每行一条）
             <textarea
               value={templateDraft.rework}
               onChange={(event) => setTemplateDraft((prev) => ({ ...prev, rework: event.target.value }))}
             />
           </label>
           <label className="wide">
-            Rejected templates (one per line)
+            不通过模板（每行一条）
             <textarea
               value={templateDraft.rejected}
               onChange={(event) => setTemplateDraft((prev) => ({ ...prev, rejected: event.target.value }))}
             />
           </label>
           <button type="button" onClick={() => void saveTemplates()} disabled={savingTemplates}>
-            {savingTemplates ? 'Saving...' : 'Save templates'}
+            {savingTemplates ? '保存中...' : '保存模板'}
           </button>
         </article>
       )}
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>My Claims</h3>
-          <button type="button" onClick={() => void load()}>Refresh</button>
+          <h3>我的揭榜</h3>
+          <button type="button" onClick={() => void load()}>刷新</button>
         </div>
         <div className="table">
           <div className="row head wide-row">
-            <span>Claim</span>
-            <span>Task</span>
-            <span>Claim Status</span>
-            <span>Task Status</span>
-            <span>Deliverable Status</span>
-            <span>Actions</span>
+            <span>揭榜</span>
+            <span>任务</span>
+            <span>揭榜状态</span>
+            <span>任务状态</span>
+            <span>成果状态</span>
+            <span>操作</span>
           </div>
           {claims.map((item) => (
             <div className="row wide-row" key={item.claim_id}>
@@ -420,11 +420,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                     void openDetail(item.claim_id)
                   }}
                 >
-                  Detail
+                  详情
                 </button>
                 {item.claim_status === 'active' && (
                   <button type="button" onClick={() => void abandonClaim(item.claim_id)}>
-                    Abandon
+                    放弃
                   </button>
                 )}
               </span>
@@ -435,11 +435,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
 
       {canSubmitDeliverable && (
         <form className="panel form-grid" onSubmit={submitDeliverable}>
-          <h3>Submit Deliverable</h3>
+          <h3>提交成果</h3>
           <label>
-            Claim
+            揭榜
             <select value={claimId} onChange={(event) => setClaimId(event.target.value)} required>
-              {deliverableClaimOptions.length === 0 && <option value="">No active claims available</option>}
+              {deliverableClaimOptions.length === 0 && <option value="">暂无可提交的进行中揭榜</option>}
               {deliverableClaimOptions.map((item) => (
                 <option key={`deliverable-claim-${item.claim_id}`} value={item.claim_id}>
                   #{item.claim_id} [{formatCommonStatus(item.claim_status)}] {item.task_title}
@@ -448,32 +448,32 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             </select>
           </label>
           <label className="wide">
-            Summary
+            成果说明
             <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
           </label>
           <AttachmentField
             userId={userId}
             value={uploadedAttachments}
             onChange={handleUploadedAttachmentsChange}
-            label="Evidence attachments"
+            label="证据附件"
           />
           <button className="primary-btn" type="submit">
-            Submit deliverable
+            提交成果
           </button>
         </form>
       )}
 
       {canAccept && (
         <article className="panel">
-          <h3>Pending Acceptance</h3>
+          <h3>待验收成果</h3>
           <div className="table">
             <div className="row head wide-row">
-              <span>Deliverable</span>
-              <span>Claim</span>
-              <span>Task</span>
-              <span>Submitter</span>
-              <span>Submitted At</span>
-              <span>Actions</span>
+              <span>成果</span>
+              <span>揭榜</span>
+              <span>任务</span>
+              <span>提交人</span>
+              <span>提交时间</span>
+              <span>操作</span>
             </div>
             {pendingAcceptance.map((item) => {
               const draft = ensureDraft(item.deliverable_id)
@@ -488,29 +488,29 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                     <span>{new Date(item.submitted_at).toLocaleString()}</span>
                     <span className="actions">
                       <button type="button" onClick={() => void openDetail(item.claim_id)}>
-                        Detail
+                        详情
                       </button>
                       <button
                         type="button"
                         onClick={() => setActiveAcceptanceId(openEditor ? null : item.deliverable_id)}
                       >
-                        {openEditor ? 'Collapse' : 'Acceptance panel'}
+                        {openEditor ? '收起' : '验收面板'}
                       </button>
                     </span>
                   </div>
                   {openEditor && (
                     <div className="acceptance-editor">
                       <label>
-                        Acceptance result
+                        验收结果
                         <select
                           value={draft.result}
                           onChange={(event) =>
                             handleResultChange(item.deliverable_id, event.target.value as AcceptanceResult)
                           }
                         >
-                          <option value="approved">Approved</option>
-                          <option value="rework">Rework</option>
-                          <option value="rejected">Rejected</option>
+                          <option value="approved">通过</option>
+                          <option value="rework">整改</option>
+                          <option value="rejected">不通过</option>
                         </select>
                       </label>
                       <div className="template-row">
@@ -526,7 +526,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                         ))}
                       </div>
                       <label>
-                        Comment
+                        验收意见
                         <textarea
                           value={draft.comment}
                           onChange={(event) =>
@@ -540,7 +540,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                           type="button"
                           onClick={() => void submitAcceptance(item.deliverable_id)}
                         >
-                          Submit acceptance
+                          提交验收
                         </button>
                       </div>
                     </div>
@@ -554,15 +554,15 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
 
       {canConfirmReward && (
         <article className="panel">
-          <h3>Reward Confirmation</h3>
+          <h3>奖励确认</h3>
           <div className="table">
             <div className="row head wide-row">
               <span>ID</span>
-              <span>Task</span>
-              <span>User</span>
-              <span>Amount</span>
-              <span>Status</span>
-              <span>Actions</span>
+              <span>任务</span>
+              <span>用户</span>
+              <span>金额</span>
+              <span>状态</span>
+              <span>操作</span>
             </div>
             {rewards.map((item) => (
               <div className="row wide-row" key={item.id}>
@@ -574,10 +574,10 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                 <span>
                   {item.status === 'generated' ? (
                     <button type="button" onClick={() => void confirmReward(item.id)}>
-                      Confirm
+                      确认
                     </button>
                   ) : (
-                    'Confirmed'
+                    '已确认'
                   )}
                 </span>
               </div>
@@ -596,48 +596,48 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             aria-labelledby="claim-detail-title"
           >
             <div className="panel-headline">
-              <h3 id="claim-detail-title">Claim #{detail.claim_id} Detail</h3>
+              <h3 id="claim-detail-title">揭榜 #{detail.claim_id} 详情</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                Close
+                关闭
               </button>
             </div>
             <p className="line-metric">
-              <span>Task</span>
+              <span>任务</span>
               <strong>{detail.task_title}</strong>
             </p>
             <p className="line-metric">
-              <span>Goal</span>
+              <span>目标</span>
               <strong>{detail.task_goal}</strong>
             </p>
             <p className="line-metric">
-              <span>Scope</span>
+              <span>范围</span>
               <strong>{detail.task_scope}</strong>
             </p>
             <p className="line-metric">
-              <span>Status</span>
+              <span>状态</span>
               <strong>
                 {formatCommonStatus(detail.claim_status)} / {formatCommonStatus(detail.task_status)}
               </strong>
             </p>
             <p className="line-metric">
-              <span>Due date</span>
+              <span>截止日期</span>
               <strong>{detail.due_date}</strong>
             </p>
 
             <article className="modal-section">
-              <h4>Acceptance Criteria</h4>
+              <h4>验收标准</h4>
               <ul>
                 {detail.acceptance_criteria.map((item, idx) => (
                   <li key={`${item.description ?? 'item'}-${idx}`}>
-                    {item.description ?? 'Unnamed criterion'} ({item.type ?? 'unknown'})
+                    {item.description ?? '未命名标准'}（{item.type ?? '未知类型'}）
                   </li>
                 ))}
               </ul>
             </article>
 
             <article className="modal-section">
-              <h4>Deliverable Summary</h4>
-              <p>{detail.deliverable_summary ?? 'No deliverable yet'}</p>
+              <h4>成果摘要</h4>
+              <p>{detail.deliverable_summary ?? '暂无成果'}</p>
               {detail.criteria_results.length > 0 && (
                 <ul>
                   {detail.criteria_results.map((item) => (
@@ -648,15 +648,15 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             </article>
 
             <article className="modal-section">
-              <h4>Evidence URLs</h4>
+              <h4>证据链接</h4>
               {detail.evidence_urls.length === 0 ? (
-                <p className="muted">No evidence URLs</p>
+                <p className="muted">暂无证据链接</p>
               ) : (
                 <ul>
                   {detail.evidence_urls.map((url, idx) => (
                     <li key={`${url}-${idx}`}>
                       <a href={url} target="_blank" rel="noreferrer">
-                        Open evidence #{idx + 1}
+                        打开证据 #{idx + 1}
                       </a>
                     </li>
                   ))}
@@ -665,9 +665,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             </article>
 
             <article className="modal-section">
-              <h4>Acceptance History</h4>
+              <h4>验收历史</h4>
               {detail.acceptance_history.length === 0 ? (
-                <p className="muted">No acceptance history</p>
+                <p className="muted">暂无验收记录</p>
               ) : (
                 <ul>
                   {detail.acceptance_history.map((item) => (

@@ -14,18 +14,31 @@ type VerificationDraft = {
   status: 'verified' | 'rejected'
 }
 
+function getAnalysisStatusLabel(status?: string) {
+  if (!status) return 'pending'
+  if (status === 'pending') return 'pending'
+  if (status === 'analyzing') return 'analyzing'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  return status
+}
+
 export function HypothesisVerificationPage({ userId }: Props) {
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
+
   const [problems, setProblems] = useState<Problem[]>([])
   const [problemId, setProblemId] = useState('')
   const [analysis, setAnalysis] = useState<ProblemAnalysisReport | null>(null)
   const [hypotheses, setHypotheses] = useState<HypothesisVerification[]>([])
+  const [analysisHint, setAnalysisHint] = useState<string | null>(null)
+
   const [loading, setLoading] = useState(false)
   const [loadingProblems, setLoadingProblems] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [savingVerification, setSavingVerification] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
   const [verificationDraft, setVerificationDraft] = useState<VerificationDraft | null>(null)
   const [verificationMethod, setVerificationMethod] = useState('')
   const [verificationResult, setVerificationResult] = useState('')
@@ -40,6 +53,9 @@ export function HypothesisVerificationPage({ userId }: Props) {
     return Number.isInteger(id) && id > 0 ? id : null
   }, [problemId])
 
+  const isAnalysisNotFound = (err: unknown) =>
+    err instanceof Error && err.message.includes('404') && err.message.includes('analysis not found')
+
   const loadProblemOptions = useCallback(async () => {
     try {
       setLoadingProblems(true)
@@ -48,21 +64,26 @@ export function HypothesisVerificationPage({ userId }: Props) {
         requestJson<Problem[]>('/problems?status=pending_review&limit=200', { userId }),
         requestJson<Problem[]>('/problems?status=pricing_revision_required&limit=200', { userId }),
       ])
-      const rows = [...pending, ...repricing]
-      setProblems(rows)
+
+      const merged = [...pending, ...repricing]
+      const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values())
+      setProblems(deduped)
+
       const queryProblemId = searchParams.get('problemId')
       setProblemId((prev) => {
-        if (prev && rows.some((item) => String(item.id) === prev)) {
+        if (prev && deduped.some((item) => String(item.id) === prev)) {
           return prev
         }
-        if (queryProblemId && rows.some((item) => String(item.id) === queryProblemId)) {
+        if (queryProblemId && deduped.some((item) => String(item.id) === queryProblemId)) {
           return queryProblemId
         }
-        return rows.length > 0 ? String(rows[0].id) : ''
+        return deduped.length > 0 ? String(deduped[0].id) : ''
       })
-      if (rows.length === 0) {
+
+      if (deduped.length === 0) {
         setAnalysis(null)
         setHypotheses([])
+        setAnalysisHint(null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载问题列表失败')
@@ -81,20 +102,39 @@ export function HypothesisVerificationPage({ userId }: Props) {
     setLoading(true)
     try {
       setError(null)
-      const [analysisData, hypothesesData] = await Promise.all([
-        requestJson<ProblemAnalysisReport>(`/problems/${id}/analysis`, { userId }),
-        requestJson<HypothesisVerification[]>(`/problems/${id}/hypotheses`, { userId }),
-      ])
+      setAnalysisHint(null)
+
+      const analysisData = await requestJson<ProblemAnalysisReport>(`/problems/${id}/analysis`, { userId })
       setAnalysis(analysisData)
-      setHypotheses(hypothesesData)
+
+      try {
+        const hypothesesData = await requestJson<HypothesisVerification[]>(`/problems/${id}/hypotheses`, { userId })
+        setHypotheses(hypothesesData)
+      } catch (err) {
+        if (isAnalysisNotFound(err)) {
+          setHypotheses([])
+        } else {
+          throw err
+        }
+      }
     } catch (err) {
-      setAnalysis(null)
-      setHypotheses([])
-      setError(err instanceof Error ? err.message : '加载失败')
+      if (isAnalysisNotFound(err)) {
+        setAnalysis(null)
+        setHypotheses([])
+        const nextHint =
+          selectedProblem?.analysis_status === 'analyzing'
+            ? 'ProdMind 正在论证中，请稍后再点“加载报告”。'
+            : '当前还没有可用论证报告，可点击“重新论证”触发。'
+        setAnalysisHint(nextHint)
+      } else {
+        setAnalysis(null)
+        setHypotheses([])
+        setError(err instanceof Error ? err.message : '加载报告失败')
+      }
     } finally {
       setLoading(false)
     }
-  }, [parseProblemId, userId])
+  }, [parseProblemId, selectedProblem?.analysis_status, userId])
 
   const handleAnalyze = async () => {
     const id = parseProblemId()
@@ -107,6 +147,8 @@ export function HypothesisVerificationPage({ userId }: Props) {
     try {
       setError(null)
       await requestJson(`/problems/${id}/analyze`, { method: 'POST', userId })
+      toast.info('已触发 ProdMind 论证，请稍后加载报告')
+      await loadProblemOptions()
       await loadAnalysis()
     } catch (err) {
       setError(err instanceof Error ? err.message : '触发论证失败')
@@ -137,6 +179,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
           verification_result: result,
         },
       })
+      toast.success('假设验证已更新')
       await loadAnalysis()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '更新失败')
@@ -150,23 +193,21 @@ export function HypothesisVerificationPage({ userId }: Props) {
   }
 
   const closeVerificationEditor = () => {
-    if (savingVerification) {
-      return
-    }
+    if (savingVerification) return
     setVerificationDraft(null)
     setVerificationMethod('')
     setVerificationResult('')
   }
 
   const submitVerification = async () => {
-    if (!verificationDraft) {
-      return
-    }
+    if (!verificationDraft) return
+
     const method = verificationMethod.trim()
     if (!method) {
       setError('请填写验证方法')
       return
     }
+
     try {
       setSavingVerification(true)
       await updateHypothesis(
@@ -187,27 +228,23 @@ export function HypothesisVerificationPage({ userId }: Props) {
 
   useEffect(() => {
     const queryProblemId = searchParams.get('problemId')
-    if (!queryProblemId) {
-      return
-    }
+    if (!queryProblemId) return
+
     if (queryProblemId !== problemId) {
       setProblemId(queryProblemId)
       setAnalysis(null)
       setHypotheses([])
+      setAnalysisHint(null)
     }
   }, [problemId, searchParams])
 
   useEffect(() => {
-    if (!problemId) {
-      return
-    }
+    if (!problemId) return
     void loadAnalysis()
   }, [problemId, loadAnalysis])
 
   useEffect(() => {
-    if (!problemId) {
-      return
-    }
+    if (!problemId) return
     if (searchParams.get('problemId') !== problemId) {
       setSearchParams({ problemId })
     }
@@ -245,7 +282,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>假设验证（审核）</h2>
-        <p>本页面由审核人/管理员操作：对 ProdMind 假设做验证记录。提交人请在「问题提报」页查看论证详情。</p>
+        <p>本页面由审核人/管理员操作：记录对 ProdMind 假设的验证结果。提报人请在「问题提报」查看论证详情。</p>
       </header>
 
       <form
@@ -269,6 +306,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
               }
               setAnalysis(null)
               setHypotheses([])
+              setAnalysisHint(null)
             }}
             required
           >
@@ -280,12 +318,13 @@ export function HypothesisVerificationPage({ userId }: Props) {
             ))}
           </select>
         </label>
+
         {selectedProblem && (
           <p className="wide muted">
-            当前问题：#{selectedProblem.id} / 场景 {selectedProblem.scenario} / 论证状态{' '}
-            {selectedProblem.analysis_status ?? 'pending'}
+            当前问题：#{selectedProblem.id} / 场景 {selectedProblem.scenario} / 论证状态 {getAnalysisStatusLabel(selectedProblem.analysis_status)}
           </p>
         )}
+
         <div className="button-row">
           <button type="button" onClick={() => void loadProblemOptions()} disabled={loadingProblems}>
             {loadingProblems ? '刷新中...' : '刷新问题'}
@@ -299,30 +338,23 @@ export function HypothesisVerificationPage({ userId }: Props) {
         </div>
       </form>
 
+      {!analysis && analysisHint && (
+        <article className="panel">
+          <p className="wide muted">{analysisHint}</p>
+        </article>
+      )}
+
       {analysis && (
         <>
           <article className="panel">
             <h3>论证结论</h3>
             <div className="line-metric">
               <span>立项建议</span>
-              <strong
-                style={{
-                  color:
-                    analysis.report.grounder.recommendation === '强烈推荐'
-                      ? '#22c55e'
-                      : analysis.report.grounder.recommendation === '推荐'
-                        ? '#84cc16'
-                        : analysis.report.grounder.recommendation === '中立'
-                          ? '#f59e0b'
-                          : '#dc2626',
-                }}
-              >
-                {analysis.report.grounder.recommendation || '未知'}
-              </strong>
+              <strong>{analysis.report.grounder.recommendation || '未知'}</strong>
             </div>
             <div className="line-metric">
               <span>置信度</span>
-              <strong>{(analysis.report.grounder.confidence ?? 0) * 100}%</strong>
+              <strong>{Math.round((analysis.report.grounder.confidence ?? 0) * 100)}%</strong>
             </div>
             <div className="line-metric">
               <span>状态</span>
@@ -333,22 +365,10 @@ export function HypothesisVerificationPage({ userId }: Props) {
           <article className="panel">
             <h3>问题重构（Architect）</h3>
             <div className="analysis-section">
-              <p>
-                <strong>核心问题：</strong>
-                {analysis.report.architect.core_problem || '-'}
-              </p>
-              <p>
-                <strong>目标用户：</strong>
-                {analysis.report.architect.target_users?.join(', ') || '-'}
-              </p>
-              <p>
-                <strong>问题边界：</strong>
-                {analysis.report.architect.problem_boundaries || '-'}
-              </p>
-              <p>
-                <strong>成功标准：</strong>
-                {analysis.report.architect.success_criteria || '-'}
-              </p>
+              <p><strong>核心问题：</strong>{analysis.report.architect.core_problem || '-'}</p>
+              <p><strong>目标用户：</strong>{analysis.report.architect.target_users?.join(', ') || '-'}</p>
+              <p><strong>问题边界：</strong>{analysis.report.architect.problem_boundaries || '-'}</p>
+              <p><strong>成功标准：</strong>{analysis.report.architect.success_criteria || '-'}</p>
             </div>
           </article>
 
@@ -356,20 +376,12 @@ export function HypothesisVerificationPage({ userId }: Props) {
             <h3>假设挑战（Assassin）</h3>
             <div className="analysis-section">
               {analysis.report.assassin.assumptions_challenged?.length > 0 ? (
-                analysis.report.assassin.assumptions_challenged.map(
-                  (item: { assumption: string; challenge: string }, idx: number) => (
-                    <div key={idx} className="analysis-item">
-                      <p>
-                        <strong>假设：</strong>
-                        {item.assumption}
-                      </p>
-                      <p>
-                        <strong>挑战：</strong>
-                        {item.challenge}
-                      </p>
-                    </div>
-                  ),
-                )
+                analysis.report.assassin.assumptions_challenged.map((item, idx) => (
+                  <div key={idx} className="analysis-item">
+                    <p><strong>假设：</strong>{item.assumption}</p>
+                    <p><strong>挑战：</strong>{item.challenge}</p>
+                  </div>
+                ))
               ) : (
                 <p style={{ color: '#888' }}>暂无</p>
               )}
@@ -388,6 +400,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
                   {getStatusBadge(hyp.verification_status)}
                 </div>
                 <p className="hypothesis-content">{hyp.hypothesis_content}</p>
+
                 {hyp.verification_status === 'pending' && (
                   <div className="hypothesis-actions">
                     <button type="button" onClick={() => openVerificationEditor(hyp.id, 'verified')}>
@@ -398,16 +411,11 @@ export function HypothesisVerificationPage({ userId }: Props) {
                     </button>
                   </div>
                 )}
+
                 {hyp.verification_status !== 'pending' && (
                   <div className="verification-info">
-                    <p>
-                      <strong>验证方法：</strong>
-                      {hyp.verification_method || '-'}
-                    </p>
-                    <p>
-                      <strong>验证结果：</strong>
-                      {hyp.verification_result || '-'}
-                    </p>
+                    <p><strong>验证方法：</strong>{hyp.verification_method || '-'}</p>
+                    <p><strong>验证结果：</strong>{hyp.verification_result || '-'}</p>
                   </div>
                 )}
               </div>
@@ -432,6 +440,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
                     关闭
                   </button>
                 </div>
+
                 <label className="wide">
                   验证方法
                   <textarea
@@ -441,6 +450,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
                     required
                   />
                 </label>
+
                 <label className="wide">
                   验证结果
                   <textarea
@@ -449,6 +459,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
                     placeholder="填写验证结果（可选）"
                   />
                 </label>
+
                 <div className="button-row">
                   <button className="primary-btn" type="button" onClick={() => void submitVerification()} disabled={savingVerification}>
                     {savingVerification ? '提交中...' : '提交'}

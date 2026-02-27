@@ -115,6 +115,10 @@ export function ProblemsPage({ userId }: Props) {
   const [list, setList] = useState<Problem[]>([])
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
   const [editingProblemId, setEditingProblemId] = useState<number | null>(null)
+  const [detailProblemId, setDetailProblemId] = useState<number | null>(null)
+  const [detailData, setDetailData] = useState<ProblemDetail | null>(null)
+  const [detailAttachments, setDetailAttachments] = useState<Attachment[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
   const [analysisProblemId, setAnalysisProblemId] = useState<number | null>(null)
   const [analysisDetail, setAnalysisDetail] = useState<ProblemAnalysisReport | null>(null)
   const [analysisDetailLoading, setAnalysisDetailLoading] = useState(false)
@@ -305,18 +309,41 @@ export function ProblemsPage({ userId }: Props) {
   }, [error, toast])
 
   useEffect(() => {
-    if (analysisProblemId === null) {
+    if (analysisProblemId === null && detailProblemId === null) {
       return
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setAnalysisProblemId(null)
         setAnalysisDetail(null)
+        setDetailProblemId(null)
+        setDetailData(null)
+        setDetailAttachments([])
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [analysisProblemId])
+  }, [analysisProblemId, detailProblemId])
+
+  const openProblemDetail = async (problemId: number) => {
+    setDetailProblemId(problemId)
+    setDetailLoading(true)
+    try {
+      setError(null)
+      const [detail, attachments] = await Promise.all([
+        requestJson<ProblemDetail>(`/problems/${problemId}`, { userId }),
+        requestJson<Attachment[]>(`/entities/problem/${problemId}/attachments`, { userId }),
+      ])
+      setDetailData(detail)
+      setDetailAttachments(attachments)
+    } catch (err) {
+      setDetailData(null)
+      setDetailAttachments([])
+      setError(err instanceof Error ? err.message : '加载问题详情失败')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   const openAnalysisDetail = async (problemId: number) => {
     setAnalysisProblemId(problemId)
@@ -550,13 +577,14 @@ export function ProblemsPage({ userId }: Props) {
                 </StatusBadge>
               </span>
               <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
-              <span>{new Date(item.created_at).toLocaleDateString()}</span>
-              <span className="actions">
-                {canEditStatus.has(item.status) && (
-                  <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
-                )}
-                {item.status === 'draft' && (
-                  <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
+            <span>{new Date(item.created_at).toLocaleDateString()}</span>
+            <span className="actions">
+              <button type="button" onClick={() => void openProblemDetail(item.id)}>查看详情</button>
+              {canEditStatus.has(item.status) && (
+                <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
+              )}
+              {item.status === 'draft' && (
+                <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
                 )}
                 {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
                   <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
@@ -569,6 +597,93 @@ export function ProblemsPage({ userId }: Props) {
           ))}
         </div>
       </article>
+
+      {detailProblemId !== null && (
+        <div className="modal-backdrop" onClick={() => { setDetailProblemId(null); setDetailData(null); setDetailAttachments([]) }}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="问题详情"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-headline">
+              <h3>问题详情（#{detailProblemId}）</h3>
+              <button type="button" onClick={() => { setDetailProblemId(null); setDetailData(null); setDetailAttachments([]) }}>
+                关闭
+              </button>
+            </div>
+            {detailLoading ? (
+              <p>加载中...</p>
+            ) : detailData ? (
+              <>
+                <section className="modal-section">
+                  <h4>基础信息</h4>
+                  <p className="line-metric"><span>标题</span><strong>{detailData.title}</strong></p>
+                  <p className="line-metric"><span>场景</span><strong>{detailData.scenario}</strong></p>
+                  <p className="line-metric"><span>频率</span><strong>{detailData.frequency}</strong></p>
+                  <p className="line-metric"><span>影响范围</span><strong>{detailData.impact_scope}</strong></p>
+                  <p className="line-metric"><span>状态</span><strong>{detailData.status}</strong></p>
+                  <p className="line-metric"><span>提交人</span><strong>{detailData.submitter_name}</strong></p>
+                </section>
+                <section className="modal-section">
+                  <h4>问题内容</h4>
+                  <p><strong>背景：</strong>{detailData.background}</p>
+                  <p><strong>问题描述：</strong>{detailData.description}</p>
+                  <p><strong>价值说明：</strong>{detailData.value_statement}</p>
+                  <p><strong>当前解决方式：</strong>{detailData.current_solution || '-'}</p>
+                </section>
+                <section className="modal-section">
+                  <h4>提交人任务定义</h4>
+                  <p><strong>目标：</strong>{detailData.draft_goal || '-'}</p>
+                  <p><strong>范围：</strong>{detailData.draft_scope || '-'}</p>
+                  <p><strong>截止日期：</strong>{detailData.draft_due_date || '-'}</p>
+                  <p><strong>自我复盘：</strong>{detailData.submitter_reflection || '-'}</p>
+                  <p><strong>验收标准：</strong></p>
+                  {(detailData.draft_acceptance_criteria ?? []).length > 0 ? (
+                    <ul>
+                      {(detailData.draft_acceptance_criteria ?? []).map((item, idx) => (
+                        <li key={`criteria-${idx}`}>
+                          {item.description || '-'}（{item.type === 'behavioral' ? '行为' : '量化'}）
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>-</p>
+                  )}
+                </section>
+                <section className="modal-section">
+                  <h4>评审与定价</h4>
+                  <p><strong>评审意见：</strong>{detailData.reviewer_comment || detailData.reject_reason || '-'}</p>
+                  <p><strong>任务等级：</strong>{detailData.priced_level || '-'}</p>
+                  <p><strong>奖励总额：</strong>{detailData.priced_reward_total ?? '-'}</p>
+                  <p><strong>提交人分成比例：</strong>{detailData.priced_proposer_ratio ?? '-'}</p>
+                  <p><strong>积分：</strong>{detailData.priced_points ?? '-'}</p>
+                  <p><strong>徽章：</strong>{detailData.priced_badge || '-'}</p>
+                </section>
+                <section className="modal-section">
+                  <h4>附件</h4>
+                  {detailAttachments.length > 0 ? (
+                    <ul>
+                      {detailAttachments.map((file) => (
+                        <li key={file.id}>
+                          <a href={file.download_url} target="_blank" rel="noreferrer">
+                            {file.filename}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>无附件</p>
+                  )}
+                </section>
+              </>
+            ) : (
+              <p>暂无问题详情</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {analysisProblemId !== null && (
         <div className="modal-backdrop" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null) }}>
