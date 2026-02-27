@@ -6,7 +6,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import HTTPException
@@ -206,7 +206,7 @@ class HttpFeishuProvider:
             "avatar_url": self._dig(raw, "avatar_url", "avatar"),
         }
 
-    def _list_from_endpoint(self, url: str) -> list[dict]:
+    def _list_from_endpoint(self, url: str, app_token: str | None = None) -> list[dict]:
         def _extract_rows(payload: object) -> tuple[list[dict], bool, str | None]:
             if isinstance(payload, list):
                 return [row for row in payload if isinstance(row, dict)], False, None
@@ -247,7 +247,7 @@ class HttpFeishuProvider:
 
             return rows, has_more, page_token
 
-        app_token = self._get_app_access_token()
+        token = app_token or self._get_app_access_token()
         rows: list[dict] = []
         next_url = url
         max_pages = 200
@@ -255,7 +255,7 @@ class HttpFeishuProvider:
 
         with httpx.Client(timeout=10) as client:
             while next_url and page_count < max_pages:
-                resp = client.get(next_url, headers={"Authorization": f"Bearer {app_token}"})
+                resp = client.get(next_url, headers={"Authorization": f"Bearer {token}"})
                 resp.raise_for_status()
                 payload = resp.json()
                 current_rows, has_more, page_token = _extract_rows(payload)
@@ -320,8 +320,20 @@ class HttpFeishuProvider:
                 ordered.append(item)
         return ordered
 
-    def _build_department_name_index(self) -> dict[str, str]:
-        rows = self._list_from_endpoint(self.departments_url)
+    @staticmethod
+    def _with_query_overrides(url: str, **overrides: str | None) -> str:
+        parsed = urlsplit(url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        for key, value in overrides.items():
+            if value is None:
+                query.pop(key, None)
+            else:
+                query[key] = value
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+    def _build_department_name_index(self, rows: list[dict] | None = None) -> dict[str, str]:
+        if rows is None:
+            rows = self._list_from_endpoint(self.departments_url)
         result: dict[str, str] = {}
         for row in rows:
             name = row.get("name") or row.get("department_name")
@@ -349,11 +361,39 @@ class HttpFeishuProvider:
         return None
 
     def list_users(self) -> list[dict]:
-        rows = self._list_from_endpoint(self.users_url)
-        dept_name_index = self._build_department_name_index()
-        result: list[dict] = []
+        app_token = self._get_app_access_token()
+        rows = self._list_from_endpoint(self.users_url, app_token=app_token)
+        department_rows = self._list_from_endpoint(self.departments_url, app_token=app_token)
+        dept_name_index = self._build_department_name_index(department_rows)
+        result_map: dict[str, dict] = {}
 
-        for row in rows:
+        query = dict(parse_qsl(urlsplit(self.users_url).query, keep_blank_values=True))
+        users_endpoint_looks_department_scoped = (
+            "find_by_department" in self.users_url or "department_id" in query
+        )
+        source_rows: list[dict] = list(rows)
+
+        if users_endpoint_looks_department_scoped and department_rows:
+            source_rows = []
+            dept_id_type = query.get("department_id_type", "department_id")
+            fetched_dept_ids: set[str] = set()
+            for dept in department_rows:
+                dept_id = self._as_text(dept.get(dept_id_type))
+                if not dept_id:
+                    dept_id = self._as_text(dept.get("department_id")) or self._as_text(
+                        dept.get("open_department_id")
+                    )
+                if not dept_id or dept_id in fetched_dept_ids:
+                    continue
+                fetched_dept_ids.add(dept_id)
+                dept_url = self._with_query_overrides(
+                    self.users_url,
+                    department_id=dept_id,
+                    fetch_child="false",
+                )
+                source_rows.extend(self._list_from_endpoint(dept_url, app_token=app_token))
+
+        for row in source_rows:
             source = row.get("user") if isinstance(row.get("user"), dict) else row
             if not isinstance(source, dict):
                 continue
@@ -363,18 +403,23 @@ class HttpFeishuProvider:
                 continue
 
             department_name = self._resolve_department_name(source, dept_name_index)
-            result.append(
-                {
-                    "external_id": external_id,
-                    "name": self._as_text(source.get("name") or source.get("en_name")) or "UNKNOWN",
-                    "email": self._as_text(source.get("email") or source.get("enterprise_email")),
-                    "employee_no": self._as_text(source.get("employee_no")),
-                    "department": department_name,
-                    "avatar_url": self._normalize_avatar_url(source.get("avatar_url") or source.get("avatar")),
-                }
-            )
+            candidate = {
+                "external_id": external_id,
+                "name": self._as_text(source.get("name") or source.get("en_name")) or "UNKNOWN",
+                "email": self._as_text(source.get("email") or source.get("enterprise_email")),
+                "employee_no": self._as_text(source.get("employee_no")),
+                "department": department_name,
+                "avatar_url": self._normalize_avatar_url(source.get("avatar_url") or source.get("avatar")),
+            }
+            current = result_map.get(external_id)
+            if current is None:
+                result_map[external_id] = candidate
+                continue
+            for key in ("name", "email", "employee_no", "department", "avatar_url"):
+                if not current.get(key) and candidate.get(key):
+                    current[key] = candidate[key]
 
-        return result
+        return list(result_map.values())
 
 
 def get_feishu_provider() -> FeishuProvider:
