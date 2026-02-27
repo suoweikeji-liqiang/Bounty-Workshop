@@ -265,20 +265,95 @@ class HttpFeishuProvider:
             if row.get("external_id") or row.get("id") or row.get("department_id")
         ]
 
+    @staticmethod
+    def _collect_department_ids(row: dict) -> list[str]:
+        values: list[str] = []
+
+        def _push(raw: object) -> None:
+            if raw is None:
+                return
+            if isinstance(raw, str):
+                text = raw.strip()
+                if text:
+                    values.append(text)
+                return
+            if isinstance(raw, int):
+                values.append(str(raw))
+                return
+            if isinstance(raw, list):
+                for item in raw:
+                    _push(item)
+
+        _push(row.get("department_id"))
+        _push(row.get("open_department_id"))
+        _push(row.get("department_ids"))
+        _push(row.get("open_department_ids"))
+        _push(row.get("department_id_list"))
+        _push(row.get("open_department_id_list"))
+
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in values:
+            if item not in seen:
+                seen.add(item)
+                ordered.append(item)
+        return ordered
+
+    def _build_department_name_index(self) -> dict[str, str]:
+        rows = self._list_from_endpoint(self.departments_url)
+        result: dict[str, str] = {}
+        for row in rows:
+            name = row.get("name") or row.get("department_name")
+            if not isinstance(name, str):
+                continue
+            text = name.strip()
+            if not text:
+                continue
+            for key in ("department_id", "open_department_id", "external_id", "id"):
+                raw = row.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    result[raw.strip()] = text
+                elif isinstance(raw, int):
+                    result[str(raw)] = text
+        return result
+
+    def _resolve_department_name(self, row: dict, dept_name_index: dict[str, str]) -> str | None:
+        direct_name = row.get("department") or row.get("department_name")
+        if isinstance(direct_name, str) and direct_name.strip():
+            return direct_name.strip()
+        for dept_id in self._collect_department_ids(row):
+            mapped = dept_name_index.get(dept_id)
+            if mapped:
+                return mapped
+        return None
+
     def list_users(self) -> list[dict]:
         rows = self._list_from_endpoint(self.users_url)
-        return [
-            {
-                "external_id": row.get("external_id") or row.get("open_id") or row.get("user_id"),
-                "name": row.get("name") or "UNKNOWN",
-                "email": row.get("email"),
-                "employee_no": row.get("employee_no"),
-                "department": row.get("department") or row.get("department_name"),
-                "avatar_url": row.get("avatar_url") or row.get("avatar"),
-            }
-            for row in rows
-            if row.get("external_id") or row.get("open_id") or row.get("user_id")
-        ]
+        dept_name_index = self._build_department_name_index()
+        result: list[dict] = []
+
+        for row in rows:
+            source = row.get("user") if isinstance(row.get("user"), dict) else row
+            if not isinstance(source, dict):
+                continue
+
+            external_id = source.get("external_id") or source.get("open_id") or source.get("user_id")
+            if not external_id:
+                continue
+
+            department_name = self._resolve_department_name(source, dept_name_index)
+            result.append(
+                {
+                    "external_id": external_id,
+                    "name": source.get("name") or "UNKNOWN",
+                    "email": source.get("email"),
+                    "employee_no": source.get("employee_no"),
+                    "department": department_name,
+                    "avatar_url": source.get("avatar_url") or source.get("avatar"),
+                }
+            )
+
+        return result
 
 
 def get_feishu_provider() -> FeishuProvider:
