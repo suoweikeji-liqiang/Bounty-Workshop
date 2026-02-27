@@ -14,13 +14,70 @@ type VerificationDraft = {
   status: 'verified' | 'rejected'
 }
 
-function getAnalysisStatusLabel(status?: string) {
-  if (!status) return 'pending'
-  if (status === 'pending') return 'pending'
-  if (status === 'analyzing') return 'analyzing'
-  if (status === 'completed') return 'completed'
-  if (status === 'failed') return 'failed'
-  return status
+function formatAnalysisStatus(status?: string) {
+  if (!status) return '待触发'
+  const map: Record<string, string> = {
+    pending: '待触发',
+    analyzing: '论证中',
+    completed: '已完成',
+    failed: '失败',
+  }
+  return map[status] ?? status
+}
+
+function formatProblemStatus(status?: string) {
+  if (!status) return '-'
+  const map: Record<string, string> = {
+    draft: '草稿',
+    pending_review: '待评审',
+    pricing_revision_required: '待重新定价',
+    budget_pending: '待资金复核',
+    approved: '已立项',
+    rejected: '不立项',
+    archived: '已归档',
+  }
+  return map[status] ?? status
+}
+
+function formatScenario(scenario?: string) {
+  if (!scenario) return '-'
+  const map: Record<string, string> = {
+    rd: '研发',
+    ops: '运维',
+    delivery: '交付',
+    support: '支持',
+    other: '其他',
+  }
+  return map[scenario] ?? scenario
+}
+
+function formatRecommendation(value?: string | null) {
+  if (!value) return '未知'
+  const map: Record<string, string> = {
+    strong_recommend: '强烈推荐',
+    recommend: '推荐',
+    neutral: '中立',
+    not_recommend: '不推荐',
+  }
+  return map[value] ?? value
+}
+
+function formatRiskLevel(level: string) {
+  const map: Record<string, string> = {
+    high: '高风险',
+    medium: '中风险',
+    low: '低风险',
+  }
+  return map[level] ?? level
+}
+
+function formatHypothesisType(type: string) {
+  const map: Record<string, string> = {
+    market: '市场',
+    technical: '技术',
+    requirement: '需求',
+  }
+  return map[type] ?? type
 }
 
 export function HypothesisVerificationPage({ userId }: Props) {
@@ -123,7 +180,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
         setHypotheses([])
         const nextHint =
           selectedProblem?.analysis_status === 'analyzing'
-            ? 'ProdMind 正在论证中，请稍后再点“加载报告”。'
+            ? 'ProdMind 正在论证中，请稍后再点击“加载报告”。'
             : '当前还没有可用论证报告，可点击“重新论证”触发。'
         setAnalysisHint(nextHint)
       } else {
@@ -313,7 +370,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
             {problems.length === 0 && <option value="">暂无可选问题</option>}
             {problems.map((item) => (
               <option key={item.id} value={item.id}>
-                #{item.id} [{item.status}] {item.title}
+                #{item.id} [{formatProblemStatus(item.status)}] {item.title}
               </option>
             ))}
           </select>
@@ -321,7 +378,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
 
         {selectedProblem && (
           <p className="wide muted">
-            当前问题：#{selectedProblem.id} / 场景 {selectedProblem.scenario} / 论证状态 {getAnalysisStatusLabel(selectedProblem.analysis_status)}
+            当前问题：#{selectedProblem.id} / 场景 {formatScenario(selectedProblem.scenario)} / 论证状态 {formatAnalysisStatus(selectedProblem.analysis_status)}
           </p>
         )}
 
@@ -350,7 +407,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
             <h3>论证结论</h3>
             <div className="line-metric">
               <span>立项建议</span>
-              <strong>{analysis.report.grounder.recommendation || '未知'}</strong>
+              <strong>{formatRecommendation(analysis.report.grounder.recommendation)}</strong>
             </div>
             <div className="line-metric">
               <span>置信度</span>
@@ -358,22 +415,25 @@ export function HypothesisVerificationPage({ userId }: Props) {
             </div>
             <div className="line-metric">
               <span>状态</span>
-              <strong>{analysis.status}</strong>
+              <strong>{formatAnalysisStatus(analysis.status)}</strong>
             </div>
+            {analysis.status === 'failed' && (
+              <p className="muted">失败原因：{analysis.error_message || '未返回错误详情'}</p>
+            )}
           </article>
 
           <article className="panel">
-            <h3>问题重构（Architect）</h3>
+            <h3>问题重构</h3>
             <div className="analysis-section">
               <p><strong>核心问题：</strong>{analysis.report.architect.core_problem || '-'}</p>
-              <p><strong>目标用户：</strong>{analysis.report.architect.target_users?.join(', ') || '-'}</p>
+              <p><strong>目标用户：</strong>{analysis.report.architect.target_users?.join('、') || '-'}</p>
               <p><strong>问题边界：</strong>{analysis.report.architect.problem_boundaries || '-'}</p>
               <p><strong>成功标准：</strong>{analysis.report.architect.success_criteria || '-'}</p>
             </div>
           </article>
 
           <article className="panel">
-            <h3>假设挑战（Assassin）</h3>
+            <h3>假设挑战</h3>
             <div className="analysis-section">
               {analysis.report.assassin.assumptions_challenged?.length > 0 ? (
                 analysis.report.assassin.assumptions_challenged.map((item, idx) => (
@@ -394,9 +454,9 @@ export function HypothesisVerificationPage({ userId }: Props) {
               <div key={hyp.id} className="hypothesis-card">
                 <div className="hypothesis-header">
                   <span className="risk-badge" style={{ backgroundColor: getRiskColor(hyp.risk_level) }}>
-                    {hyp.risk_level}
+                    {formatRiskLevel(hyp.risk_level)}
                   </span>
-                  <span className="type-badge">{hyp.hypothesis_type}</span>
+                  <span className="type-badge">{formatHypothesisType(hyp.hypothesis_type)}</span>
                   {getStatusBadge(hyp.verification_status)}
                 </div>
                 <p className="hypothesis-content">{hyp.hypothesis_content}</p>
