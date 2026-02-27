@@ -13,7 +13,7 @@ from app.badges import (
     list_user_badges as list_user_badge_details,
 )
 from app.enums import ProblemStatus, RewardRoleType, RewardStatus
-from app.models import Claim, ClaimMember, Deliverable, Knowledge, Problem, Reward, Task
+from app.models import Claim, ClaimMember, Deliverable, Knowledge, Problem, Reward, Task, User
 from app.schemas import RewardRead
 from app.services_common import (
     _cents_to_amount,
@@ -25,11 +25,17 @@ from app.services_common import (
 )
 
 
-def _reward_to_read(reward: Reward) -> RewardRead:
+def _reward_to_read(
+    reward: Reward,
+    task_title: str | None = None,
+    user_name: str | None = None,
+) -> RewardRead:
     return RewardRead(
         id=reward.id,
         task_id=reward.task_id,
+        task_title=task_title,
         user_id=reward.user_id,
+        user_name=user_name,
         role_type=reward.role_type.value,
         amount=reward.amount,
         points=reward.points,
@@ -164,7 +170,11 @@ def list_rewards(
     offset: int = 0,
     limit: int = 200,
 ) -> list[RewardRead]:
-    statement = select(Reward)
+    statement = (
+        select(Reward, Task.title.label("task_title"), User.name.label("user_name"))
+        .join(Task, Task.id == Reward.task_id)
+        .join(User, User.id == Reward.user_id)
+    )
     if user_id is not None:
         statement = statement.where(Reward.user_id == user_id)
     if status is not None:
@@ -172,7 +182,7 @@ def list_rewards(
     safe_offset = max(offset, 0)
     safe_limit = max(1, min(limit, 200))
     rows = session.exec(statement.order_by(Reward.created_at.desc()).offset(safe_offset).limit(safe_limit)).all()
-    return [_reward_to_read(row) for row in rows]
+    return [_reward_to_read(row, task_title=task_title, user_name=user_name) for row, task_title, user_name in rows]
 
 
 def confirm_reward(
@@ -200,7 +210,13 @@ def confirm_reward(
     )
     session.commit()
     session.refresh(reward)
-    return _reward_to_read(reward)
+    task = session.get(Task, reward.task_id)
+    user = session.get(User, reward.user_id)
+    return _reward_to_read(
+        reward,
+        task_title=task.title if task else None,
+        user_name=user.name if user else None,
+    )
 
 
 def list_badges() -> list[dict]:

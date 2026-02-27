@@ -400,7 +400,9 @@ class AcceptanceCreate(BaseModel):
 class RewardRead(BaseModel):
     id: int
     task_id: int
+    task_title: Optional[str] = None
     user_id: int
+    user_name: Optional[str] = None
     role_type: str
     amount: float
     points: int

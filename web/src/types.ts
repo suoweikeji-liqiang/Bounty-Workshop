@@ -321,7 +321,9 @@ export type ClaimExecutionDetail = {
 export type Reward = {
   id: number
   task_id: number
+  task_title?: string | null
   user_id: number
+  user_name?: string | null
   role_type: string
   amount: number
   points: number

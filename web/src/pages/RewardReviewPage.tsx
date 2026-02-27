@@ -141,8 +141,8 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>#{item.task_id}</span>
-              <span>#{item.user_id}</span>
+              <span>{item.task_title ? `${item.task_title} (#${item.task_id})` : `#${item.task_id}`}</span>
+              <span>{item.user_name ? `${item.user_name} (#${item.user_id})` : `#${item.user_id}`}</span>
               <span>{formatRoleType(item.role_type)}</span>
               <span>¥{item.amount.toFixed(2)}</span>
               <span>
