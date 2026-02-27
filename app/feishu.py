@@ -143,6 +143,27 @@ class HttpFeishuProvider:
                         return nested[key]
         return None
 
+    @staticmethod
+    def _as_text(value: object) -> str | None:
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if isinstance(value, (int, float)):
+            return str(value)
+        return None
+
+    @staticmethod
+    def _normalize_avatar_url(value: object) -> str | None:
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if isinstance(value, dict):
+            for key in ("avatar_origin", "avatar_640", "avatar_240", "avatar_72"):
+                raw = value.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    return raw.strip()
+        return None
+
     def build_login_url(self, state: str) -> str:
         query = {
             "client_id": self.app_id,
@@ -337,7 +358,7 @@ class HttpFeishuProvider:
             if not isinstance(source, dict):
                 continue
 
-            external_id = source.get("external_id") or source.get("open_id") or source.get("user_id")
+            external_id = self._as_text(source.get("external_id") or source.get("open_id") or source.get("user_id"))
             if not external_id:
                 continue
 
@@ -345,11 +366,11 @@ class HttpFeishuProvider:
             result.append(
                 {
                     "external_id": external_id,
-                    "name": source.get("name") or "UNKNOWN",
-                    "email": source.get("email"),
-                    "employee_no": source.get("employee_no"),
+                    "name": self._as_text(source.get("name") or source.get("en_name")) or "UNKNOWN",
+                    "email": self._as_text(source.get("email") or source.get("enterprise_email")),
+                    "employee_no": self._as_text(source.get("employee_no")),
                     "department": department_name,
-                    "avatar_url": source.get("avatar_url") or source.get("avatar"),
+                    "avatar_url": self._normalize_avatar_url(source.get("avatar_url") or source.get("avatar")),
                 }
             )
 
@@ -385,6 +406,15 @@ def _ensure_employee_role(session: Session, user_id: int) -> None:
     role = session.exec(select(UserRole).where(UserRole.user_id == user_id, UserRole.role == Role.EMPLOYEE)).first()
     if role is None:
         session.add(UserRole(user_id=user_id, role=Role.EMPLOYEE))
+
+
+def _as_text(value: object) -> str | None:
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, (int, float)):
+        return str(value)
+    return None
 
 
 def create_oauth_state(session: Session, provider_name: str) -> OAuthState:
@@ -480,27 +510,34 @@ def sync_departments(session: Session, departments: list[dict]) -> int:
 def sync_users(session: Session, users: list[dict]) -> int:
     synced = 0
     for row in users:
-        external_id = row.get("external_id")
+        external_id = _as_text(row.get("external_id"))
         if not external_id:
             continue
+
+        employee_no = _as_text(row.get("employee_no"))
+        name = _as_text(row.get("name")) or "UNKNOWN"
+        department = _as_text(row.get("department"))
+        email = _as_text(row.get("email"))
+        avatar_url = _as_text(row.get("avatar_url"))
+
         user = session.exec(select(User).where(User.external_id == external_id)).first()
         if user is None:
             user = User(
                 external_id=external_id,
-                employee_no=row.get("employee_no"),
-                name=row.get("name") or "UNKNOWN",
-                department=row.get("department"),
-                email=row.get("email"),
-                avatar_url=row.get("avatar_url"),
+                employee_no=employee_no,
+                name=name,
+                department=department,
+                email=email,
+                avatar_url=avatar_url,
             )
             session.add(user)
             session.flush()
         else:
-            user.employee_no = row.get("employee_no") or user.employee_no
-            user.name = row.get("name") or user.name
-            user.department = row.get("department") or user.department
-            user.email = row.get("email") or user.email
-            user.avatar_url = row.get("avatar_url") or user.avatar_url
+            user.employee_no = employee_no or user.employee_no
+            user.name = name or user.name
+            user.department = department or user.department
+            user.email = email or user.email
+            user.avatar_url = avatar_url or user.avatar_url
         _ensure_employee_role(session, user.id)
         synced += 1
     session.commit()
