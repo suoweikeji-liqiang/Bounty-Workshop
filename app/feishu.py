@@ -186,19 +186,71 @@ class HttpFeishuProvider:
         }
 
     def _list_from_endpoint(self, url: str) -> list[dict]:
+        def _extract_rows(payload: object) -> tuple[list[dict], bool, str | None]:
+            if isinstance(payload, list):
+                return [row for row in payload if isinstance(row, dict)], False, None
+
+            if not isinstance(payload, dict):
+                return [], False, None
+
+            data = payload.get("data")
+            if isinstance(data, list):
+                rows = [row for row in data if isinstance(row, dict)]
+            elif isinstance(data, dict):
+                rows = []
+                for key in ("items", "users", "departments"):
+                    value = data.get(key)
+                    if isinstance(value, list):
+                        rows = [row for row in value if isinstance(row, dict)]
+                        break
+            else:
+                rows = []
+                for key in ("items", "users", "departments"):
+                    value = payload.get(key)
+                    if isinstance(value, list):
+                        rows = [row for row in value if isinstance(row, dict)]
+                        break
+
+            has_more = False
+            page_token: str | None = None
+            if isinstance(data, dict):
+                has_more = bool(data.get("has_more"))
+                token = data.get("page_token")
+                if isinstance(token, str) and token.strip():
+                    page_token = token.strip()
+            else:
+                has_more = bool(payload.get("has_more"))
+                token = payload.get("page_token")
+                if isinstance(token, str) and token.strip():
+                    page_token = token.strip()
+
+            return rows, has_more, page_token
+
         app_token = self._get_app_access_token()
+        rows: list[dict] = []
+        next_url = url
+        max_pages = 200
+        page_count = 0
+
         with httpx.Client(timeout=10) as client:
-            resp = client.get(url, headers={"Authorization": f"Bearer {app_token}"})
-            resp.raise_for_status()
-            payload = resp.json()
-        if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict):
-            for key in ["items", "data", "users", "departments"]:
-                value = payload.get(key)
-                if isinstance(value, list):
-                    return value
-        return []
+            while next_url and page_count < max_pages:
+                resp = client.get(next_url, headers={"Authorization": f"Bearer {app_token}"})
+                resp.raise_for_status()
+                payload = resp.json()
+                current_rows, has_more, page_token = _extract_rows(payload)
+                rows.extend(current_rows)
+
+                if not has_more:
+                    break
+
+                if not page_token:
+                    break
+
+                separator = "&" if "?" in url else "?"
+                next_url = f"{url}{separator}page_token={page_token}"
+                page_count += 1
+
+        return rows
 
     def list_departments(self) -> list[dict]:
         rows = self._list_from_endpoint(self.departments_url)
