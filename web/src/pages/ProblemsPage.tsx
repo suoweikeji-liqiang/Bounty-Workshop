@@ -1,11 +1,12 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { AnalysisReportView } from '../components/AnalysisReportView'
 import { AttachmentField } from '../components/AttachmentField'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { Attachment, Problem, ProblemDetail } from '../types'
+import type { Attachment, Problem, ProblemAnalysisReport, ProblemDetail } from '../types'
 
 type Props = {
   userId: number
@@ -114,6 +115,9 @@ export function ProblemsPage({ userId }: Props) {
   const [list, setList] = useState<Problem[]>([])
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
   const [editingProblemId, setEditingProblemId] = useState<number | null>(null)
+  const [analysisProblemId, setAnalysisProblemId] = useState<number | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<ProblemAnalysisReport | null>(null)
+  const [analysisDetailLoading, setAnalysisDetailLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -299,6 +303,35 @@ export function ProblemsPage({ userId }: Props) {
     if (!error) return
     toast.error(error)
   }, [error, toast])
+
+  useEffect(() => {
+    if (analysisProblemId === null) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAnalysisProblemId(null)
+        setAnalysisDetail(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [analysisProblemId])
+
+  const openAnalysisDetail = async (problemId: number) => {
+    setAnalysisProblemId(problemId)
+    setAnalysisDetailLoading(true)
+    try {
+      setError(null)
+      const detail = await requestJson<ProblemAnalysisReport>(`/problems/${problemId}/analysis`, { userId })
+      setAnalysisDetail(detail)
+    } catch (err) {
+      setAnalysisDetail(null)
+      setError(err instanceof Error ? err.message : '加载论证详情失败')
+    } finally {
+      setAnalysisDetailLoading(false)
+    }
+  }
 
   const canEditStatus = useMemo(
     () => new Set(['draft', 'rejected']),
@@ -525,6 +558,9 @@ export function ProblemsPage({ userId }: Props) {
                 {item.status === 'draft' && (
                   <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
                 )}
+                {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
+                  <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
+                )}
                 {item.status !== 'archived' && item.status !== 'rejected' && (
                   <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
                 )}
@@ -533,6 +569,32 @@ export function ProblemsPage({ userId }: Props) {
           ))}
         </div>
       </article>
+
+      {analysisProblemId !== null && (
+        <div className="modal-backdrop" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null) }}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="论证详情"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-headline">
+              <h3>ProdMind 论证详情（问题 #{analysisProblemId}）</h3>
+              <button type="button" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null) }}>
+                关闭
+              </button>
+            </div>
+            {analysisDetailLoading ? (
+              <p>加载中...</p>
+            ) : analysisDetail ? (
+              <AnalysisReportView analysis={analysisDetail} />
+            ) : (
+              <p>暂无论证详情</p>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }

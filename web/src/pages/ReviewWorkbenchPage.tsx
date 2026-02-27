@@ -1,6 +1,8 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 
+import { AnalysisReportView } from '../components/AnalysisReportView'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -63,6 +65,7 @@ function problemTone(status: string): 'success' | 'warn' | 'danger' | 'info' | '
 
 export function ReviewWorkbenchPage({ userId }: Props) {
   const toast = useToast()
+  const navigate = useNavigate()
   const [pendingProblems, setPendingProblems] = useState<Problem[]>([])
   const [acceptors, setAcceptors] = useState<UserProfile[]>([])
   const [badges, setBadges] = useState<BadgeDefinition[]>([])
@@ -311,10 +314,6 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             <h3>ProdMind 论证参考</h3>
             {selectedAnalysis ? (
               <>
-                <p>
-                  建议：{selectedAnalysis.recommendation || '未提供'}
-                  {selectedAnalysis.confidence ? `（置信度 ${Math.round(selectedAnalysis.confidence * 100)}%）` : ''}
-                </p>
                 <label>
                   对论证建议采纳意见（可选）
                   <textarea
@@ -323,6 +322,19 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                     placeholder="说明你采纳/不采纳的理由"
                   />
                 </label>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedProblem) {
+                        navigate(`/hypothesis?problemId=${selectedProblem.id}`)
+                      }
+                    }}
+                  >
+                    进入假设验证
+                  </button>
+                </div>
+                <AnalysisReportView analysis={selectedAnalysis} />
               </>
             ) : selectedProblemDetail.analysis_status === 'analyzing' ? (
               <p>论证进行中，请稍后刷新。</p>

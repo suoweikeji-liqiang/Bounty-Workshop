@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -15,6 +16,7 @@ type VerificationDraft = {
 
 export function HypothesisVerificationPage({ userId }: Props) {
   const toast = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [problems, setProblems] = useState<Problem[]>([])
   const [problemId, setProblemId] = useState('')
   const [analysis, setAnalysis] = useState<ProblemAnalysisReport | null>(null)
@@ -42,11 +44,19 @@ export function HypothesisVerificationPage({ userId }: Props) {
     try {
       setLoadingProblems(true)
       setError(null)
-      const rows = await requestJson<Problem[]>('/problems?mine_only=true&limit=200', { userId })
+      const [pending, repricing] = await Promise.all([
+        requestJson<Problem[]>('/problems?status=pending_review&limit=200', { userId }),
+        requestJson<Problem[]>('/problems?status=pricing_revision_required&limit=200', { userId }),
+      ])
+      const rows = [...pending, ...repricing]
       setProblems(rows)
+      const queryProblemId = searchParams.get('problemId')
       setProblemId((prev) => {
         if (prev && rows.some((item) => String(item.id) === prev)) {
           return prev
+        }
+        if (queryProblemId && rows.some((item) => String(item.id) === queryProblemId)) {
+          return queryProblemId
         }
         return rows.length > 0 ? String(rows[0].id) : ''
       })
@@ -59,7 +69,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
     } finally {
       setLoadingProblems(false)
     }
-  }, [userId])
+  }, [searchParams, userId])
 
   const loadAnalysis = useCallback(async () => {
     const id = parseProblemId()
@@ -176,6 +186,34 @@ export function HypothesisVerificationPage({ userId }: Props) {
   }, [loadProblemOptions])
 
   useEffect(() => {
+    const queryProblemId = searchParams.get('problemId')
+    if (!queryProblemId) {
+      return
+    }
+    if (queryProblemId !== problemId) {
+      setProblemId(queryProblemId)
+      setAnalysis(null)
+      setHypotheses([])
+    }
+  }, [problemId, searchParams])
+
+  useEffect(() => {
+    if (!problemId) {
+      return
+    }
+    void loadAnalysis()
+  }, [problemId, loadAnalysis])
+
+  useEffect(() => {
+    if (!problemId) {
+      return
+    }
+    if (searchParams.get('problemId') !== problemId) {
+      setSearchParams({ problemId })
+    }
+  }, [problemId, searchParams, setSearchParams])
+
+  useEffect(() => {
     if (error) toast.error(error)
   }, [error, toast])
 
@@ -206,8 +244,8 @@ export function HypothesisVerificationPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>假设验证工作台</h2>
-        <p>查看问题论证报告，验证 ProdMind 生成的假设清单。</p>
+        <h2>假设验证（审核）</h2>
+        <p>本页面由审核人/管理员操作：对 ProdMind 假设做验证记录。提交人请在「问题提报」页查看论证详情。</p>
       </header>
 
       <form
@@ -222,7 +260,13 @@ export function HypothesisVerificationPage({ userId }: Props) {
           <select
             value={problemId}
             onChange={(event) => {
-              setProblemId(event.target.value)
+              const next = event.target.value
+              setProblemId(next)
+              if (next) {
+                setSearchParams({ problemId: next })
+              } else {
+                setSearchParams({})
+              }
               setAnalysis(null)
               setHypotheses([])
             }}

@@ -126,6 +126,7 @@ export default function App(props: Props) {
           {canBudgetReview && <NavLink to="/budget-review">资金复核</NavLink>}
           <NavLink to="/execution">执行闭环</NavLink>
           {canReviewOrAdmin && <NavLink to="/reward-review">奖励复核</NavLink>}
+          {canReviewOrAdmin && <NavLink to="/hypothesis">假设验证（审核）</NavLink>}
           <NavLink to="/knowledge">知识库</NavLink>
 
           <p className="sidenav-group-title">个人操作</p>
@@ -134,7 +135,6 @@ export default function App(props: Props) {
 
           <p className="sidenav-group-title">设置操作</p>
           {canReviewOrAdmin && <NavLink to="/operation-logs">操作日志</NavLink>}
-          {canReviewOrAdmin && <NavLink to="/hypothesis">假设验证</NavLink>}
           {(canReviewOrAdmin || canAcceptOrAdmin) && <NavLink to="/feishu">飞书集成</NavLink>}
           {isAdmin && <NavLink to="/ai-models">AI 模型</NavLink>}
           {isAdmin && <NavLink to="/users">角色分配</NavLink>}
