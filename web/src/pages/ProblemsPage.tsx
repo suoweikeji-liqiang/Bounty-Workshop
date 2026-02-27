@@ -5,7 +5,7 @@ import { AnalysisReportView } from '../components/AnalysisReportView'
 import { AttachmentField } from '../components/AttachmentField'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
-import { requestJson } from '../lib/http'
+import { downloadFile, requestJson } from '../lib/http'
 import type { Attachment, Problem, ProblemAnalysisReport, ProblemDetail } from '../types'
 
 type Props = {
@@ -699,9 +699,13 @@ export function ProblemsPage({ userId }: Props) {
                     <ul>
                       {detailAttachments.map((file) => (
                         <li key={file.id}>
-                          <a href={file.download_url} target="_blank" rel="noreferrer">
+                          <button
+                            type="button"
+                            className="link-btn"
+                            onClick={() => void downloadFile(file.download_url, file.filename, { userId })}
+                          >
                             {file.filename}
-                          </a>
+                          </button>
                         </li>
                       ))}
                     </ul>

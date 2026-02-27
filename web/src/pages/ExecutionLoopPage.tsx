@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 
 import { AttachmentField } from '../components/AttachmentField'
 import { useToast } from '../components/ToastProvider'
-import { requestJson } from '../lib/http'
+import { downloadFile, requestJson } from '../lib/http'
 import type {
   Attachment,
   AcceptanceTemplatesConfig,
@@ -84,6 +84,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const [claims, setClaims] = useState<ClaimExecution[]>([])
   const [pendingAcceptance, setPendingAcceptance] = useState<PendingAcceptance[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])
+  const [submitPanelOpen, setSubmitPanelOpen] = useState(true)
+  const [acceptancePanelOpen, setAcceptancePanelOpen] = useState(true)
+  const [rewardPanelOpen, setRewardPanelOpen] = useState(true)
   const [claimId, setClaimId] = useState('')
   const [summary, setSummary] = useState('')
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
@@ -117,9 +120,26 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         .sort((a, b) => b.claim_id - a.claim_id),
     [claims],
   )
+  const pendingGeneratedRewards = useMemo(
+    () => rewards.filter((item) => item.status === 'generated').length,
+    [rewards],
+  )
 
   const handleUploadedAttachmentsChange = (next: Attachment[]) => {
     setUploadedAttachments(next)
+  }
+
+  const openEvidence = async (url: string, idx: number) => {
+    try {
+      setError(null)
+      if (/^https?:\/\//i.test(url) && !url.includes('/attachments/')) {
+        window.open(url, '_blank', 'noopener,noreferrer')
+        return
+      }
+      await downloadFile(url, `evidence-${idx + 1}`, { userId })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '打开证据失败')
+    }
   }
 
   const loadTemplates = useCallback(async () => {
@@ -168,12 +188,22 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   useEffect(() => {
     if (deliverableClaimOptions.length === 0) {
       setClaimId('')
-      return
-    }
-    if (!deliverableClaimOptions.some((item) => String(item.claim_id) === claimId)) {
+    } else if (!deliverableClaimOptions.some((item) => String(item.claim_id) === claimId)) {
       setClaimId(String(deliverableClaimOptions[0].claim_id))
     }
   }, [claimId, deliverableClaimOptions])
+
+  useEffect(() => {
+    setSubmitPanelOpen(deliverableClaimOptions.length > 0)
+  }, [deliverableClaimOptions.length])
+
+  useEffect(() => {
+    setAcceptancePanelOpen(pendingAcceptance.length > 0)
+  }, [pendingAcceptance.length])
+
+  useEffect(() => {
+    setRewardPanelOpen(pendingGeneratedRewards > 0)
+  }, [pendingGeneratedRewards])
 
   const submitDeliverable = async (event: FormEvent) => {
     event.preventDefault()
@@ -343,160 +373,206 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
               </span>
             </div>
           ))}
+          {claims.length === 0 && <p className="muted">暂无揭榜记录</p>}
         </div>
       </article>
 
       {canSubmitDeliverable && (
-        <form className="panel form-grid" onSubmit={submitDeliverable}>
-          <h3>提交成果</h3>
-          <label>
-            揭榜
-            <select value={claimId} onChange={(event) => setClaimId(event.target.value)} required>
-              {deliverableClaimOptions.length === 0 && <option value="">暂无可提交的进行中揭榜</option>}
-              {deliverableClaimOptions.map((item) => (
-                <option key={`deliverable-claim-${item.claim_id}`} value={item.claim_id}>
-                  #{item.claim_id} [{formatCommonStatus(item.claim_status)}] {item.task_title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="wide">
-            成果说明
-            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
-          </label>
-          <AttachmentField
-            userId={userId}
-            value={uploadedAttachments}
-            onChange={handleUploadedAttachmentsChange}
-            label="证据附件"
-          />
-          <button className="primary-btn" type="submit">
-            提交成果
-          </button>
-        </form>
+        <article className="panel">
+          <div className="panel-headline">
+            <h3>提交成果</h3>
+            <span className="actions">
+              <span className="muted">待提交 {deliverableClaimOptions.length}</span>
+              <button type="button" onClick={() => setSubmitPanelOpen((prev) => !prev)}>
+                {submitPanelOpen ? '收起' : '展开'}
+              </button>
+            </span>
+          </div>
+          {submitPanelOpen ? (
+            deliverableClaimOptions.length === 0 ? (
+              <p className="muted">暂无可提交的进行中揭榜，已自动收起该区域。</p>
+            ) : (
+              <form className="form-grid" onSubmit={submitDeliverable}>
+                <label>
+                  揭榜
+                  <select value={claimId} onChange={(event) => setClaimId(event.target.value)} required>
+                    {deliverableClaimOptions.map((item) => (
+                      <option key={`deliverable-claim-${item.claim_id}`} value={item.claim_id}>
+                        #{item.claim_id} [{formatCommonStatus(item.claim_status)}] {item.task_title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="wide">
+                  成果说明
+                  <textarea value={summary} onChange={(event) => setSummary(event.target.value)} required />
+                </label>
+                <AttachmentField
+                  userId={userId}
+                  value={uploadedAttachments}
+                  onChange={handleUploadedAttachmentsChange}
+                  label="证据附件"
+                />
+                <button className="primary-btn" type="submit">
+                  提交成果
+                </button>
+              </form>
+            )
+          ) : (
+            <p className="muted">当前区域已收起。</p>
+          )}
+        </article>
       )}
 
       {canAccept && (
         <article className="panel">
-          <h3>待验收成果</h3>
-          <p className="muted">验收意见可直接手填，也可点模板建议快速填入。模板内容在「系统配置」维护。</p>
-          <div className="table">
-            <div className="row head wide-row">
-              <span>成果</span>
-              <span>揭榜</span>
-              <span>任务</span>
-              <span>提交人</span>
-              <span>提交时间</span>
-              <span>操作</span>
-            </div>
-            {pendingAcceptance.map((item) => {
-              const draft = ensureDraft(item.deliverable_id)
-              const openEditor = activeAcceptanceId === item.deliverable_id
-              return (
-                <div key={item.deliverable_id}>
-                  <div className="row wide-row">
-                    <span>#{item.deliverable_id}</span>
-                    <span>#{item.claim_id}</span>
-                    <span>{item.task_title}</span>
-                    <span>#{item.lead_user_id}</span>
-                    <span>{new Date(item.submitted_at).toLocaleString()}</span>
-                    <span className="actions">
-                      <button type="button" onClick={() => void openDetail(item.claim_id)}>
-                        详情
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveAcceptanceId(openEditor ? null : item.deliverable_id)}
-                      >
-                        {openEditor ? '收起' : '验收面板'}
-                      </button>
-                    </span>
-                  </div>
-                  {openEditor && (
-                    <div className="acceptance-editor">
-                      <label>
-                        验收结果
-                        <select
-                          value={draft.result}
-                          onChange={(event) =>
-                            handleResultChange(item.deliverable_id, event.target.value as AcceptanceResult)
-                          }
-                        >
-                          <option value="approved">通过</option>
-                          <option value="rework">整改</option>
-                          <option value="rejected">不通过</option>
-                        </select>
-                      </label>
-                      <div className="template-row">
-                        {templates[draft.result].map((template) => (
-                          <button
-                            key={template}
-                            type="button"
-                            className="chip-btn"
-                            onClick={() => applyTemplate(item.deliverable_id, draft.result, template)}
-                          >
-                            {template}
-                          </button>
-                        ))}
-                      </div>
-                      <label>
-                        验收意见
-                        <textarea
-                          value={draft.comment}
-                          onChange={(event) =>
-                            setDraft(item.deliverable_id, { ...draft, comment: event.target.value })
-                          }
-                        />
-                      </label>
-                      <div className="button-row">
-                        <button
-                          className="primary-btn"
-                          type="button"
-                          onClick={() => void submitAcceptance(item.deliverable_id)}
-                        >
-                          提交验收
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div className="panel-headline">
+            <h3>待验收成果</h3>
+            <span className="actions">
+              <span className="muted">待处理 {pendingAcceptance.length}</span>
+              <button type="button" onClick={() => setAcceptancePanelOpen((prev) => !prev)}>
+                {acceptancePanelOpen ? '收起' : '展开'}
+              </button>
+            </span>
           </div>
+          {acceptancePanelOpen ? (
+            <>
+              <p className="muted">验收意见可直接手填，也可点模板建议快速填入。模板内容在「系统配置」维护。</p>
+              <div className="table">
+                <div className="row head wide-row">
+                  <span>成果</span>
+                  <span>揭榜</span>
+                  <span>任务</span>
+                  <span>提交人</span>
+                  <span>提交时间</span>
+                  <span>操作</span>
+                </div>
+                {pendingAcceptance.map((item) => {
+                  const draft = ensureDraft(item.deliverable_id)
+                  const openEditor = activeAcceptanceId === item.deliverable_id
+                  return (
+                    <div key={item.deliverable_id}>
+                      <div className="row wide-row">
+                        <span>#{item.deliverable_id}</span>
+                        <span>#{item.claim_id}</span>
+                        <span>{item.task_title}</span>
+                        <span>#{item.lead_user_id}</span>
+                        <span>{new Date(item.submitted_at).toLocaleString()}</span>
+                        <span className="actions">
+                          <button type="button" onClick={() => void openDetail(item.claim_id)}>
+                            详情
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveAcceptanceId(openEditor ? null : item.deliverable_id)}
+                          >
+                            {openEditor ? '收起' : '验收面板'}
+                          </button>
+                        </span>
+                      </div>
+                      {openEditor && (
+                        <div className="acceptance-editor">
+                          <label>
+                            验收结果
+                            <select
+                              value={draft.result}
+                              onChange={(event) =>
+                                handleResultChange(item.deliverable_id, event.target.value as AcceptanceResult)
+                              }
+                            >
+                              <option value="approved">通过</option>
+                              <option value="rework">整改</option>
+                              <option value="rejected">不通过</option>
+                            </select>
+                          </label>
+                          <div className="template-row">
+                            {templates[draft.result].map((template) => (
+                              <button
+                                key={template}
+                                type="button"
+                                className="chip-btn"
+                                onClick={() => applyTemplate(item.deliverable_id, draft.result, template)}
+                              >
+                                {template}
+                              </button>
+                            ))}
+                          </div>
+                          <label>
+                            验收意见
+                            <textarea
+                              value={draft.comment}
+                              onChange={(event) =>
+                                setDraft(item.deliverable_id, { ...draft, comment: event.target.value })
+                              }
+                            />
+                          </label>
+                          <div className="button-row">
+                            <button
+                              className="primary-btn"
+                              type="button"
+                              onClick={() => void submitAcceptance(item.deliverable_id)}
+                            >
+                              提交验收
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {pendingAcceptance.length === 0 && <p className="muted">暂无待验收成果，已自动收起该区域。</p>}
+              </div>
+            </>
+          ) : (
+            <p className="muted">当前区域已收起。</p>
+          )}
         </article>
       )}
 
       {canConfirmReward && (
         <article className="panel">
-          <h3>奖励确认</h3>
-          <div className="table">
-            <div className="row head wide-row">
-              <span>ID</span>
-              <span>任务</span>
-              <span>用户</span>
-              <span>金额</span>
-              <span>状态</span>
-              <span>操作</span>
-            </div>
-            {rewards.map((item) => (
-              <div className="row wide-row" key={item.id}>
-                <span>#{item.id}</span>
-                <span>#{item.task_id}</span>
-                <span>#{item.user_id}</span>
-                <span>¥{item.amount.toFixed(2)}</span>
-                <span>{formatCommonStatus(item.status)}</span>
-                <span>
-                  {item.status === 'generated' ? (
-                    <button type="button" onClick={() => void confirmReward(item.id)}>
-                      确认
-                    </button>
-                  ) : (
-                    '已确认'
-                  )}
-                </span>
-              </div>
-            ))}
+          <div className="panel-headline">
+            <h3>奖励确认</h3>
+            <span className="actions">
+              <span className="muted">待确认 {pendingGeneratedRewards}</span>
+              <button type="button" onClick={() => setRewardPanelOpen((prev) => !prev)}>
+                {rewardPanelOpen ? '收起' : '展开'}
+              </button>
+            </span>
           </div>
+          {rewardPanelOpen ? (
+            <div className="table">
+              <div className="row head wide-row">
+                <span>ID</span>
+                <span>任务</span>
+                <span>用户</span>
+                <span>金额</span>
+                <span>状态</span>
+                <span>操作</span>
+              </div>
+              {rewards.map((item) => (
+                <div className="row wide-row" key={item.id}>
+                  <span>#{item.id}</span>
+                  <span>#{item.task_id}</span>
+                  <span>#{item.user_id}</span>
+                  <span>¥{item.amount.toFixed(2)}</span>
+                  <span>{formatCommonStatus(item.status)}</span>
+                  <span>
+                    {item.status === 'generated' ? (
+                      <button type="button" onClick={() => void confirmReward(item.id)}>
+                        确认
+                      </button>
+                    ) : (
+                      '已确认'
+                    )}
+                  </span>
+                </div>
+              ))}
+              {rewards.length === 0 && <p className="muted">暂无奖励记录，已自动收起该区域。</p>}
+            </div>
+          ) : (
+            <p className="muted">当前区域已收起。</p>
+          )}
         </article>
       )}
 
@@ -569,9 +645,13 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                 <ul>
                   {detail.evidence_urls.map((url, idx) => (
                     <li key={`${url}-${idx}`}>
-                      <a href={url} target="_blank" rel="noreferrer">
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => void openEvidence(url, idx)}
+                      >
                         打开证据 #{idx + 1}
-                      </a>
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -631,3 +631,19 @@ button:disabled {
 .muted {
   color: var(--text-muted);
 }
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--brand-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+  font-weight: 500;
+}
+
+.link-btn:hover {
+  border: none;
+  background: transparent;
+  color: var(--brand-secondary);
+}

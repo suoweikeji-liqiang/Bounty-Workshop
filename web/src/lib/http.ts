@@ -35,6 +35,13 @@ function buildHeaders(options: HttpOptions): Record<string, string> {
   return headers
 }
 
+function buildRequestUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path
+  }
+  return `${apiBaseUrl}${path}`
+}
+
 export async function requestJson<T>(path: string, options: HttpOptions): Promise<T> {
   const { method = 'GET', body, formData } = options
   const headers = buildHeaders(options)
@@ -46,7 +53,7 @@ export async function requestJson<T>(path: string, options: HttpOptions): Promis
     payload = JSON.stringify(body)
   }
 
-  const res = await fetch(`${apiBaseUrl}${path}`, {
+  const res = await fetch(buildRequestUrl(path), {
     method,
     headers,
     body: payload,
@@ -65,7 +72,7 @@ export async function requestJson<T>(path: string, options: HttpOptions): Promis
 
 export async function downloadFile(path: string, filename: string, options: HttpOptions): Promise<void> {
   const headers = buildHeaders(options)
-  const res = await fetch(`${apiBaseUrl}${path}`, { headers })
+  const res = await fetch(buildRequestUrl(path), { headers })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`${res.status} ${res.statusText}: ${text}`)
@@ -92,7 +99,7 @@ export async function requestRaw(path: string, options: HttpOptions): Promise<Re
     payload = JSON.stringify(body)
   }
 
-  const res = await fetch(`${apiBaseUrl}${path}`, {
+  const res = await fetch(buildRequestUrl(path), {
     method,
     headers,
     body: payload,
