@@ -10,10 +10,26 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.enums import Role
-from app.models import Department, OAuthState, SystemConfig, User, UserRole
+from app.models import (
+    Acceptance,
+    Attachment,
+    Claim,
+    ClaimApprovalRequest,
+    ClaimMember,
+    Department,
+    OAuthState,
+    Problem,
+    Reward,
+    SystemConfig,
+    Task,
+    User,
+    UserBadge,
+    UserRole,
+)
 from app.schemas import (
     AcceptanceTemplatesConfig,
     DepartmentRead,
@@ -462,6 +478,121 @@ def _as_text(value: object) -> str | None:
     return None
 
 
+def _is_empty_external_id_expr():
+    return or_(User.external_id.is_(None), User.external_id == "")
+
+
+def _find_unique_local_user_for_merge(
+    session: Session,
+    *,
+    employee_no: str | None,
+    email: str | None,
+    name: str | None,
+    exclude_user_id: int | None = None,
+) -> User | None:
+    def _query_one(field, value: str | None) -> User | None:
+        if not value:
+            return None
+        stmt = select(User).where(_is_empty_external_id_expr(), field == value)
+        if exclude_user_id is not None:
+            stmt = stmt.where(User.id != exclude_user_id)
+        rows = session.exec(stmt).all()
+        if len(rows) == 1:
+            return rows[0]
+        return None
+
+    by_employee = _query_one(User.employee_no, employee_no)
+    if by_employee is not None:
+        return by_employee
+    by_email = _query_one(User.email, email)
+    if by_email is not None:
+        return by_email
+    return _query_one(User.name, name)
+
+
+def _user_has_business_refs(session: Session, user_id: int) -> bool:
+    return any(
+        session.exec(stmt).first() is not None
+        for stmt in (
+            select(Problem.id).where(Problem.submitter_id == user_id).limit(1),
+            select(Problem.id).where(Problem.priced_accepter_id == user_id).limit(1),
+            select(Problem.id).where(Problem.priced_by_user_id == user_id).limit(1),
+            select(Problem.id).where(Problem.budget_reviewed_by_user_id == user_id).limit(1),
+            select(Task.id).where(Task.accepter_id == user_id).limit(1),
+            select(Claim.id).where(Claim.lead_user_id == user_id).limit(1),
+            select(ClaimMember.claim_id).where(ClaimMember.user_id == user_id).limit(1),
+            select(ClaimApprovalRequest.id).where(ClaimApprovalRequest.applicant_user_id == user_id).limit(1),
+            select(ClaimApprovalRequest.id).where(ClaimApprovalRequest.reviewed_by_user_id == user_id).limit(1),
+            select(Acceptance.id).where(Acceptance.accepter_id == user_id).limit(1),
+            select(Reward.id).where(Reward.user_id == user_id).limit(1),
+            select(UserBadge.id).where(UserBadge.user_id == user_id).limit(1),
+            select(Attachment.id).where(Attachment.uploader_user_id == user_id).limit(1),
+        )
+    )
+
+
+def _merge_user_roles(session: Session, source_user_id: int, target_user_id: int) -> None:
+    source_roles = session.exec(select(UserRole).where(UserRole.user_id == source_user_id)).all()
+    target_roles = {
+        row.role for row in session.exec(select(UserRole).where(UserRole.user_id == target_user_id)).all()
+    }
+    for row in source_roles:
+        if row.role not in target_roles:
+            session.add(UserRole(user_id=target_user_id, role=row.role))
+            target_roles.add(row.role)
+        session.delete(row)
+
+
+def _try_auto_merge_existing_duplicate(
+    session: Session,
+    *,
+    synced_user: User,
+    legacy_user: User,
+    external_id: str,
+    employee_no: str | None,
+    name: str,
+    department: str | None,
+    email: str | None,
+    avatar_url: str | None,
+) -> User:
+    if synced_user.id is None or legacy_user.id is None:
+        return synced_user
+    if synced_user.id == legacy_user.id:
+        return synced_user
+
+    synced_has_refs = _user_has_business_refs(session, synced_user.id)
+    legacy_has_refs = _user_has_business_refs(session, legacy_user.id)
+
+    if legacy_has_refs and not synced_has_refs:
+        _merge_user_roles(session, source_user_id=synced_user.id, target_user_id=legacy_user.id)
+        legacy_user.external_id = external_id
+        legacy_user.employee_no = employee_no or legacy_user.employee_no
+        legacy_user.name = name or legacy_user.name
+        legacy_user.department = department or legacy_user.department
+        legacy_user.email = email or legacy_user.email
+        legacy_user.avatar_url = avatar_url or legacy_user.avatar_url
+        session.delete(synced_user)
+        return legacy_user
+
+    if not legacy_has_refs and synced_has_refs:
+        _merge_user_roles(session, source_user_id=legacy_user.id, target_user_id=synced_user.id)
+        session.delete(legacy_user)
+        return synced_user
+
+    if not legacy_has_refs and not synced_has_refs:
+        _merge_user_roles(session, source_user_id=synced_user.id, target_user_id=legacy_user.id)
+        legacy_user.external_id = external_id
+        legacy_user.employee_no = employee_no or legacy_user.employee_no
+        legacy_user.name = name or legacy_user.name
+        legacy_user.department = department or legacy_user.department
+        legacy_user.email = email or legacy_user.email
+        legacy_user.avatar_url = avatar_url or legacy_user.avatar_url
+        session.delete(synced_user)
+        return legacy_user
+
+    return synced_user
+
+
 def create_oauth_state(session: Session, provider_name: str) -> OAuthState:
     state = secrets.token_urlsafe(24)
     record = OAuthState(
@@ -566,8 +697,34 @@ def sync_users(session: Session, users: list[dict]) -> int:
         avatar_url = _as_text(row.get("avatar_url"))
 
         user = session.exec(select(User).where(User.external_id == external_id)).first()
+        legacy_user = _find_unique_local_user_for_merge(
+            session,
+            employee_no=employee_no,
+            email=email,
+            name=name,
+            exclude_user_id=user.id if user and user.id else None,
+        )
+
         if user is None:
-            user = User(
+            if legacy_user is not None:
+                user = legacy_user
+                user.external_id = external_id
+            else:
+                user = User(
+                    external_id=external_id,
+                    employee_no=employee_no,
+                    name=name,
+                    department=department,
+                    email=email,
+                    avatar_url=avatar_url,
+                )
+                session.add(user)
+                session.flush()
+        elif legacy_user is not None:
+            user = _try_auto_merge_existing_duplicate(
+                session,
+                synced_user=user,
+                legacy_user=legacy_user,
                 external_id=external_id,
                 employee_no=employee_no,
                 name=name,
@@ -575,14 +732,13 @@ def sync_users(session: Session, users: list[dict]) -> int:
                 email=email,
                 avatar_url=avatar_url,
             )
-            session.add(user)
-            session.flush()
-        else:
-            user.employee_no = employee_no or user.employee_no
-            user.name = name or user.name
-            user.department = department or user.department
-            user.email = email or user.email
-            user.avatar_url = avatar_url or user.avatar_url
+
+        user.employee_no = employee_no or user.employee_no
+        user.name = name or user.name
+        user.department = department or user.department
+        user.email = email or user.email
+        user.avatar_url = avatar_url or user.avatar_url
+
         _ensure_employee_role(session, user.id)
         synced += 1
     session.commit()
