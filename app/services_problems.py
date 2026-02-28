@@ -150,7 +150,6 @@ def _reset_pricing(problem: Problem) -> None:
 def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> ProblemRead:
     user = _ensure_user_exists(session, actor_id)
     attachment_urls = list(payload.attachment_urls)
-    initial_status = ProblemStatus.DRAFT if payload.task_draft is not None else ProblemStatus.PENDING_REVIEW
     problem = Problem(
         title=payload.title,
         scenario=payload.scenario,
@@ -165,7 +164,7 @@ def create_problem(session: Session, actor_id: int, payload: ProblemCreate) -> P
         current_solution=payload.current_solution,
         attachment_urls="[]",
         submitter_id=actor_id,
-        status=initial_status,
+        status=ProblemStatus.DRAFT,
         analysis_status=AnalysisStatus.PENDING,
     )
     _apply_task_draft(problem, payload)
@@ -255,7 +254,7 @@ def resubmit_problem(
     problem.attachment_urls = _to_json(list(dict.fromkeys(str(item) for item in attachment_urls)))
     _apply_task_draft(problem, payload)
 
-    problem.status = ProblemStatus.DRAFT if payload.task_draft is not None else ProblemStatus.PENDING_REVIEW
+    problem.status = ProblemStatus.DRAFT
     problem.reject_reason = None
     problem.merged_problem_id = None
     problem.reviewer_comment = None

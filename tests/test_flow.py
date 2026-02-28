@@ -160,7 +160,7 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
         headers=_headers(employee_id),
         params={
             "mine_only": "true",
-            "status": "pending_review",
+            "status": "draft",
             "scenario": "rd",
             "created_from": date.today().isoformat(),
             "created_to": date.today().isoformat(),
@@ -1479,10 +1479,23 @@ def test_rejected_problem_can_be_modified_and_resubmitted(tmp_path: Path) -> Non
             "description": "original description",
             "value_reduce_effort": True,
             "value_statement": "original value",
+            "task_draft": {
+                "goal": "original goal",
+                "scope": "original scope",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "acceptance_criteria": [{"description": "original ok", "type": "quantified"}],
+                "self_reflection": "original reflection",
+            },
         },
     )
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
+
+    submit_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(submitter_id),
+    )
+    assert submit_resp.status_code == 200
 
     reject_resp = client.post(
         f"/problems/{problem_id}/review",
@@ -1529,10 +1542,17 @@ def test_rejected_problem_can_be_modified_and_resubmitted(tmp_path: Path) -> Non
             "value_reduce_effort": True,
             "value_reduce_cost": True,
             "value_statement": "updated value",
+            "task_draft": {
+                "goal": "updated goal",
+                "scope": "updated scope",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "acceptance_criteria": [{"description": "updated ok", "type": "quantified"}],
+                "self_reflection": "updated reflection",
+            },
         },
     )
     assert resubmit_resp.status_code == 200
-    assert resubmit_resp.json()["status"] == "pending_review"
+    assert resubmit_resp.json()["status"] == "draft"
     assert resubmit_resp.json()["reject_reason"] is None
 
     detail_resp = client.get(f"/problems/{problem_id}", headers=_headers(submitter_id))
@@ -1540,7 +1560,14 @@ def test_rejected_problem_can_be_modified_and_resubmitted(tmp_path: Path) -> Non
     assert detail_resp.json()["title"] == "resubmitted problem"
     assert detail_resp.json()["scenario"] == "ops"
     assert detail_resp.json()["frequency"] == "monthly"
-    assert detail_resp.json()["status"] == "pending_review"
+    assert detail_resp.json()["status"] == "draft"
+
+    submit_resubmitted_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(submitter_id),
+    )
+    assert submit_resubmitted_resp.status_code == 200
+    assert submit_resubmitted_resp.json()["status"] == "pending_review"
 
     review_resp = client.post(
         f"/problems/{problem_id}/review",
@@ -1967,6 +1994,118 @@ def test_submitter_cannot_review_own_problem(tmp_path: Path) -> None:
         },
     )
     assert review_resp.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_incomplete_problem_draft_requires_submit_for_review(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "DraftGateReviewer",
+            "employee_no": "R990",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "DraftGateSubmitter", "employee_no": "E990", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    create_resp = client.post(
+        "/problems",
+        headers=_headers(submitter_id),
+        json={
+            "title": "incomplete-draft-problem",
+            "scenario": "rd",
+            "background": "draft should stay draft",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "missing task draft should not enter reviewer queue",
+            "value_reduce_effort": True,
+            "value_statement": "protect reviewer queue quality",
+        },
+    )
+    assert create_resp.status_code == 200
+    problem_id = create_resp.json()["id"]
+    assert create_resp.json()["status"] == "draft"
+
+    submit_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(submitter_id),
+    )
+    assert submit_resp.status_code == 400
+    assert "task draft is incomplete" in submit_resp.text
+
+    resubmit_resp = client.put(
+        f"/problems/{problem_id}/resubmit",
+        headers=_headers(submitter_id),
+        json={
+            "title": "incomplete-draft-problem-updated",
+            "scenario": "rd",
+            "background": "still incomplete",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "resubmit should also stay draft",
+            "value_reduce_effort": True,
+            "value_statement": "same issue",
+        },
+    )
+    assert resubmit_resp.status_code == 200
+    assert resubmit_resp.json()["status"] == "draft"
+
+    detail_resp = client.get(f"/problems/{problem_id}", headers=_headers(submitter_id))
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["status"] == "draft"
+
+    complete_resubmit_resp = client.put(
+        f"/problems/{problem_id}/resubmit",
+        headers=_headers(submitter_id),
+        json={
+            "title": "complete-draft-problem",
+            "scenario": "rd",
+            "background": "ready for review",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "complete task draft can be submitted later",
+            "value_reduce_effort": True,
+            "value_statement": "ready",
+            "task_draft": {
+                "goal": "ship a valid task draft",
+                "scope": "single workflow",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "acceptance_criteria": [{"description": "works", "type": "quantified"}],
+                "self_reflection": "completed required fields",
+            },
+        },
+    )
+    assert complete_resubmit_resp.status_code == 200
+    assert complete_resubmit_resp.json()["status"] == "draft"
+
+    complete_submit_resp = client.post(
+        f"/problems/{problem_id}/submit-for-review",
+        headers=_headers(submitter_id),
+    )
+    assert complete_submit_resp.status_code == 200
+    assert complete_submit_resp.json()["status"] == "pending_review"
+
+    reviewer_queue_resp = client.get(
+        "/problems",
+        headers=_headers(reviewer_id),
+        params={"status": "pending_review"},
+    )
+    assert reviewer_queue_resp.status_code == 200
+    assert any(item["id"] == problem_id for item in reviewer_queue_resp.json())
 
     app.dependency_overrides.clear()
 

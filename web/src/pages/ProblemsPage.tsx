@@ -381,6 +381,7 @@ export function ProblemsPage({ userId }: Props) {
       <header className="page-head">
         <h2>问题提报</h2>
         <p>先查看你已提报的问题，再按需新建/编辑草稿并提交评审。提交评审后会自动触发 ProdMind 论证。</p>
+        <p className="muted">保存只会更新草稿。补齐任务目标、任务范围、截止日期、验收标准和自我复盘后，再在列表中点击“提交评审”。</p>
       </header>
 
       <article className="panel">
