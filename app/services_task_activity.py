@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.attachments import bind_attachments
-from app.enums import ClaimStatus, Role, TaskActivityType
+from app.enums import ClaimStatus, Role, TaskActivityType, TaskStatus
+from app.feishu import notify_stale_progress_reminder
 from app.models import Attachment, Claim, ClaimMember, Task, TaskActivity
 from app.schemas import TaskActivityCreate, TaskActivityRead
 from app.services_claims import _has_claim_access, _load_claim_and_task
-from app.services_common import _from_json_dict, _from_json_list, _to_json
+from app.services_common import (
+    DEFAULT_STALE_PROGRESS_REMINDER_COOLDOWN_HOURS,
+    DEFAULT_STALE_PROGRESS_THRESHOLD_DAYS,
+    MIN_STALE_PROGRESS_REMINDER_COOLDOWN_HOURS,
+    MIN_STALE_PROGRESS_THRESHOLD_DAYS,
+    _from_json_dict,
+    _from_json_list,
+    _to_json,
+)
 
 
 SYSTEM_ACTOR_USER_ID = 1
@@ -254,6 +266,104 @@ def create_task_activity(
     session.commit()
     session.refresh(row)
     return _activity_to_read(row)
+
+
+def _latest_progress_update_at(session: Session, claim_id: int) -> datetime | None:
+    return session.exec(
+        select(func.max(TaskActivity.created_at)).where(
+            TaskActivity.claim_id == claim_id,
+            TaskActivity.activity_type == TaskActivityType.PROGRESS_UPDATE,
+        )
+    ).one()
+
+
+def _latest_stale_reminder_at(session: Session, claim_id: int) -> datetime | None:
+    rows = session.exec(
+        select(TaskActivity)
+        .where(
+            TaskActivity.claim_id == claim_id,
+            TaskActivity.activity_type == TaskActivityType.SYSTEM_EVENT,
+        )
+        .order_by(TaskActivity.created_at.desc(), TaskActivity.id.desc())
+        .limit(30)
+    ).all()
+    for row in rows:
+        detail = _from_json_dict(row.detail_json)
+        if detail.get("event_key") == "stale_progress_reminder":
+            return row.created_at
+    return None
+
+
+def emit_stale_progress_reminders(
+    session: Session,
+    actor_user_id: int | None = None,
+    now: datetime | None = None,
+    stale_days: int = DEFAULT_STALE_PROGRESS_THRESHOLD_DAYS,
+    cooldown_hours: int = DEFAULT_STALE_PROGRESS_REMINDER_COOLDOWN_HOURS,
+) -> dict:
+    stale_days = max(int(stale_days), MIN_STALE_PROGRESS_THRESHOLD_DAYS)
+    cooldown_hours = max(int(cooldown_hours), MIN_STALE_PROGRESS_REMINDER_COOLDOWN_HOURS)
+    current_time = now or datetime.utcnow()
+    stale_cutoff = current_time - timedelta(days=stale_days)
+    cooldown_cutoff = current_time - timedelta(hours=cooldown_hours)
+
+    rows = session.exec(
+        select(Claim, Task)
+        .join(Task, Task.id == Claim.task_id)
+        .where(
+            Claim.status == ClaimStatus.ACTIVE,
+            Task.status != TaskStatus.COMPLETED,
+        )
+    ).all()
+
+    reminder_activity_ids: list[int] = []
+    notified_claim_ids: list[int] = []
+    for claim, task in rows:
+        last_progress_at = _latest_progress_update_at(session, claim_id=claim.id)
+        reference_time = last_progress_at or claim.created_at
+        if reference_time > stale_cutoff:
+            continue
+
+        last_reminder_at = _latest_stale_reminder_at(session, claim_id=claim.id)
+        if last_reminder_at is not None and last_reminder_at > cooldown_cutoff:
+            continue
+
+        activity = create_system_task_activity(
+            session=session,
+            task_id=task.id,
+            claim_id=claim.id,
+            content=f"No progress update for {stale_days} days. Please post an update.",
+            detail={
+                "event_key": "stale_progress_reminder",
+                "stale_days": stale_days,
+                "last_progress_at": last_progress_at.isoformat() if last_progress_at is not None else None,
+                "lead_user_id": claim.lead_user_id,
+            },
+            actor_user_id=actor_user_id,
+        )
+        reminder_activity_ids.append(activity.id)
+        notify_stale_progress_reminder(
+            session=session,
+            task_id=task.id,
+            claim_id=claim.id,
+            lead_user_id=claim.lead_user_id,
+            accepter_user_id=task.accepter_id,
+            stale_days=stale_days,
+            last_progress_at=last_progress_at,
+        )
+        notified_claim_ids.append(claim.id)
+
+    if reminder_activity_ids:
+        session.commit()
+
+    return {
+        "checked_claims": len(rows),
+        "reminders_created": len(reminder_activity_ids),
+        "reminder_activity_ids": reminder_activity_ids,
+        "notified_claim_ids": notified_claim_ids,
+        "stale_days": stale_days,
+        "cooldown_hours": cooldown_hours,
+    }
 
 
 def delete_task_activity(

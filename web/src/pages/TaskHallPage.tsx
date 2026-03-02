@@ -2,6 +2,7 @@
 import type { FormEvent } from 'react'
 
 import { AttachmentField } from '../components/AttachmentField'
+import { TaskActivityTimeline } from '../components/TaskActivityTimeline'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
@@ -125,6 +126,11 @@ export function TaskHallPage({ userId, profile }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const canApproveForOthers = useMemo(() => hasAnyRole(profile, ['admin', 'reviewer']), [profile])
+  const detailDefaultClaimId = useMemo(() => {
+    if (!taskDetail) return null
+    const claim = myClaims.find((item) => item.task_id === taskDetail.id && item.claim_status === 'active')
+    return claim?.claim_id ?? null
+  }, [myClaims, taskDetail])
 
   const handleUploadedAttachmentsChange = (next: Attachment[]) => {
     setUploadedAttachments(next)
@@ -660,6 +666,7 @@ export function TaskHallPage({ userId, profile }: Props) {
             <p className="line-metric"><span>目标</span><strong>{taskDetail.goal}</strong></p>
             <p className="line-metric"><span>范围</span><strong>{taskDetail.scope}</strong></p>
             <p className="line-metric"><span>等级/状态</span><strong>{taskDetail.level} / {formatTaskStatus(taskDetail.status)}</strong></p>
+            <p className="line-metric"><span>任务类型</span><strong>{taskDetail.is_complex ? '复杂任务' : '普通任务'}</strong></p>
             <p className="line-metric"><span>截止日</span><strong>{taskDetail.due_date}</strong></p>
             <article className="modal-section">
               <h4>验收标准</h4>
@@ -671,6 +678,12 @@ export function TaskHallPage({ userId, profile }: Props) {
                 ))}
               </ul>
             </article>
+            <TaskActivityTimeline
+              userId={userId}
+              taskId={taskDetail.id}
+              title="协作时间线"
+              defaultClaimId={detailDefaultClaimId}
+            />
           </div>
         </div>
       )}

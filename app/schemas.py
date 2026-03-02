@@ -11,6 +11,9 @@ from app.enums import (
     ClaimMode,
     HypothesisStatus,
     HypothesisType,
+    MilestoneAcceptanceResult,
+    MilestoneStatus,
+    MilestoneRewardHoldStatus,
     ProblemFrequency,
     ProblemStatus,
     RiskLevel,
@@ -181,6 +184,9 @@ class ProblemDetailRead(BaseModel):
     priced_accepter_id: Optional[int] = None
     priced_points: int = 0
     priced_badge: Optional[str] = None
+    priced_is_complex: bool = False
+    priced_closing_reward_ratio: float = 1.0
+    priced_milestones: list[dict] = Field(default_factory=list)
     analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     submitter_id: int
     submitter_name: str
@@ -212,6 +218,8 @@ class TaskDefinition(BaseModel):
     points: int = 0
     badge: Optional[str] = None
     is_complex: bool = False
+    closing_reward_ratio: float = Field(default=0.4, gt=0, lt=1)
+    milestones: list["TaskMilestoneDefinition"] = Field(default_factory=list)
     acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -226,7 +234,30 @@ class TaskDefinition(BaseModel):
             raise ValueError(f"{self.level} 等级积分范围应在 {points_low}-{points_high}")
         if self.badge and not is_valid_badge_code(self.badge):
             raise ValueError("invalid badge code")
+        if not self.is_complex and self.milestones:
+            raise ValueError("simple tasks do not support milestones")
+        if self.is_complex:
+            if not (2 <= len(self.milestones) <= 5):
+                raise ValueError("complex tasks must define 2-5 milestones")
+            ordered = sorted(self.milestones, key=lambda item: item.sequence)
+            for index, item in enumerate(ordered, start=1):
+                if item.sequence != index:
+                    raise ValueError("milestone sequence must start at 1 and be continuous")
+                if not item.acceptance_criteria:
+                    raise ValueError("milestone acceptance criteria is required")
+            milestone_ratio_sum = sum(item.reward_ratio for item in self.milestones)
+            if abs((milestone_ratio_sum + self.closing_reward_ratio) - 1.0) > 1e-6:
+                raise ValueError("milestone ratios plus closing ratio must equal 1")
         return self
+
+
+class TaskMilestoneDefinition(BaseModel):
+    sequence: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    goal: str = Field(min_length=1)
+    due_date: Optional[date] = None
+    acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
+    reward_ratio: float = Field(gt=0, lt=1)
 
 
 class PricingDefinition(BaseModel):
@@ -329,6 +360,7 @@ class TaskDetailRead(BaseModel):
     points: int
     badge: Optional[str]
     is_complex: bool = False
+    closing_reward_ratio: float = 1.0
     acceptance_criteria: list[dict]
     status: str
     created_at: datetime
@@ -360,6 +392,87 @@ class TaskActivityRead(BaseModel):
     detail: dict = Field(default_factory=dict)
     attachment_urls: list[str] = Field(default_factory=list)
     created_at: datetime
+
+
+class TaskMilestoneCreate(BaseModel):
+    sequence: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    goal: str = Field(min_length=1)
+    due_date: Optional[date] = None
+    acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
+    reward_ratio: float = Field(gt=0, lt=1)
+
+
+class TaskMilestoneUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1)
+    goal: Optional[str] = Field(default=None, min_length=1)
+    due_date: Optional[date] = None
+    acceptance_criteria: Optional[list[AcceptanceCriteriaItem]] = None
+    reward_ratio: Optional[float] = Field(default=None, gt=0, lt=1)
+    status: Optional[MilestoneStatus] = None
+
+
+class MilestoneSubmissionCreate(BaseModel):
+    claim_id: Optional[int] = None
+    summary: str = Field(min_length=1)
+    evidence_urls: list[str] = Field(default_factory=list)
+    evidence_attachment_ids: list[int] = Field(default_factory=list)
+    criteria_results: list[str] = Field(default_factory=list)
+
+
+class MilestoneAcceptanceCreate(BaseModel):
+    result: MilestoneAcceptanceResult
+    comment: Optional[str] = None
+
+
+class MilestoneSubmissionRead(BaseModel):
+    id: int
+    milestone_id: int
+    claim_id: int
+    summary: str
+    evidence_urls: list[str] = Field(default_factory=list)
+    criteria_results: list[str] = Field(default_factory=list)
+    submitted_by_user_id: int
+    submitted_at: datetime
+
+
+class TaskMilestoneRead(BaseModel):
+    id: int
+    task_id: int
+    sequence: int
+    title: str
+    goal: str
+    due_date: Optional[date] = None
+    acceptance_criteria: list[dict] = Field(default_factory=list)
+    reward_ratio: float
+    status: MilestoneStatus
+    latest_submission: Optional[MilestoneSubmissionRead] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MilestonePendingAcceptanceRead(BaseModel):
+    milestone_id: int
+    task_id: int
+    task_title: str
+    sequence: int
+    claim_id: int
+    submitted_at: datetime
+    submitted_by_user_id: int
+    status: MilestoneStatus
+
+
+class MilestoneRewardHoldRead(BaseModel):
+    id: int
+    task_id: int
+    milestone_id: int
+    claim_id: int
+    user_id: int
+    ratio: float
+    amount: float
+    status: MilestoneRewardHoldStatus
+    created_at: datetime
+    released_at: Optional[datetime] = None
 
 
 class ClaimMemberInput(BaseModel):

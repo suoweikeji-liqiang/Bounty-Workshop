@@ -91,6 +91,16 @@ export type ProblemDetail = {
   priced_accepter_id?: number | null
   priced_points?: number
   priced_badge?: string | null
+  priced_is_complex?: boolean
+  priced_closing_reward_ratio?: number
+  priced_milestones?: Array<{
+    sequence?: number
+    title?: string
+    goal?: string
+    due_date?: string | null
+    reward_ratio?: number
+    acceptance_criteria?: Array<{ description?: string; type?: string }>
+  }>
   // ProdMind analysis fields
   analysis_id?: number | null
   analysis_status?: AnalysisStatus
@@ -123,6 +133,7 @@ export type Task = {
   scenario: string
   level: string
   reward_total: number
+  is_complex: boolean
   active_claim_count: number
   due_date: string
   status: string
@@ -142,9 +153,84 @@ export type TaskDetail = {
   accepter_id: number
   points: number
   badge: string | null
+  is_complex: boolean
+  closing_reward_ratio: number
   acceptance_criteria: Array<{ description?: string; type?: string }>
   status: string
   created_at: string
+}
+
+export type TaskActivityType =
+  | 'comment'
+  | 'progress_update'
+  | 'blocker'
+  | 'official_note'
+  | 'system_event'
+
+export type TaskActivity = {
+  id: number
+  task_id: number
+  claim_id: number | null
+  activity_type: TaskActivityType
+  actor_user_id: number
+  content: string
+  detail: Record<string, unknown>
+  attachment_urls: string[]
+  created_at: string
+}
+
+export type MilestoneStatus =
+  | 'pending'
+  | 'active'
+  | 'pending_acceptance'
+  | 'approved'
+  | 'rework'
+  | 'cancelled'
+
+export type TaskMilestoneDefinition = {
+  sequence: number
+  title: string
+  goal: string
+  due_date?: string | null
+  reward_ratio: number
+  acceptance_criteria: Array<{ description: string; type: 'quantified' | 'behavioral' }>
+}
+
+export type MilestoneSubmission = {
+  id: number
+  milestone_id: number
+  claim_id: number
+  summary: string
+  evidence_urls: string[]
+  criteria_results: string[]
+  submitted_by_user_id: number
+  submitted_at: string
+}
+
+export type TaskMilestone = {
+  id: number
+  task_id: number
+  sequence: number
+  title: string
+  goal: string
+  due_date: string | null
+  acceptance_criteria: Array<{ description?: string; type?: string }>
+  reward_ratio: number
+  status: MilestoneStatus
+  latest_submission: MilestoneSubmission | null
+  created_at: string
+  updated_at: string
+}
+
+export type MilestonePendingAcceptance = {
+  milestone_id: number
+  task_id: number
+  task_title: string
+  sequence: number
+  claim_id: number
+  submitted_at: string
+  submitted_by_user_id: number
+  status: MilestoneStatus
 }
 
 export type Attachment = {

@@ -15,6 +15,9 @@ from app.enums import (
     DeliverableStatus,
     HypothesisStatus,
     HypothesisType,
+    MilestoneAcceptanceResult,
+    MilestoneRewardHoldStatus,
+    MilestoneStatus,
     ProblemFrequency,
     ProblemStatus,
     RewardRoleType,
@@ -83,6 +86,8 @@ class Problem(SQLModel, table=True):
     priced_points: int = Field(default=0)
     priced_badge: Optional[str] = None
     priced_is_complex: bool = Field(default=False)
+    priced_closing_reward_ratio: float = Field(default=1.0)
+    priced_milestones_json: str = Field(default="[]")
     priced_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     budget_review_comment: Optional[str] = None
     budget_reviewed_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
@@ -107,6 +112,7 @@ class Task(SQLModel, table=True):
     points: int = Field(default=0)
     badge: Optional[str] = None
     is_complex: bool = Field(default=False, index=True)
+    closing_reward_ratio: float = Field(default=1.0)
     acceptance_criteria_json: str = Field(default="[]")
     status: TaskStatus = Field(default=TaskStatus.OPEN, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -179,6 +185,54 @@ class TaskActivity(SQLModel, table=True):
     detail_json: str = Field(default="{}")
     attachment_urls: str = Field(default="[]")
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class TaskMilestone(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    sequence: int = Field(index=True)
+    title: str
+    goal: str
+    due_date: Optional[date] = Field(default=None, index=True)
+    acceptance_criteria_json: str = Field(default="[]")
+    reward_ratio: float
+    status: MilestoneStatus = Field(default=MilestoneStatus.PENDING, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class MilestoneSubmission(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    milestone_id: int = Field(foreign_key="taskmilestone.id", index=True)
+    claim_id: int = Field(foreign_key="claim.id", index=True)
+    summary: str
+    evidence_urls: str = Field(default="[]")
+    criteria_results_json: str = Field(default="[]")
+    submitted_by_user_id: int = Field(foreign_key="user.id", index=True)
+    submitted_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class MilestoneAcceptance(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    milestone_id: int = Field(foreign_key="taskmilestone.id", index=True)
+    submission_id: int = Field(foreign_key="milestonesubmission.id", index=True)
+    accepter_id: int = Field(foreign_key="user.id", index=True)
+    result: MilestoneAcceptanceResult
+    comment: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class MilestoneRewardHold(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    milestone_id: int = Field(foreign_key="taskmilestone.id", index=True)
+    claim_id: int = Field(foreign_key="claim.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    ratio: float
+    amount: float
+    status: MilestoneRewardHoldStatus = Field(default=MilestoneRewardHoldStatus.EARNED, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    released_at: Optional[datetime] = Field(default=None, index=True)
 
 
 class Reward(SQLModel, table=True):

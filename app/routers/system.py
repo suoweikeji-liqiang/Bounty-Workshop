@@ -30,6 +30,7 @@ from app.feishu import (
 )
 from app.jobs import (
     get_release_overdue_frequency_minutes,
+    run_stale_progress_reminders,
     set_release_overdue_frequency_minutes,
 )
 from app.reporting import (
@@ -376,6 +377,17 @@ def post_release_overdue(
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
     return release_overdue_claims(session, actor_id=actor_id)
+
+
+@router.post(
+    "/jobs/stale-progress-reminders",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER))],
+)
+def post_stale_progress_reminders(
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    return run_stale_progress_reminders(session, actor_id=actor_id)
 
 
 @router.get(

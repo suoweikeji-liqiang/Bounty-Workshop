@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 from dataclasses import dataclass
@@ -37,6 +38,8 @@ from app.schemas import (
     FeishuSyncResult,
 )
 
+
+logger = logging.getLogger(__name__)
 
 SYNC_FREQUENCY_KEY = "feishu_sync_frequency_minutes"
 DEFAULT_SYNC_FREQUENCY_MINUTES = 1440
@@ -819,6 +822,32 @@ def set_acceptance_templates(
         row.value = json.dumps(payload.model_dump(), ensure_ascii=False)
         row.updated_at = now
     session.commit()
+    return payload
+
+
+def notify_stale_progress_reminder(
+    session: Session,
+    *,
+    task_id: int,
+    claim_id: int,
+    lead_user_id: int,
+    accepter_user_id: int | None,
+    stale_days: int,
+    last_progress_at: datetime | None,
+) -> dict:
+    lead_user = session.get(User, lead_user_id)
+    accepter_user = session.get(User, accepter_user_id) if accepter_user_id is not None else None
+    payload = {
+        "task_id": task_id,
+        "claim_id": claim_id,
+        "lead_user_id": lead_user_id,
+        "lead_user_name": lead_user.name if lead_user is not None else None,
+        "accepter_user_id": accepter_user_id,
+        "accepter_user_name": accepter_user.name if accepter_user is not None else None,
+        "stale_days": stale_days,
+        "last_progress_at": last_progress_at.isoformat() if last_progress_at is not None else None,
+    }
+    logger.info("stale progress reminder hook triggered: %s", payload)
     return payload
 
 

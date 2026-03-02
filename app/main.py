@@ -19,9 +19,21 @@ from app.jobs import (
     is_feishu_sync_job_enabled,
     run_feishu_sync_scheduler,
     run_release_overdue_scheduler,
+    run_stale_progress_reminder_scheduler,
 )
 from app.models import User, UserRole
-from app.routers import auth, users, tasks, problems, claims, attachments, rewards, system, task_activities
+from app.routers import (
+    attachments,
+    auth,
+    claims,
+    milestones,
+    problems,
+    rewards,
+    system,
+    task_activities,
+    tasks,
+    users,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -61,6 +73,9 @@ async def lifespan(_: FastAPI):
     if is_background_jobs_enabled():
         scheduler_tasks.append(asyncio.create_task(
             run_release_overdue_scheduler(lambda: Session(engine), stop_event)
+        ))
+        scheduler_tasks.append(asyncio.create_task(
+            run_stale_progress_reminder_scheduler(lambda: Session(engine), stop_event)
         ))
         if is_feishu_sync_job_enabled():
             scheduler_tasks.append(asyncio.create_task(
@@ -124,6 +139,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tasks.router)
 app.include_router(task_activities.router)
+app.include_router(milestones.router)
 app.include_router(problems.router)
 app.include_router(claims.router)
 app.include_router(attachments.router)

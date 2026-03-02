@@ -69,6 +69,15 @@ class TaskActivityType(str, Enum):
     SYSTEM_EVENT = "system_event"
 
 
+class MilestoneStatus(str, Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    PENDING_ACCEPTANCE = "pending_acceptance"
+    APPROVED = "approved"
+    REWORK = "rework"
+    CANCELLED = "cancelled"
+
+
 class ClaimMode(str, Enum):
     INDIVIDUAL = "individual"
     TEAM = "team"
@@ -100,6 +109,12 @@ class AcceptanceResult(str, Enum):
     REJECTED = "rejected"
 
 
+class MilestoneAcceptanceResult(str, Enum):
+    APPROVED = "approved"
+    REWORK = "rework"
+    CANCELLED = "cancelled"
+
+
 class RewardRoleType(str, Enum):
     PROPOSER = "proposer"
     EXECUTOR = "executor"
@@ -108,6 +123,12 @@ class RewardRoleType(str, Enum):
 class RewardStatus(str, Enum):
     GENERATED = "generated"
     CONFIRMED = "confirmed"
+
+
+class MilestoneRewardHoldStatus(str, Enum):
+    EARNED = "earned"
+    RELEASED = "released"
+    CANCELLED = "cancelled"
 
 
 

@@ -47,6 +47,18 @@ from app.services_task_activity import (  # noqa: F401
     delete_task_activity,
 )
 
+# milestones
+from app.services_milestones import (  # noqa: F401
+    list_task_milestones,
+    configure_task_milestones,
+    update_task_milestone,
+    activate_first_milestone_for_task,
+    all_task_milestones_approved,
+    submit_milestone,
+    accept_milestone,
+    list_my_pending_milestone_acceptance,
+)
+
 # problems
 from app.services_problems import (  # noqa: F401
     get_budget_review_threshold,

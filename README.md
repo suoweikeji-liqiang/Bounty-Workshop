@@ -215,3 +215,37 @@ npm run e2e
 - Claim concurrency guard:
   - A lead user can have at most 2 active claims at the same time.
   - Third active claim returns `400` with a clear error message.
+
+## Latest Additions (2026-03-02)
+
+- Unified task activity timeline:
+  - Task-level timeline APIs:
+    - `GET /tasks/{task_id}/activities`
+    - `POST /tasks/{task_id}/activities`
+    - `DELETE /activities/{activity_id}`
+  - Claim-level timeline API:
+    - `GET /claims/{claim_id}/activities`
+  - Supports `comment`, `progress_update`, `blocker`, `official_note`, and system events.
+
+- Complex task milestones:
+  - Task definition supports:
+    - `is_complex`
+    - `closing_reward_ratio`
+    - `milestones` (2-5, sequential, ratio validation)
+  - Milestone execution APIs:
+    - `GET /tasks/{task_id}/milestones`
+    - `POST /tasks/{task_id}/milestones`
+    - `PUT /milestones/{milestone_id}`
+    - `POST /milestones/{milestone_id}/submit`
+    - `POST /milestones/{milestone_id}/accept`
+    - `GET /milestones/pending-acceptance/mine`
+
+- Staged incentive release for complex tasks:
+  - Milestone approval generates held incentive records.
+  - Final deliverable approval releases earned milestone holds and settles final rewards.
+
+- Stale progress reminder hook:
+  - Background job detects active claims with no recent `progress_update`.
+  - System writes a reminder activity event (`event_key=stale_progress_reminder`) and triggers Feishu notification hook.
+  - Manual trigger endpoint:
+    - `POST /jobs/stale-progress-reminders`

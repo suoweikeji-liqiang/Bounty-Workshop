@@ -153,6 +153,23 @@ export function BudgetReviewPage({ userId }: Props) {
           <p><strong>提交人分成：</strong>{detail.priced_proposer_ratio ?? '-'}</p>
           <p><strong>验收人：</strong>{detail.priced_accepter_id ?? '-'}</p>
           <p><strong>积分/徽章：</strong>{detail.priced_points ?? 0} / {detail.priced_badge ?? '-'}</p>
+          <p><strong>任务类型：</strong>{detail.priced_is_complex ? '复杂任务' : '普通任务'}</p>
+          {detail.priced_is_complex && (
+            <>
+              <p><strong>结项比例：</strong>{detail.priced_closing_reward_ratio ?? 1}</p>
+              <div>
+                <strong>里程碑定义：</strong>
+                <ul>
+                  {(detail.priced_milestones ?? []).map((item, idx) => (
+                    <li key={`milestone-${idx}`}>
+                      M{item.sequence ?? idx + 1} {item.title ?? '-'} / 比例 {item.reward_ratio ?? '-'} /
+                      目标 {item.goal ?? '-'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
           {pointsCompliance && (
             <p className={pointsCompliance.ok ? 'muted' : ''}>
               <strong>积分区间校验：</strong>

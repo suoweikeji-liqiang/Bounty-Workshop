@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from app.enums import ClaimStatus, ProblemStatus, Scenario, TaskLevel, TaskStatus
+from app.enums import ClaimStatus, Scenario, TaskLevel, TaskStatus
 from app.models import Claim, Problem, Task
 from app.schemas import TaskDetailRead, TaskRead
 from app.services_common import _from_json_list
@@ -86,6 +84,7 @@ def get_task_detail(session: Session, task_id: int) -> TaskDetailRead:
         points=task.points,
         badge=task.badge,
         is_complex=task.is_complex,
+        closing_reward_ratio=task.closing_reward_ratio,
         acceptance_criteria=acceptance_criteria,
         status=task.status.value,
         created_at=task.created_at,

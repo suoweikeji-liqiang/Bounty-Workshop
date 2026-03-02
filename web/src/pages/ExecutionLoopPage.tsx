@@ -2,7 +2,10 @@
 import type { FormEvent } from 'react'
 
 import { AttachmentField } from '../components/AttachmentField'
+import { MilestoneAcceptancePanel } from '../components/MilestoneAcceptancePanel'
+import { TaskActivityTimeline } from '../components/TaskActivityTimeline'
 import { useToast } from '../components/ToastProvider'
+import { listTaskMilestones, submitMilestone } from '../lib/api'
 import { downloadFile, requestJson } from '../lib/http'
 import type {
   Attachment,
@@ -11,6 +14,8 @@ import type {
   ClaimExecutionDetail,
   PendingAcceptance,
   Reward,
+  TaskDetail,
+  TaskMilestone,
   UserProfile,
 } from '../types'
 
@@ -79,6 +84,19 @@ function formatCommonStatus(status: string | null | undefined) {
   return map[status] ?? status
 }
 
+function formatMilestoneStatus(status: string | null | undefined) {
+  if (!status) return '-'
+  const map: Record<string, string> = {
+    pending: '待开始',
+    active: '进行中',
+    pending_acceptance: '待验收',
+    approved: '已通过',
+    rework: '待整改',
+    cancelled: '已取消',
+  }
+  return map[status] ?? status
+}
+
 export function ExecutionLoopPage({ userId, profile }: Props) {
   const toast = useToast()
   const [claims, setClaims] = useState<ClaimExecution[]>([])
@@ -97,6 +115,12 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const [activeAcceptanceId, setActiveAcceptanceId] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, AcceptanceDraft>>({})
   const [templates, setTemplates] = useState<AcceptanceTemplatesConfig>(defaultTemplates)
+  const [milestoneClaimId, setMilestoneClaimId] = useState('')
+  const [milestoneTaskDetail, setMilestoneTaskDetail] = useState<TaskDetail | null>(null)
+  const [milestones, setMilestones] = useState<TaskMilestone[]>([])
+  const [milestoneSummary, setMilestoneSummary] = useState('')
+  const [milestoneCriteriaText, setMilestoneCriteriaText] = useState('')
+  const [loadingMilestones, setLoadingMilestones] = useState(false)
 
   const canAccept = useMemo(
     () => Boolean(profile?.roles.includes('admin') || profile?.roles.includes('acceptor')),
@@ -123,6 +147,21 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const pendingGeneratedRewards = useMemo(
     () => rewards.filter((item) => item.status === 'generated').length,
     [rewards],
+  )
+  const milestoneClaimOptions = useMemo(
+    () => claims.filter((item) => item.claim_status === 'active').sort((a, b) => b.claim_id - a.claim_id),
+    [claims],
+  )
+  const selectedMilestoneClaim = useMemo(
+    () => milestoneClaimOptions.find((item) => String(item.claim_id) === milestoneClaimId) ?? null,
+    [milestoneClaimId, milestoneClaimOptions],
+  )
+  const currentMilestone = useMemo(
+    () =>
+      milestones.find((item) => item.status === 'active' || item.status === 'rework') ??
+      milestones.find((item) => item.status === 'pending_acceptance') ??
+      null,
+    [milestones],
   )
 
   const handleUploadedAttachmentsChange = (next: Attachment[]) => {
@@ -180,6 +219,40 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
     }
   }, [canAccept, canConfirmReward, userId])
 
+  const loadMilestoneContext = useCallback(
+    async (targetClaimId: string) => {
+      const parsedClaimId = Number(targetClaimId)
+      if (!Number.isInteger(parsedClaimId) || parsedClaimId <= 0) {
+        setMilestoneTaskDetail(null)
+        setMilestones([])
+        return
+      }
+      const claim = milestoneClaimOptions.find((item) => item.claim_id === parsedClaimId)
+      if (!claim) {
+        setMilestoneTaskDetail(null)
+        setMilestones([])
+        return
+      }
+      try {
+        setLoadingMilestones(true)
+        setError(null)
+        const taskDetail = await requestJson<TaskDetail>(`/tasks/${claim.task_id}`, { userId })
+        setMilestoneTaskDetail(taskDetail)
+        if (!taskDetail.is_complex) {
+          setMilestones([])
+          return
+        }
+        const rows = await listTaskMilestones(userId, claim.task_id)
+        setMilestones(rows)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '加载里程碑信息失败')
+      } finally {
+        setLoadingMilestones(false)
+      }
+    },
+    [milestoneClaimOptions, userId],
+  )
+
   useEffect(() => {
     void load()
     void loadTemplates()
@@ -192,6 +265,23 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       setClaimId(String(deliverableClaimOptions[0].claim_id))
     }
   }, [claimId, deliverableClaimOptions])
+
+  useEffect(() => {
+    if (milestoneClaimOptions.length === 0) {
+      setMilestoneClaimId('')
+      setMilestoneTaskDetail(null)
+      setMilestones([])
+      return
+    }
+    if (!milestoneClaimOptions.some((item) => String(item.claim_id) === milestoneClaimId)) {
+      setMilestoneClaimId(String(milestoneClaimOptions[0].claim_id))
+    }
+  }, [milestoneClaimId, milestoneClaimOptions])
+
+  useEffect(() => {
+    if (!milestoneClaimId) return
+    void loadMilestoneContext(milestoneClaimId)
+  }, [loadMilestoneContext, milestoneClaimId])
 
   useEffect(() => {
     setSubmitPanelOpen(deliverableClaimOptions.length > 0)
@@ -233,6 +323,34 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '成果提交失败')
+    }
+  }
+
+  const submitCurrentMilestone = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!selectedMilestoneClaim || !milestoneTaskDetail || !currentMilestone) {
+      setError('当前没有可提交的里程碑')
+      return
+    }
+    try {
+      setError(null)
+      const criteriaResults = milestoneCriteriaText
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      await submitMilestone(userId, currentMilestone.id, {
+        claim_id: selectedMilestoneClaim.claim_id,
+        summary: milestoneSummary,
+        criteria_results: criteriaResults,
+        evidence_urls: [],
+      })
+      setMessage(`里程碑 M${currentMilestone.sequence} 已提交验收`)
+      setMilestoneSummary('')
+      setMilestoneCriteriaText('')
+      await loadMilestoneContext(String(selectedMilestoneClaim.claim_id))
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '里程碑提交失败')
     }
   }
 
@@ -376,6 +494,86 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
           {claims.length === 0 && <p className="muted">暂无揭榜记录</p>}
         </div>
       </article>
+
+      <article className="panel">
+        <div className="panel-headline">
+          <h3>里程碑执行</h3>
+          <button type="button" onClick={() => void loadMilestoneContext(milestoneClaimId)} disabled={!milestoneClaimId || loadingMilestones}>
+            刷新
+          </button>
+        </div>
+        <label>
+          选择揭榜
+          <select value={milestoneClaimId} onChange={(event) => setMilestoneClaimId(event.target.value)}>
+            {milestoneClaimOptions.map((item) => (
+              <option key={`milestone-claim-${item.claim_id}`} value={item.claim_id}>
+                #{item.claim_id} {item.task_title}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!selectedMilestoneClaim && <p className="muted">暂无进行中的揭榜任务</p>}
+        {selectedMilestoneClaim && milestoneTaskDetail && !milestoneTaskDetail.is_complex && (
+          <p className="muted">当前任务为普通任务，里程碑面板已隐藏。</p>
+        )}
+        {selectedMilestoneClaim && milestoneTaskDetail?.is_complex && (
+          <>
+            <p className="muted">
+              当前任务：{selectedMilestoneClaim.task_title} / 结项比例 {milestoneTaskDetail.closing_reward_ratio}
+            </p>
+            {currentMilestone && (
+              <form className="form-grid" onSubmit={submitCurrentMilestone}>
+                <h3>当前里程碑：M{currentMilestone.sequence} / {formatMilestoneStatus(currentMilestone.status)}</h3>
+                <p className="wide muted">{currentMilestone.title} - {currentMilestone.goal}</p>
+                <label className="wide">
+                  里程碑提交说明
+                  <textarea value={milestoneSummary} onChange={(event) => setMilestoneSummary(event.target.value)} required />
+                </label>
+                <label className="wide">
+                  验收结果（每行一条）
+                  <textarea value={milestoneCriteriaText} onChange={(event) => setMilestoneCriteriaText(event.target.value)} />
+                </label>
+                <div className="button-row wide">
+                  <button className="primary-btn" type="submit">
+                    提交当前里程碑
+                  </button>
+                </div>
+              </form>
+            )}
+            <div className="table">
+              <div className="row head wide-row">
+                <span>序号</span>
+                <span>标题</span>
+                <span>目标</span>
+                <span>比例</span>
+                <span>状态</span>
+                <span>最近提交</span>
+              </div>
+              {milestones.map((item) => (
+                <div className="row wide-row" key={item.id}>
+                  <span>M{item.sequence}</span>
+                  <span>{item.title}</span>
+                  <span>{item.goal}</span>
+                  <span>{item.reward_ratio}</span>
+                  <span>{formatMilestoneStatus(item.status)}</span>
+                  <span>{item.latest_submission ? new Date(item.latest_submission.submitted_at).toLocaleString() : '-'}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </article>
+
+      <MilestoneAcceptancePanel
+        userId={userId}
+        canAccept={canAccept}
+        onChanged={() => {
+          void load()
+          if (milestoneClaimId) {
+            void loadMilestoneContext(milestoneClaimId)
+          }
+        }}
+      />
 
       {canSubmitDeliverable && (
         <article className="panel">
@@ -672,6 +870,13 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                 </ul>
               )}
             </article>
+
+            <TaskActivityTimeline
+              userId={userId}
+              taskId={detail.task_id}
+              claimId={detail.claim_id}
+              title="协作时间线"
+            />
           </div>
         </div>
       )}

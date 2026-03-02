@@ -479,6 +479,10 @@ def claim_task(
             session.add(ClaimMember(claim_id=claim.id, user_id=member.user_id, ratio=member.ratio))
 
     task.status = TaskStatus.IN_PROGRESS
+    if task.is_complex:
+        from app.services_milestones import activate_first_milestone_for_task
+
+        activate_first_milestone_for_task(session, task_id=task.id)
     _record_system_activity(
         session=session,
         task_id=task_id,
@@ -632,6 +636,14 @@ def submit_deliverable(
     task = session.get(Task, claim.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
+    if task.is_complex:
+        from app.services_milestones import all_task_milestones_approved
+
+        if not all_task_milestones_approved(session, task_id=task.id):
+            raise HTTPException(
+                status_code=400,
+                detail="all milestones must be approved before final deliverable submission",
+            )
     task.status = TaskStatus.PENDING_ACCEPTANCE
     _record_system_activity(
         session=session,
@@ -735,6 +747,11 @@ def accept_deliverable(
         for other_claim in other_active_claims:
             other_claim.status = ClaimStatus.ABANDONED
         from app.services_rewards import _generate_rewards_and_knowledge
+
+        if task.is_complex:
+            from app.services_rewards import release_milestone_reward_holds
+
+            release_milestone_reward_holds(session, task_id=task.id)
 
         _generate_rewards_and_knowledge(session, task, claim, deliverable)
 

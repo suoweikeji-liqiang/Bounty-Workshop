@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.enums import (
@@ -22,6 +21,7 @@ from app.models import (
     ProblemReviewAnalysisRef,
     SystemConfig,
     Task,
+    TaskMilestone,
     User,
 )
 from app.prodmind import run_analysis as run_prodmind_analysis
@@ -33,6 +33,7 @@ from app.schemas import (
     ProblemRead,
     ProblemReview,
     ProblemReviewResult,
+    TaskMilestoneDefinition,
     TaskRead,
 )
 from app.services_common import _ensure_role, _ensure_user_exists, _from_json_list, _log, _to_json
@@ -115,6 +116,9 @@ def _problem_to_detail(problem: Problem, submitter_name: str) -> ProblemDetailRe
         priced_accepter_id=problem.priced_accepter_id,
         priced_points=problem.priced_points,
         priced_badge=problem.priced_badge,
+        priced_is_complex=problem.priced_is_complex,
+        priced_closing_reward_ratio=problem.priced_closing_reward_ratio,
+        priced_milestones=_from_json_list(problem.priced_milestones_json),
         analysis_status=problem.analysis_status,
         submitter_id=problem.submitter_id,
         submitter_name=submitter_name,
@@ -142,6 +146,8 @@ def _reset_pricing(problem: Problem) -> None:
     problem.priced_points = 0
     problem.priced_badge = None
     problem.priced_is_complex = False
+    problem.priced_closing_reward_ratio = 1.0
+    problem.priced_milestones_json = "[]"
     problem.priced_by_user_id = None
     problem.budget_review_comment = None
     problem.budget_reviewed_by_user_id = None
@@ -368,6 +374,8 @@ def _create_task_from_problem(
     pricing: PricingDefinition,
     title_override: str | None = None,
     is_complex: bool = False,
+    closing_reward_ratio: float = 1.0,
+    milestone_definitions: list[TaskMilestoneDefinition] | None = None,
 ) -> Task:
     title = ((title_override or "").strip() if title_override is not None else "") or problem.title
     task = Task(
@@ -383,10 +391,27 @@ def _create_task_from_problem(
         points=pricing.points,
         badge=pricing.badge,
         is_complex=is_complex,
+        closing_reward_ratio=closing_reward_ratio,
         acceptance_criteria_json=problem.draft_acceptance_criteria_json,
     )
     session.add(task)
     session.flush()
+    if is_complex:
+        for item in sorted(milestone_definitions or [], key=lambda row: row.sequence):
+            session.add(
+                TaskMilestone(
+                    task_id=task.id,
+                    sequence=item.sequence,
+                    title=item.title,
+                    goal=item.goal,
+                    due_date=item.due_date,
+                    acceptance_criteria_json=_to_json(
+                        [criterion.model_dump() for criterion in item.acceptance_criteria]
+                    ),
+                    reward_ratio=item.reward_ratio,
+                )
+            )
+        session.flush()
     return task
 
 
@@ -512,6 +537,10 @@ def review_problem(
     problem.priced_badge = pricing.badge
     if payload.task is not None:
         problem.priced_is_complex = payload.task.is_complex
+        problem.priced_closing_reward_ratio = payload.task.closing_reward_ratio
+        problem.priced_milestones_json = _to_json(
+            [item.model_dump(mode="json") for item in payload.task.milestones]
+        )
     problem.priced_by_user_id = actor_id
     problem.reviewer_comment = None
 
@@ -540,12 +569,23 @@ def review_problem(
     problem.reject_reason = None
     problem.merged_problem_id = None
     task_title = payload.task.title if payload.task is not None else None
+    milestone_definitions = (
+        payload.task.milestones
+        if payload.task is not None
+        else [TaskMilestoneDefinition.model_validate(item) for item in _from_json_list(problem.priced_milestones_json)]
+    )
     task = _create_task_from_problem(
         session,
         problem,
         pricing,
         title_override=task_title,
         is_complex=payload.task.is_complex if payload.task is not None else problem.priced_is_complex,
+        closing_reward_ratio=(
+            payload.task.closing_reward_ratio
+            if payload.task is not None
+            else problem.priced_closing_reward_ratio
+        ),
+        milestone_definitions=milestone_definitions,
     )
 
     _log(
@@ -616,6 +656,11 @@ def budget_review_problem(
         problem,
         pricing,
         is_complex=problem.priced_is_complex,
+        closing_reward_ratio=problem.priced_closing_reward_ratio,
+        milestone_definitions=[
+            TaskMilestoneDefinition.model_validate(item)
+            for item in _from_json_list(problem.priced_milestones_json)
+        ],
     )
     problem.status = ProblemStatus.APPROVED
     problem.reject_reason = None

@@ -12,8 +12,19 @@ from app.badges import (
     list_badge_definitions,
     list_user_badges as list_user_badge_details,
 )
-from app.enums import ProblemStatus, RewardRoleType, RewardStatus
-from app.models import Claim, ClaimMember, Deliverable, Knowledge, Problem, Reward, Task, User
+from app.enums import MilestoneRewardHoldStatus, ProblemStatus, RewardRoleType, RewardStatus
+from app.models import (
+    Claim,
+    ClaimMember,
+    Deliverable,
+    Knowledge,
+    MilestoneRewardHold,
+    Problem,
+    Reward,
+    Task,
+    TaskMilestone,
+    User,
+)
 from app.schemas import RewardRead
 from app.services_common import (
     _cents_to_amount,
@@ -161,6 +172,74 @@ def _generate_rewards_and_knowledge(session: Session, task: Task, claim: Claim, 
         session.add(knowledge)
 
     problem.status = ProblemStatus.ARCHIVED
+
+
+def create_milestone_reward_holds(
+    session: Session,
+    task: Task,
+    claim: Claim,
+    milestone: TaskMilestone,
+    proposer_user_id: int,
+) -> None:
+    existing = session.exec(
+        select(MilestoneRewardHold).where(
+            MilestoneRewardHold.task_id == task.id,
+            MilestoneRewardHold.milestone_id == milestone.id,
+        )
+    ).first()
+    if existing is not None:
+        return
+
+    ratio = max(min(_decimal(milestone.reward_ratio), _decimal(1)), _decimal(0))
+    total_cents = _money_to_cents(_decimal(task.reward_total) * ratio)
+    proposer_cents = _money_to_cents(_decimal(task.reward_total) * _decimal(task.proposer_ratio) * ratio)
+    proposer_cents = max(0, min(proposer_cents, total_cents))
+    executors_total_cents = total_cents - proposer_cents
+
+    members = session.exec(select(ClaimMember).where(ClaimMember.claim_id == claim.id)).all()
+    if not members:
+        members = [ClaimMember(claim_id=claim.id, user_id=claim.lead_user_id, ratio=1.0)]
+    member_cents = _allocate_integer_by_ratio(executors_total_cents, members)
+
+    session.add(
+        MilestoneRewardHold(
+            task_id=task.id,
+            milestone_id=milestone.id,
+            claim_id=claim.id,
+            user_id=proposer_user_id,
+            ratio=float(_decimal(task.proposer_ratio) * ratio),
+            amount=_cents_to_amount(proposer_cents),
+            status=MilestoneRewardHoldStatus.EARNED,
+        )
+    )
+
+    executor_total_ratio = max(_decimal(1) - _decimal(task.proposer_ratio), _decimal(0))
+    for idx, member in enumerate(members):
+        session.add(
+            MilestoneRewardHold(
+                task_id=task.id,
+                milestone_id=milestone.id,
+                claim_id=claim.id,
+                user_id=member.user_id,
+                ratio=float(executor_total_ratio * ratio * _decimal(member.ratio)),
+                amount=_cents_to_amount(member_cents[idx]),
+                status=MilestoneRewardHoldStatus.EARNED,
+            )
+        )
+
+
+def release_milestone_reward_holds(session: Session, task_id: int) -> int:
+    rows = session.exec(
+        select(MilestoneRewardHold).where(
+            MilestoneRewardHold.task_id == task_id,
+            MilestoneRewardHold.status == MilestoneRewardHoldStatus.EARNED,
+        )
+    ).all()
+    released_at = datetime.utcnow()
+    for row in rows:
+        row.status = MilestoneRewardHoldStatus.RELEASED
+        row.released_at = released_at
+    return len(rows)
 
 
 def list_rewards(

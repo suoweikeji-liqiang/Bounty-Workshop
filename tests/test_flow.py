@@ -1,5 +1,5 @@
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -10,8 +10,9 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.db import get_session
 from app.auth import create_access_token
 from app.enums import Role
+from app.jobs import run_stale_progress_reminders
 from app.main import app
-from app.models import User, UserRole
+from app.models import Claim, User, UserRole
 
 
 def _headers(user_id: int) -> dict[str, str]:
@@ -411,6 +412,23 @@ def test_is_complex_persists_from_review_to_task_reads(tmp_path: Path) -> None:
                 "accepter_id": reviewer_id,
                 "points": 5,
                 "is_complex": True,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "first phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "second phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2 done", "type": "quantified"}],
+                    },
+                ],
                 "acceptance_criteria": [{"description": "complex flag is saved", "type": "quantified"}],
             },
         },
@@ -2850,7 +2868,6 @@ def test_task_activity_team_member_requires_claim_id_when_multiple_claims_match(
         },
     )
     assert claim_a_resp.status_code == 200
-    claim_a_id = claim_a_resp.json()["claim_id"]
 
     claim_b_resp = client.post(
         f"/tasks/{task_id}/claims",
@@ -2992,5 +3009,764 @@ def test_delete_task_activity_detaches_bound_attachments(tmp_path: Path) -> None
     download_resp = client.get(f"/attachments/{attachment_id}/download", headers=_headers(author_id))
     assert download_resp.status_code == 200
     assert download_resp.content == b"activity-attachment"
+
+    app.dependency_overrides.clear()
+
+
+def test_task_milestone_config(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MilestoneReviewer", "employee_no": "R980", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    claimant_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MilestoneClaimant", "employee_no": "E980", "department": "RD", "roles": ["employee"]},
+    )
+    assert claimant_resp.status_code == 200
+    claimant_id = claimant_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(claimant_id),
+        json={
+            "title": "milestone-config-task",
+            "scenario": "rd",
+            "background": "need staged delivery",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "validate milestone setup",
+            "value_reduce_effort": True,
+            "value_statement": "stage work and review",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "complex-milestone-task",
+                "goal": "deliver in two stages",
+                "scope": "backend only",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": True,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "phase-1",
+                        "goal": "ship first increment",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "phase-2",
+                        "goal": "ship second increment",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "final merged output", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    milestones_resp = client.get(f"/tasks/{task_id}/milestones", headers=_headers(claimant_id))
+    assert milestones_resp.status_code == 200
+    milestones_payload = milestones_resp.json()
+    assert len(milestones_payload) == 2
+    assert [item["sequence"] for item in milestones_payload] == [1, 2]
+    assert all(item["status"] == "pending" for item in milestones_payload)
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(claimant_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+
+    milestones_after_claim_resp = client.get(f"/tasks/{task_id}/milestones", headers=_headers(claimant_id))
+    assert milestones_after_claim_resp.status_code == 200
+    active_like = [
+        item
+        for item in milestones_after_claim_resp.json()
+        if item["status"] in {"active", "pending_acceptance"}
+    ]
+    assert len(active_like) == 1
+    assert active_like[0]["sequence"] == 1
+
+    simple_problem_resp = client.post(
+        "/problems",
+        headers=_headers(claimant_id),
+        json={
+            "title": "simple-task-should-reject-milestones",
+            "scenario": "rd",
+            "background": "simple flow",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "simple tasks cannot carry milestones",
+            "value_reduce_effort": True,
+            "value_statement": "validate guard",
+        },
+    )
+    assert simple_problem_resp.status_code == 200
+    simple_problem_id = simple_problem_resp.json()["id"]
+
+    simple_review_resp = client.post(
+        f"/problems/{simple_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "simple-task",
+                "goal": "no milestones",
+                "scope": "single delivery",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": False,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "invalid-phase",
+                        "goal": "should fail",
+                        "reward_ratio": 0.5,
+                        "acceptance_criteria": [{"description": "invalid", "type": "quantified"}],
+                    }
+                ],
+                "acceptance_criteria": [{"description": "done", "type": "quantified"}],
+            },
+        },
+    )
+    assert simple_review_resp.status_code == 422
+
+    ratio_problem_resp = client.post(
+        "/problems",
+        headers=_headers(claimant_id),
+        json={
+            "title": "milestone-ratio-guard",
+            "scenario": "rd",
+            "background": "ratio validation",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "ratios must add up to one with closing",
+            "value_reduce_effort": True,
+            "value_statement": "validate ratio sum guard",
+        },
+    )
+    assert ratio_problem_resp.status_code == 200
+    ratio_problem_id = ratio_problem_resp.json()["id"]
+
+    bad_ratio_review_resp = client.post(
+        f"/problems/{ratio_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "bad-ratio-task",
+                "goal": "invalid ratios",
+                "scope": "single delivery",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": True,
+                "closing_reward_ratio": 0.3,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "phase-1",
+                        "goal": "phase 1",
+                        "reward_ratio": 0.4,
+                        "acceptance_criteria": [{"description": "phase 1", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "phase-2",
+                        "goal": "phase 2",
+                        "reward_ratio": 0.4,
+                        "acceptance_criteria": [{"description": "phase 2", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "done", "type": "quantified"}],
+            },
+        },
+    )
+    assert bad_ratio_review_resp.status_code == 422
+
+    app.dependency_overrides.clear()
+
+
+def test_milestone_execution(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MilestoneExecReviewer", "employee_no": "R981", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    claimant_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MilestoneExecClaimant", "employee_no": "E981", "department": "RD", "roles": ["employee"]},
+    )
+    assert claimant_resp.status_code == 200
+    claimant_id = claimant_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(claimant_id),
+        json={
+            "title": "milestone-execution-task",
+            "scenario": "rd",
+            "background": "execute milestones",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "cover submit and accept lifecycle",
+            "value_reduce_effort": True,
+            "value_statement": "staged delivery validation",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "milestone-execution",
+                "goal": "complete staged delivery",
+                "scope": "milestone submit/accept then final deliverable",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": True,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "phase-1",
+                        "goal": "first checkpoint",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "phase-2",
+                        "goal": "second checkpoint",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "final delivery done", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(claimant_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    milestones_resp = client.get(f"/tasks/{task_id}/milestones", headers=_headers(claimant_id))
+    assert milestones_resp.status_code == 200
+    milestones = milestones_resp.json()
+    first_id = milestones[0]["id"]
+    second_id = milestones[1]["id"]
+    assert milestones[0]["status"] == "active"
+
+    submit_first_resp = client.post(
+        f"/milestones/{first_id}/submit",
+        headers=_headers(claimant_id),
+        json={
+            "claim_id": claim_id,
+            "summary": "phase-1 output",
+            "criteria_results": ["phase 1 met"],
+            "evidence_urls": [],
+        },
+    )
+    assert submit_first_resp.status_code == 200
+    assert submit_first_resp.json()["status"] == "pending_acceptance"
+
+    pending_first_resp = client.get("/milestones/pending-acceptance/mine", headers=_headers(reviewer_id))
+    assert pending_first_resp.status_code == 200
+    assert any(item["milestone_id"] == first_id for item in pending_first_resp.json())
+
+    rework_resp = client.post(
+        f"/milestones/{first_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "rework", "comment": "please refine"},
+    )
+    assert rework_resp.status_code == 200
+    assert rework_resp.json()["status"] == "rework"
+
+    submit_first_again_resp = client.post(
+        f"/milestones/{first_id}/submit",
+        headers=_headers(claimant_id),
+        json={
+            "claim_id": claim_id,
+            "summary": "phase-1 output v2",
+            "criteria_results": ["phase 1 met again"],
+            "evidence_urls": [],
+        },
+    )
+    assert submit_first_again_resp.status_code == 200
+    assert submit_first_again_resp.json()["status"] == "pending_acceptance"
+
+    approve_first_resp = client.post(
+        f"/milestones/{first_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "phase 1 approved"},
+    )
+    assert approve_first_resp.status_code == 200
+    assert approve_first_resp.json()["status"] == "approved"
+    assert approve_first_resp.json()["next_milestone_id"] == second_id
+
+    final_before_second_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(claimant_id),
+        json={"summary": "too early", "criteria_results": ["not ready"], "evidence_urls": []},
+    )
+    assert final_before_second_resp.status_code == 400
+
+    submit_second_resp = client.post(
+        f"/milestones/{second_id}/submit",
+        headers=_headers(claimant_id),
+        json={
+            "claim_id": claim_id,
+            "summary": "phase-2 output",
+            "criteria_results": ["phase 2 met"],
+            "evidence_urls": [],
+        },
+    )
+    assert submit_second_resp.status_code == 200
+    assert submit_second_resp.json()["status"] == "pending_acceptance"
+
+    approve_second_resp = client.post(
+        f"/milestones/{second_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "phase 2 approved"},
+    )
+    assert approve_second_resp.status_code == 200
+    assert approve_second_resp.json()["status"] == "approved"
+    assert approve_second_resp.json()["next_milestone_id"] is None
+
+    final_submit_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(claimant_id),
+        json={"summary": "all milestones done", "criteria_results": ["final ready"], "evidence_urls": []},
+    )
+    assert final_submit_resp.status_code == 200
+    deliverable_id = final_submit_resp.json()["deliverable_id"]
+
+    final_accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "final approved"},
+    )
+    assert final_accept_resp.status_code == 200
+    assert final_accept_resp.json()["task_status"] == "completed"
+
+    self_acceptor_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "SelfAcceptor", "employee_no": "E982", "department": "RD", "roles": ["employee", "acceptor"]},
+    )
+    assert self_acceptor_resp.status_code == 200
+    self_acceptor_id = self_acceptor_resp.json()["id"]
+
+    self_problem_resp = client.post(
+        "/problems",
+        headers=_headers(self_acceptor_id),
+        json={
+            "title": "self-accept-guard",
+            "scenario": "rd",
+            "background": "self accepter should be blocked",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "accepter cannot accept own milestone output",
+            "value_reduce_effort": True,
+            "value_statement": "guard self acceptance",
+        },
+    )
+    assert self_problem_resp.status_code == 200
+    self_problem_id = self_problem_resp.json()["id"]
+
+    self_task_resp = client.post(
+        f"/problems/{self_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "self-accept-task",
+                "goal": "guard self accept",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": self_acceptor_id,
+                "points": 5,
+                "is_complex": True,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "phase-1",
+                        "goal": "first",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "phase-2",
+                        "goal": "second",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "final", "type": "quantified"}],
+            },
+        },
+    )
+    assert self_task_resp.status_code == 200
+    self_task_id = self_task_resp.json()["id"]
+
+    self_claim_resp = client.post(
+        f"/tasks/{self_task_id}/claims",
+        headers=_headers(self_acceptor_id),
+        json={"mode": "individual"},
+    )
+    assert self_claim_resp.status_code == 200
+    self_claim_id = self_claim_resp.json()["claim_id"]
+
+    self_milestones_resp = client.get(f"/tasks/{self_task_id}/milestones", headers=_headers(self_acceptor_id))
+    assert self_milestones_resp.status_code == 200
+    self_first_milestone_id = self_milestones_resp.json()[0]["id"]
+
+    self_submit_resp = client.post(
+        f"/milestones/{self_first_milestone_id}/submit",
+        headers=_headers(self_acceptor_id),
+        json={
+            "claim_id": self_claim_id,
+            "summary": "self output",
+            "criteria_results": ["done"],
+            "evidence_urls": [],
+        },
+    )
+    assert self_submit_resp.status_code == 200
+
+    self_accept_resp = client.post(
+        f"/milestones/{self_first_milestone_id}/accept",
+        headers=_headers(self_acceptor_id),
+        json={"result": "approved", "comment": "self should fail"},
+    )
+    assert self_accept_resp.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_stale_progress_reminders_cover_simple_and_complex_claims(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "StaleReminderReviewer",
+            "employee_no": "R983",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    simple_user_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "SimpleOwner", "employee_no": "E983", "department": "RD", "roles": ["employee"]},
+    )
+    assert simple_user_resp.status_code == 200
+    simple_user_id = simple_user_resp.json()["id"]
+
+    complex_user_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ComplexOwner", "employee_no": "E984", "department": "RD", "roles": ["employee"]},
+    )
+    assert complex_user_resp.status_code == 200
+    complex_user_id = complex_user_resp.json()["id"]
+
+    fresh_user_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "FreshOwner", "employee_no": "E985", "department": "RD", "roles": ["employee"]},
+    )
+    assert fresh_user_resp.status_code == 200
+    fresh_user_id = fresh_user_resp.json()["id"]
+
+    simple_problem_resp = client.post(
+        "/problems",
+        headers=_headers(simple_user_id),
+        json={
+            "title": "stale-simple-problem",
+            "scenario": "rd",
+            "background": "simple task reminder",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "simple claim should be reminded when no progress",
+            "value_reduce_effort": True,
+            "value_statement": "cover simple stale reminder",
+        },
+    )
+    assert simple_problem_resp.status_code == 200
+    simple_problem_id = simple_problem_resp.json()["id"]
+
+    simple_review_resp = client.post(
+        f"/problems/{simple_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "stale-simple-task",
+                "goal": "simple stale reminder",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "acceptance_criteria": [{"description": "simple stale reminder works", "type": "quantified"}],
+            },
+        },
+    )
+    assert simple_review_resp.status_code == 200
+    simple_task_id = simple_review_resp.json()["id"]
+
+    complex_problem_resp = client.post(
+        "/problems",
+        headers=_headers(complex_user_id),
+        json={
+            "title": "stale-complex-problem",
+            "scenario": "rd",
+            "background": "complex task reminder",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "complex claim should be reminded when no progress",
+            "value_reduce_effort": True,
+            "value_statement": "cover complex stale reminder",
+        },
+    )
+    assert complex_problem_resp.status_code == 200
+    complex_problem_id = complex_problem_resp.json()["id"]
+
+    complex_review_resp = client.post(
+        f"/problems/{complex_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "stale-complex-task",
+                "goal": "complex stale reminder",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": True,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "phase-1",
+                        "goal": "first phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "phase-2",
+                        "goal": "second phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "complex stale reminder works", "type": "quantified"}],
+            },
+        },
+    )
+    assert complex_review_resp.status_code == 200
+    complex_task_id = complex_review_resp.json()["id"]
+
+    fresh_problem_resp = client.post(
+        "/problems",
+        headers=_headers(fresh_user_id),
+        json={
+            "title": "fresh-progress-problem",
+            "scenario": "rd",
+            "background": "recent progress should suppress reminder",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "fresh claim should not be reminded",
+            "value_reduce_effort": True,
+            "value_statement": "avoid false reminder",
+        },
+    )
+    assert fresh_problem_resp.status_code == 200
+    fresh_problem_id = fresh_problem_resp.json()["id"]
+
+    fresh_review_resp = client.post(
+        f"/problems/{fresh_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "fresh-progress-task",
+                "goal": "fresh progress exclusion",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "acceptance_criteria": [{"description": "fresh progress is ignored", "type": "quantified"}],
+            },
+        },
+    )
+    assert fresh_review_resp.status_code == 200
+    fresh_task_id = fresh_review_resp.json()["id"]
+
+    simple_claim_resp = client.post(
+        f"/tasks/{simple_task_id}/claims",
+        headers=_headers(simple_user_id),
+        json={"mode": "individual"},
+    )
+    assert simple_claim_resp.status_code == 200
+    simple_claim_id = simple_claim_resp.json()["claim_id"]
+
+    complex_claim_resp = client.post(
+        f"/tasks/{complex_task_id}/claims",
+        headers=_headers(complex_user_id),
+        json={"mode": "individual"},
+    )
+    assert complex_claim_resp.status_code == 200
+    complex_claim_id = complex_claim_resp.json()["claim_id"]
+
+    fresh_claim_resp = client.post(
+        f"/tasks/{fresh_task_id}/claims",
+        headers=_headers(fresh_user_id),
+        json={"mode": "individual"},
+    )
+    assert fresh_claim_resp.status_code == 200
+    fresh_claim_id = fresh_claim_resp.json()["claim_id"]
+
+    fresh_progress_resp = client.post(
+        f"/tasks/{fresh_task_id}/activities",
+        headers=_headers(fresh_user_id),
+        json={
+            "activity_type": "progress_update",
+            "claim_id": fresh_claim_id,
+            "content": "Recent progress update.",
+        },
+    )
+    assert fresh_progress_resp.status_code == 200
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
+    stale_created_at = datetime.utcnow() - timedelta(days=5)
+    with Session(engine) as session:
+        simple_claim = session.get(Claim, simple_claim_id)
+        complex_claim = session.get(Claim, complex_claim_id)
+        assert simple_claim is not None
+        assert complex_claim is not None
+        simple_claim.created_at = stale_created_at
+        complex_claim.created_at = stale_created_at
+        session.commit()
+
+    notification_calls: list[dict] = []
+
+    def _fake_notify(session, **kwargs):
+        notification_calls.append(kwargs)
+        return {"status": "mocked"}
+
+    monkeypatch.setattr("app.services_task_activity.notify_stale_progress_reminder", _fake_notify)
+
+    with Session(engine) as session:
+        first_job = run_stale_progress_reminders(session, actor_id=reviewer_id, now=datetime.utcnow())
+    assert first_job["reminders_created"] == 2
+    assert set(first_job["notified_claim_ids"]) == {simple_claim_id, complex_claim_id}
+    assert len(notification_calls) == 2
+    assert {call["claim_id"] for call in notification_calls} == {simple_claim_id, complex_claim_id}
+
+    with Session(engine) as session:
+        second_job = run_stale_progress_reminders(session, actor_id=reviewer_id, now=datetime.utcnow())
+    assert second_job["reminders_created"] == 0
+
+    simple_activity_resp = client.get(f"/claims/{simple_claim_id}/activities", headers=_headers(simple_user_id))
+    assert simple_activity_resp.status_code == 200
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"].get("event_key") == "stale_progress_reminder"
+        for item in simple_activity_resp.json()
+    )
+
+    complex_activity_resp = client.get(f"/claims/{complex_claim_id}/activities", headers=_headers(complex_user_id))
+    assert complex_activity_resp.status_code == 200
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"].get("event_key") == "stale_progress_reminder"
+        for item in complex_activity_resp.json()
+    )
+
+    fresh_activity_resp = client.get(f"/claims/{fresh_claim_id}/activities", headers=_headers(fresh_user_id))
+    assert fresh_activity_resp.status_code == 200
+    assert all(
+        item["detail"].get("event_key") != "stale_progress_reminder"
+        for item in fresh_activity_resp.json()
+        if item["activity_type"] == "system_event"
+    )
 
     app.dependency_overrides.clear()

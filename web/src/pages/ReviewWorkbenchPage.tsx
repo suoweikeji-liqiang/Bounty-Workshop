@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AnalysisReportView } from '../components/AnalysisReportView'
+import { MilestoneEditor, buildDefaultMilestones } from '../components/MilestoneEditor'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -12,6 +13,7 @@ import type {
   ProblemAnalysisReport,
   ProblemDetail,
   ProblemReviewResult,
+  TaskMilestoneDefinition,
   UserProfile,
 } from '../types'
 
@@ -63,6 +65,29 @@ function problemTone(status: string): 'success' | 'warn' | 'danger' | 'info' | '
   return 'muted'
 }
 
+function normalizeMilestones(detail: ProblemDetail | null): TaskMilestoneDefinition[] {
+  if (!detail?.priced_milestones || detail.priced_milestones.length === 0) {
+    return buildDefaultMilestones()
+  }
+  const rows = detail.priced_milestones
+    .map((item, index) => ({
+      sequence: Number(item.sequence ?? index + 1),
+      title: String(item.title ?? `里程碑 ${index + 1}`),
+      goal: String(item.goal ?? ''),
+      due_date: item.due_date ?? null,
+      reward_ratio: Number(item.reward_ratio ?? 0),
+      acceptance_criteria:
+        item.acceptance_criteria && item.acceptance_criteria.length > 0
+          ? item.acceptance_criteria.map((criterion) => ({
+              description: String(criterion.description ?? ''),
+              type: (criterion.type === 'quantified' ? 'quantified' : 'behavioral') as 'quantified' | 'behavioral',
+            }))
+          : [{ description: '', type: 'behavioral' as const }],
+    }))
+    .sort((a, b) => a.sequence - b.sequence)
+  return rows.length > 0 ? rows : buildDefaultMilestones()
+}
+
 export function ReviewWorkbenchPage({ userId }: Props) {
   const toast = useToast()
   const navigate = useNavigate()
@@ -76,6 +101,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
   const [pricingDraft, setPricingDraft] = useState<PricingDraft>(buildDefaultPricingDraft())
   const [reviewComment, setReviewComment] = useState('')
   const [analysisAcceptance, setAnalysisAcceptance] = useState('')
+  const [isComplexTask, setIsComplexTask] = useState(false)
+  const [closingRewardRatio, setClosingRewardRatio] = useState(0.4)
+  const [milestones, setMilestones] = useState<TaskMilestoneDefinition[]>(buildDefaultMilestones())
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -127,6 +155,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       ])
       setSelectedProblemDetail(detail)
       setSelectedAnalysis(analysis)
+      setIsComplexTask(Boolean(detail.priced_is_complex))
+      setClosingRewardRatio(Number(detail.priced_closing_reward_ratio ?? 0.4))
+      setMilestones(normalizeMilestones(detail))
       if (detail.priced_level && detail.priced_reward_total) {
         setPricingDraft({
           level: detail.priced_level as TaskLevel,
@@ -162,7 +193,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
           review_comment: reviewComment.trim(),
         },
       })
-      setMessage(`问题 #${selectedProblem.id} 已退回提交人修改`)
+      setMessage(`问题 #${selectedProblem.id} 已退回提报人修改`)
       setSelectedProblemId(null)
       setSelectedProblemDetail(null)
       await load()
@@ -173,7 +204,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
 
   const submitPricingApprove = async (event: FormEvent) => {
     event.preventDefault()
-    if (!selectedProblem) return
+    if (!selectedProblem || !selectedProblemDetail) return
 
     const reward = Number(pricingDraft.reward_total)
     const proposerRatio = Number(pricingDraft.proposer_ratio)
@@ -187,7 +218,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       return
     }
     if (!Number.isFinite(proposerRatio) || proposerRatio < 0.2 || proposerRatio > 0.3) {
-      setError('问题提出人分成比例需在 0.2-0.3 之间')
+      setError('提报人分成比例需在 0.2-0.3 之间')
       return
     }
     if (!Number.isInteger(accepterId) || accepterId <= 0) {
@@ -198,25 +229,69 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       setError(`积分需在 ${pointRange.min}-${pointRange.max} 区间`)
       return
     }
+    if (isComplexTask) {
+      if (milestones.length < 2 || milestones.length > 5) {
+        setError('复杂任务必须配置 2-5 个里程碑')
+        return
+      }
+      const ratioSum = milestones.reduce((acc, item) => acc + Number(item.reward_ratio || 0), 0) + Number(closingRewardRatio || 0)
+      if (Math.abs(ratioSum - 1) > 0.0001) {
+        setError('里程碑比例与结项比例之和必须为 1')
+        return
+      }
+    }
 
     try {
       setError(null)
+      const commonPayload = {
+        approve: true,
+        analysis_id: selectedAnalysis?.id ?? null,
+        analysis_acceptance: selectedAnalysis ? (analysisAcceptance.trim() || '已参考论证结果') : null,
+      }
+      const taskAcceptanceCriteria =
+        selectedProblemDetail.draft_acceptance_criteria && selectedProblemDetail.draft_acceptance_criteria.length > 0
+          ? selectedProblemDetail.draft_acceptance_criteria.map((item) => ({
+              description: item.description ?? '验收项',
+              type: item.type === 'quantified' ? 'quantified' : 'behavioral',
+            }))
+          : [{ description: '按验收标准完成交付', type: 'behavioral' as const }]
+
       const result = await requestJson<ProblemReviewResult>(`/problems/${selectedProblem.id}/review`, {
         method: 'POST',
         userId,
-        body: {
-          approve: true,
-          analysis_id: selectedAnalysis?.id ?? null,
-          analysis_acceptance: selectedAnalysis ? (analysisAcceptance.trim() || '已参考论证') : null,
-          pricing: {
-            level: pricingDraft.level,
-            reward_total: reward,
-            proposer_ratio: proposerRatio,
-            accepter_id: accepterId,
-            points,
-            badge: pricingDraft.badge.trim() || null,
-          },
-        },
+        body: isComplexTask
+          ? {
+              ...commonPayload,
+              task: {
+                title: selectedProblem.title,
+                goal: selectedProblemDetail.draft_goal || '待补充目标',
+                scope: selectedProblemDetail.draft_scope || '待补充范围',
+                due_date:
+                  selectedProblemDetail.draft_due_date ||
+                  new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+                level: pricingDraft.level,
+                reward_total: reward,
+                proposer_ratio: proposerRatio,
+                accepter_id: accepterId,
+                points,
+                badge: pricingDraft.badge.trim() || null,
+                is_complex: true,
+                closing_reward_ratio: closingRewardRatio,
+                milestones,
+                acceptance_criteria: taskAcceptanceCriteria,
+              },
+            }
+          : {
+              ...commonPayload,
+              pricing: {
+                level: pricingDraft.level,
+                reward_total: reward,
+                proposer_ratio: proposerRatio,
+                accepter_id: accepterId,
+                points,
+                badge: pricingDraft.badge.trim() || null,
+              },
+            },
       })
       if (result.status === 'budget_pending') {
         setMessage(`问题 #${selectedProblem.id} 已完成评审定价，等待资金复核`)
@@ -226,6 +301,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       setSelectedProblemId(null)
       setSelectedProblemDetail(null)
       setPricingDraft(buildDefaultPricingDraft())
+      setIsComplexTask(false)
+      setClosingRewardRatio(0.4)
+      setMilestones(buildDefaultMilestones())
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '定价审核失败')
@@ -246,7 +324,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>问题评审与定价</h2>
-        <p>评审人不改任务定义，只做通过/退回与定级定价。</p>
+        <p>评审人可退回修改，或直接定价通过；复杂任务可配置里程碑。</p>
       </header>
 
       <article className="panel">
@@ -315,11 +393,11 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             {selectedAnalysis ? (
               <>
                 <label>
-                  对论证建议采纳意见（可选）
+                  采纳意见（可选）
                   <textarea
                     value={analysisAcceptance}
                     onChange={(event) => setAnalysisAcceptance(event.target.value)}
-                    placeholder="说明你采纳/不采纳的理由"
+                    placeholder="说明是否采纳论证结论"
                   />
                 </label>
                 <div className="button-row">
@@ -339,9 +417,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             ) : selectedProblemDetail.analysis_status === 'analyzing' ? (
               <p>论证进行中，请稍后刷新。</p>
             ) : selectedProblemDetail.analysis_status === 'failed' ? (
-              <p>论证失败，可让提交人或审核人点击“立即论证”重试。</p>
+              <p>论证失败，可重新触发。</p>
             ) : (
-              <p>暂无可用论证结果</p>
+              <p>暂无可用论证结果。</p>
             )}
           </article>
 
@@ -380,19 +458,19 @@ export function ReviewWorkbenchPage({ userId }: Props) {
               <input
                 type="number"
                 value={pricingDraft.reward_total}
-                onChange={(e) => setPricingDraft((p) => ({ ...p, reward_total: e.target.value }))}
+                onChange={(event) => setPricingDraft((prev) => ({ ...prev, reward_total: event.target.value }))}
                 required
               />
             </label>
             <label>
-              提交人分成比例（0.2-0.3）
+              提报人分成比例（0.2-0.3）
               <input
                 type="number"
                 min="0.2"
                 max="0.3"
                 step="0.01"
                 value={pricingDraft.proposer_ratio}
-                onChange={(e) => setPricingDraft((p) => ({ ...p, proposer_ratio: e.target.value }))}
+                onChange={(event) => setPricingDraft((prev) => ({ ...prev, proposer_ratio: event.target.value }))}
                 required
               />
             </label>
@@ -400,7 +478,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
               验收人
               <select
                 value={pricingDraft.accepter_id}
-                onChange={(e) => setPricingDraft((p) => ({ ...p, accepter_id: e.target.value }))}
+                onChange={(event) => setPricingDraft((prev) => ({ ...prev, accepter_id: event.target.value }))}
                 required
               >
                 <option value="">请选择</option>
@@ -416,7 +494,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
               <input
                 type="number"
                 value={pricingDraft.points}
-                onChange={(e) => setPricingDraft((p) => ({ ...p, points: e.target.value }))}
+                onChange={(event) => setPricingDraft((prev) => ({ ...prev, points: event.target.value }))}
               />
               <small className="muted">
                 当前等级积分区间：{pointsRangeByLevel[pricingDraft.level].min}-{pointsRangeByLevel[pricingDraft.level].max}
@@ -426,7 +504,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
               徽章（可选）
               <select
                 value={pricingDraft.badge}
-                onChange={(e) => setPricingDraft((p) => ({ ...p, badge: e.target.value }))}
+                onChange={(event) => setPricingDraft((prev) => ({ ...prev, badge: event.target.value }))}
               >
                 <option value="">不授予</option>
                 {badges.map((badge) => (
@@ -436,6 +514,24 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                 ))}
               </select>
             </label>
+            <label className="wide">
+              <span>复杂任务模式</span>
+              <input
+                type="checkbox"
+                checked={isComplexTask}
+                onChange={(event) => setIsComplexTask(event.target.checked)}
+              />
+            </label>
+            {isComplexTask && (
+              <div className="wide">
+                <MilestoneEditor
+                  value={milestones}
+                  onChange={setMilestones}
+                  closingRewardRatio={closingRewardRatio}
+                  onClosingRewardRatioChange={setClosingRewardRatio}
+                />
+              </div>
+            )}
             <button className="primary-btn" type="submit">
               通过并提交定价
             </button>
@@ -445,9 +541,9 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             <h3>退回修改</h3>
             <label className="wide">
               修改意见
-              <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} required />
+              <textarea value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} required />
             </label>
-            <button type="submit">退回提交人</button>
+            <button type="submit">退回提报人</button>
           </form>
         </>
       )}
