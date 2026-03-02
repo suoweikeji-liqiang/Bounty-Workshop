@@ -1,7 +1,7 @@
 ﻿from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.badges import is_valid_badge_code
 from app.enums import (
@@ -334,6 +334,14 @@ class TaskDetailRead(BaseModel):
 class TaskActivityCreate(BaseModel):
     activity_type: TaskActivityType
     content: str = Field(min_length=1)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("content must not be blank")
+        return cleaned
 
 
 class TaskActivityRead(BaseModel):

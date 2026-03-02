@@ -15,9 +15,10 @@ router = APIRouter(tags=["task-activities"])
 def get_task_activities(
     task_id: int,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id),
+    actor_id: int = Depends(get_current_user_id),
 ) -> list[TaskActivityRead]:
-    return list_task_activities(session, task_id=task_id)
+    actor_roles = get_user_roles(session, actor_id)
+    return list_task_activities(session, actor_id=actor_id, actor_roles=actor_roles, task_id=task_id)
 
 
 @router.post("/tasks/{task_id}/activities", response_model=TaskActivityRead)

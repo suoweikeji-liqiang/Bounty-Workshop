@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from app.enums import ClaimStatus, Role, TaskActivityType
 from app.models import Claim, Task, TaskActivity
 from app.schemas import TaskActivityCreate, TaskActivityRead
-from app.services_claims import _ensure_claim_access, _load_claim_and_task
+from app.services_claims import _ensure_claim_access, _has_claim_access, _load_claim_and_task
 
 
 def _task_or_404(session: Session, task_id: int) -> Task:
@@ -28,14 +28,29 @@ def _activity_to_read(row: TaskActivity) -> TaskActivityRead:
     )
 
 
-def list_task_activities(session: Session, task_id: int) -> list[TaskActivityRead]:
-    _task_or_404(session, task_id)
+def list_task_activities(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    task_id: int,
+) -> list[TaskActivityRead]:
+    task = _task_or_404(session, task_id)
     rows = session.exec(
         select(TaskActivity)
         .where(TaskActivity.task_id == task_id)
         .order_by(TaskActivity.created_at.asc(), TaskActivity.id.asc())
     ).all()
-    return [_activity_to_read(row) for row in rows]
+    visible_rows: list[TaskActivityRead] = []
+    for row in rows:
+        if row.claim_id is None:
+            visible_rows.append(_activity_to_read(row))
+            continue
+        claim = session.get(Claim, row.claim_id)
+        if claim is None:
+            continue
+        if _has_claim_access(actor_id, actor_roles, claim, task):
+            visible_rows.append(_activity_to_read(row))
+    return visible_rows
 
 
 def list_claim_activities(
