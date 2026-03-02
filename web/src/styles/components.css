@@ -318,6 +318,7 @@ button:disabled {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
+  min-width: 0;
 }
 
 .table > p {
@@ -336,6 +337,8 @@ button:disabled {
   padding: 14px 16px;
   transition: all 0.2s ease;
   font-size: 14px;
+  min-width: 0;
+  width: 100%;
 }
 
 .row > span {
@@ -368,35 +371,90 @@ button:disabled {
 }
 
 .row.task-open-row {
-  grid-template-columns: 72px minmax(220px, 1.8fr) 96px 72px 90px 120px 72px minmax(220px, 1.2fr);
+  grid-template-columns:
+    minmax(0, 0.65fr)
+    minmax(0, 2.1fr)
+    minmax(0, 1fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.9fr)
+    minmax(0, 1fr)
+    minmax(0, 0.8fr)
+    minmax(0, 1.6fr);
 }
 
 .row.task-all-row {
-  grid-template-columns: 72px minmax(220px, 1.8fr) 96px 72px 110px 90px 120px 72px minmax(220px, 1.2fr);
+  grid-template-columns:
+    minmax(0, 0.65fr)
+    minmax(0, 2fr)
+    minmax(0, 1fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.95fr)
+    minmax(0, 0.9fr)
+    minmax(0, 1fr)
+    minmax(0, 0.75fr)
+    minmax(0, 1.4fr);
 }
 
 .row.task-claim-row {
-  grid-template-columns: 90px minmax(220px, 1.9fr) 90px 110px 110px 120px minmax(220px, 1.2fr);
+  grid-template-columns:
+    minmax(0, 0.8fr)
+    minmax(0, 2fr)
+    minmax(0, 0.8fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1.4fr);
 }
 
 .row.reward-row {
-  grid-template-columns: 72px minmax(220px, 1.8fr) minmax(160px, 1.3fr) 100px 90px 90px minmax(160px, 1fr);
+  grid-template-columns:
+    minmax(0, 0.6fr)
+    minmax(0, 1.9fr)
+    minmax(0, 1.3fr)
+    minmax(0, 0.8fr)
+    minmax(0, 0.75fr)
+    minmax(0, 0.75fr)
+    minmax(0, 1.3fr);
 }
 
 .row.ai-model-row {
-  grid-template-columns: 72px minmax(160px, 1.1fr) 100px minmax(180px, 1.2fr) 72px 84px minmax(260px, 1.7fr);
+  grid-template-columns:
+    minmax(0, 0.55fr)
+    minmax(0, 1fr)
+    minmax(0, 0.8fr)
+    minmax(0, 1.2fr)
+    minmax(0, 0.6fr)
+    minmax(0, 0.7fr)
+    minmax(0, 1.5fr);
 }
 
 .row.budget-review-row {
-  grid-template-columns: 72px minmax(260px, 2fr) minmax(120px, 1fr) 150px minmax(160px, 1fr);
+  grid-template-columns:
+    minmax(0, 0.55fr)
+    minmax(0, 2.1fr)
+    minmax(0, 1.1fr)
+    minmax(0, 1fr)
+    minmax(0, 1.35fr);
 }
 
 .row.activity-row {
-  grid-template-columns: 170px 110px 90px 90px minmax(260px, 2fr) minmax(180px, 1.2fr);
+  grid-template-columns:
+    minmax(0, 1.25fr)
+    minmax(0, 0.8fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.7fr)
+    minmax(0, 2fr)
+    minmax(0, 1.4fr);
 }
 
 .row.milestone-accept-row {
-  grid-template-columns: 120px minmax(260px, 2fr) 90px 90px 170px minmax(140px, 1fr);
+  grid-template-columns:
+    minmax(0, 0.9fr)
+    minmax(0, 2fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.7fr)
+    minmax(0, 1fr)
+    minmax(0, 1.2fr);
 }
 
 .users-toolbar {
@@ -427,7 +485,13 @@ button:disabled {
 }
 
 .row.users-row {
-  grid-template-columns: 80px 1.8fr 1fr 120px 1.4fr 230px;
+  grid-template-columns:
+    minmax(0, 0.7fr)
+    minmax(0, 1.9fr)
+    minmax(0, 1fr)
+    minmax(0, 0.9fr)
+    minmax(0, 1.45fr)
+    minmax(0, 1.6fr);
   align-items: start;
 }
 
@@ -460,7 +524,7 @@ button:disabled {
 
 .users-role-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  grid-template-columns: repeat(2, minmax(74px, 1fr));
   gap: 6px 10px;
 }
 
@@ -471,7 +535,8 @@ button:disabled {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .users-role-item input {
@@ -498,14 +563,24 @@ button:disabled {
 }
 
 .row.problems-row {
-  grid-template-columns: 72px minmax(220px, 1.6fr) minmax(130px, 1fr) 90px 110px 110px minmax(220px, 1.6fr) 120px minmax(220px, 1.2fr);
+  grid-template-columns:
+    minmax(0, 0.6fr)
+    minmax(0, 1.9fr)
+    minmax(0, 1fr)
+    minmax(0, 0.8fr)
+    minmax(0, 0.9fr)
+    minmax(0, 0.9fr)
+    minmax(0, 1.7fr)
+    minmax(0, 0.9fr)
+    minmax(0, 1.5fr);
 }
 
 .actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .row > .actions {
@@ -516,7 +591,9 @@ button:disabled {
 .actions button {
   padding: 6px 12px;
   font-size: 12px;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.3;
+  max-width: 100%;
 }
 
 .acceptance-editor {
