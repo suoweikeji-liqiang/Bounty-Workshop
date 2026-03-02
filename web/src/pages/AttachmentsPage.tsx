@@ -1,8 +1,9 @@
-ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { downloadFile, requestJson } from '../lib/http'
+import { formatProblemStatusLabel } from '../lib/enumLabels'
 import type { Attachment, ClaimExecution, Problem } from '../types'
 
 type Props = {
@@ -15,19 +16,23 @@ type DeliverableOption = {
   taskTitle: string
 }
 
+type AttachmentsView = 'entity' | 'attachment'
+
 export function AttachmentsPage({ userId }: Props) {
   const toast = useToast()
   const [file, setFile] = useState<File | null>(null)
   const [problems, setProblems] = useState<Problem[]>([])
   const [claims, setClaims] = useState<ClaimExecution[]>([])
+  const [view, setView] = useState<AttachmentsView>('entity')
   const [entityType, setEntityType] = useState<'problem' | 'deliverable'>('problem')
   const [selectedProblemId, setSelectedProblemId] = useState('')
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('')
-  const [selectedAttachmentId, setSelectedAttachmentId] = useState('')
+  const [lookupAttachmentId, setLookupAttachmentId] = useState('')
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [entityAttachments, setEntityAttachments] = useState<Attachment[]>([])
   const [loadingRefs, setLoadingRefs] = useState(false)
   const [loadingEntity, setLoadingEntity] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,23 +55,12 @@ export function AttachmentsPage({ userId }: Props) {
 
   const selectedEntityId = entityType === 'problem' ? selectedProblemId : selectedDeliverableId
 
-  const attachmentOptions = useMemo(() => {
-    const map = new Map<number, Attachment>()
-    for (const item of entityAttachments) {
-      map.set(item.id, item)
-    }
-    if (attachment) {
-      map.set(attachment.id, attachment)
-    }
-    return Array.from(map.values()).sort((a, b) => b.id - a.id)
-  }, [attachment, entityAttachments])
-
   const loadReferenceData = useCallback(async () => {
     try {
       setLoadingRefs(true)
       setError(null)
       const [problemRows, claimRows] = await Promise.all([
-        requestJson<Problem[]>('/problems?mine_only=true&limit=200', { userId }),
+        requestJson<Problem[]>('/problems?limit=200', { userId }),
         requestJson<ClaimExecution[]>('/claims/mine', { userId }),
       ])
       setProblems(problemRows)
@@ -79,24 +73,22 @@ export function AttachmentsPage({ userId }: Props) {
         return problemRows.length > 0 ? String(problemRows[0].id) : ''
       })
 
-      setSelectedDeliverableId((prev) => {
-        const nextOptions = (() => {
-          const map = new Map<number, boolean>()
-          for (const item of claimRows) {
-            if (item.deliverable_id) {
-              map.set(item.deliverable_id, true)
-            }
+      const nextDeliverableIds = Array.from(
+        claimRows.reduce((set, item) => {
+          if (item.deliverable_id) {
+            set.add(String(item.deliverable_id))
           }
-          return Array.from(map.keys()).sort((a, b) => b - a)
-        })()
-
-        if (prev && nextOptions.some((id) => String(id) === prev)) {
+          return set
+        }, new Set<string>()),
+      )
+      setSelectedDeliverableId((prev) => {
+        if (prev && nextDeliverableIds.includes(prev)) {
           return prev
         }
-        return nextOptions.length > 0 ? String(nextOptions[0]) : ''
+        return nextDeliverableIds.length > 0 ? nextDeliverableIds[0] : ''
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½å¼•ç”¨æ•°æ®å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØÒıÓÃÊı¾İÊ§°Ü')
     } finally {
       setLoadingRefs(false)
     }
@@ -105,10 +97,11 @@ export function AttachmentsPage({ userId }: Props) {
   const upload = async (event: FormEvent) => {
     event.preventDefault()
     if (!file) {
-      setError('è¯·å…ˆé€‰æ‹©æ–‡ä»¶')
+      setError('ÇëÏÈÑ¡ÔñÎÄ¼ş')
       return
     }
     try {
+      setUploading(true)
       setError(null)
       const data = new FormData()
       data.append('file', file)
@@ -118,17 +111,19 @@ export function AttachmentsPage({ userId }: Props) {
         formData: data,
       })
       setAttachment(res)
-      setSelectedAttachmentId(String(res.id))
-      setMessage(`ä¸Šä¼ æˆåŠŸï¼Œé™„ä»¶ ID=${res.id}`)
+      setLookupAttachmentId(String(res.id))
+      setMessage(`ÉÏ´«³É¹¦£¬¸½¼ş ID=${res.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'ä¸Šä¼ å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'ÉÏ´«Ê§°Ü')
+    } finally {
+      setUploading(false)
     }
   }
 
   const lookupAttachment = async () => {
-    const id = Number(selectedAttachmentId)
+    const id = Number(lookupAttachmentId)
     if (!Number.isInteger(id) || id <= 0) {
-      setError('è¯·é€‰æ‹©æœ‰æ•ˆé™„ä»¶')
+      setError('ÇëÊäÈëÓĞĞ§¸½¼ş ID')
       return
     }
 
@@ -137,14 +132,14 @@ export function AttachmentsPage({ userId }: Props) {
       const res = await requestJson<Attachment>(`/attachments/${id}`, { userId })
       setAttachment(res)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æŸ¥è¯¢å¤±è´¥')
+      setError(err instanceof Error ? err.message : '²éÑ¯Ê§°Ü')
     }
   }
 
   const loadEntityAttachments = async () => {
     const id = Number(selectedEntityId)
     if (!Number.isInteger(id) || id <= 0) {
-      setError(entityType === 'problem' ? 'è¯·é€‰æ‹©é—®é¢˜' : 'è¯·é€‰æ‹©äº¤ä»˜æˆæœ')
+      setError(entityType === 'problem' ? 'ÇëÑ¡ÔñÎÊÌâ' : 'ÇëÑ¡Ôñ½»¸¶³É¹û')
       return
     }
 
@@ -153,12 +148,14 @@ export function AttachmentsPage({ userId }: Props) {
       setError(null)
       const res = await requestJson<Attachment[]>(`/entities/${entityType}/${id}/attachments`, { userId })
       setEntityAttachments(res)
-      setSelectedAttachmentId(res.length > 0 ? String(res[0].id) : '')
-      if (res.length === 0) {
+      if (res.length > 0) {
+        setAttachment(res[0])
+        setLookupAttachmentId(String(res[0].id))
+      } else {
         setAttachment(null)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æŸ¥è¯¢å¤±è´¥')
+      setError(err instanceof Error ? err.message : '²éÑ¯Ê§°Ü')
     } finally {
       setLoadingEntity(false)
     }
@@ -185,137 +182,186 @@ export function AttachmentsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>é™„ä»¶ä¸­å¿ƒ</h2>
-        <p>ä¸Šä¼ è¯æ®ã€æŒ‰å®ä½“æŸ¥çœ‹é™„ä»¶ã€æŸ¥çœ‹é™„ä»¶è¯¦æƒ…ä¸ä¸‹è½½ã€‚</p>
+        <h2>¸½¼şÖĞĞÄ</h2>
+        <p>ÉÏ´«Ö¤¾İ¡¢°´ÊµÌå²é¿´¸½¼ş¡¢²é¿´¸½¼şÏêÇéÓëÏÂÔØ¡£</p>
       </header>
 
       <form className="panel form-grid" onSubmit={upload}>
-        <h3>ä¸Šä¼ é™„ä»¶</h3>
+        <h3>ÉÏ´«¸½¼ş</h3>
         <label className="wide">
-          é€‰æ‹©æ–‡ä»¶
+          Ñ¡ÔñÎÄ¼ş
           <input type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
         </label>
-        <button className="primary-btn" type="submit">
-          ä¸Šä¼ 
-        </button>
+        <div className="button-row wide">
+          <button className="primary-btn" type="submit" disabled={uploading}>
+            {uploading ? 'ÉÏ´«ÖĞ...' : 'ÉÏ´«'}
+          </button>
+          <button type="button" onClick={() => void loadReferenceData()} disabled={loadingRefs}>
+            {loadingRefs ? 'Ë¢ĞÂÖĞ...' : 'Ë¢ĞÂÎÊÌâ/³É¹ûÁĞ±í'}
+          </button>
+        </div>
       </form>
 
-      <article className="panel form-grid">
-        <h3>æŒ‰å®ä½“æŸ¥é™„ä»¶</h3>
-        <label>
-          å®ä½“ç±»å‹
-          <select value={entityType} onChange={(event) => setEntityType(event.target.value as 'problem' | 'deliverable')}>
-            <option value="problem">é—®é¢˜</option>
-            <option value="deliverable">æˆæœ</option>
-          </select>
-        </label>
-
-        {entityType === 'problem' ? (
-          <label>
-            é€‰æ‹©é—®é¢˜
-            <select value={selectedProblemId} onChange={(event) => setSelectedProblemId(event.target.value)}>
-              {problems.length === 0 && <option value="">æš‚æ— é—®é¢˜</option>}
-              {problems.map((item) => (
-                <option key={`problem-${item.id}`} value={item.id}>
-                  #{item.id} [{item.status}] {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <label>
-            é€‰æ‹©æˆæœ
-            <select value={selectedDeliverableId} onChange={(event) => setSelectedDeliverableId(event.target.value)}>
-              {deliverableOptions.length === 0 && <option value="">æš‚æ— æˆæœ</option>}
-              {deliverableOptions.map((item) => (
-                <option key={`deliverable-${item.deliverableId}`} value={item.deliverableId}>
-                  #{item.deliverableId} (claim #{item.claimId}) {item.taskTitle}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <div className="button-row wide">
-          <button type="button" onClick={() => void loadReferenceData()} disabled={loadingRefs}>
-            {loadingRefs ? 'åˆ·æ–°ä¸­...' : 'åˆ·æ–°åˆ—è¡¨'}
+      <article className="panel">
+        <div className="button-row">
+          <button
+            type="button"
+            className={view === 'entity' ? 'primary-btn' : ''}
+            onClick={() => setView('entity')}
+          >
+            °´ÊµÌå²éÑ¯
           </button>
-          <button type="button" onClick={() => void loadEntityAttachments()} disabled={loadingEntity}>
-            {loadingEntity ? 'æŸ¥è¯¢ä¸­...' : 'æŸ¥è¯¢é™„ä»¶åˆ—è¡¨'}
+          <button
+            type="button"
+            className={view === 'attachment' ? 'primary-btn' : ''}
+            onClick={() => setView('attachment')}
+          >
+            °´¸½¼ş ID ²éÑ¯
           </button>
         </div>
       </article>
 
-      <article className="panel form-grid">
-        <h3>æŸ¥çœ‹é™„ä»¶è¯¦æƒ…</h3>
-        <label>
-          é€‰æ‹©é™„ä»¶
-          <select value={selectedAttachmentId} onChange={(event) => setSelectedAttachmentId(event.target.value)}>
-            {attachmentOptions.length === 0 && <option value="">æš‚æ— é™„ä»¶</option>}
-            {attachmentOptions.map((item) => (
-              <option key={`attachment-${item.id}`} value={item.id}>
-                #{item.id} {item.filename}
-              </option>
+      {view === 'entity' && (
+        <article className="panel form-grid">
+          <h3 className="wide">°´ÊµÌå²é¸½¼ş</h3>
+          <label>
+            ÊµÌåÀàĞÍ
+            <select value={entityType} onChange={(event) => setEntityType(event.target.value as 'problem' | 'deliverable')}>
+              <option value="problem">ÎÊÌâ</option>
+              <option value="deliverable">³É¹û</option>
+            </select>
+          </label>
+
+          {entityType === 'problem' ? (
+            <label className="wide">
+              Ñ¡ÔñÎÊÌâ
+              <select value={selectedProblemId} onChange={(event) => setSelectedProblemId(event.target.value)}>
+                {problems.length === 0 && <option value="">ÔİÎŞÎÊÌâ</option>}
+                {problems.map((item) => (
+                  <option key={`problem-${item.id}`} value={item.id}>
+                    #{item.id} [{formatProblemStatusLabel(item.status)}] {item.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="wide">
+              Ñ¡Ôñ³É¹û
+              <select value={selectedDeliverableId} onChange={(event) => setSelectedDeliverableId(event.target.value)}>
+                {deliverableOptions.length === 0 && <option value="">ÔİÎŞ³É¹û</option>}
+                {deliverableOptions.map((item) => (
+                  <option key={`deliverable-${item.deliverableId}`} value={item.deliverableId}>
+                    #{item.deliverableId} (claim #{item.claimId}) {item.taskTitle}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div className="button-row wide">
+            <button type="button" onClick={() => void loadEntityAttachments()} disabled={loadingEntity}>
+              {loadingEntity ? '²éÑ¯ÖĞ...' : '²éÑ¯¸½¼şÁĞ±í'}
+            </button>
+          </div>
+
+          <div className="wide table">
+            <div className="row head">
+              <span>ID</span>
+              <span>ÎÄ¼şÃû</span>
+              <span>ºó¶Ë</span>
+              <span>²Ù×÷</span>
+            </div>
+            {entityAttachments.map((item) => (
+              <div className="row" key={item.id}>
+                <span>{item.id}</span>
+                <span title={item.filename}>{item.filename}</span>
+                <span>{item.storage_backend}</span>
+                <span className="actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachment(item)
+                      setLookupAttachmentId(String(item.id))
+                    }}
+                  >
+                    ²é¿´ÏêÇé
+                  </button>
+                  <button type="button" onClick={() => void downloadFile(item.download_url, item.filename, { userId })}>
+                    ÏÂÔØ
+                  </button>
+                </span>
+              </div>
             ))}
-          </select>
-        </label>
-        <button type="button" onClick={() => void lookupAttachment()}>
-          æŸ¥è¯¢å…ƒæ•°æ®
-        </button>
-      </article>
+            {entityAttachments.length === 0 && (
+              <div className="row">
+                <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>µ±Ç°ÊµÌåÔİÎŞ¸½¼ş</span>
+              </div>
+            )}
+          </div>
+        </article>
+      )}
+
+      {view === 'attachment' && (
+        <article className="panel form-grid">
+          <h3 className="wide">°´¸½¼ş ID ²éÑ¯</h3>
+          <label>
+            ¸½¼ş ID
+            <input
+              value={lookupAttachmentId}
+              onChange={(event) => setLookupAttachmentId(event.target.value)}
+              placeholder="ÊäÈë¸½¼ş ID"
+            />
+          </label>
+          <div className="button-row" style={{ alignItems: 'end' }}>
+            <button type="button" onClick={() => void lookupAttachment()}>
+              ²éÑ¯¸½¼ş
+            </button>
+          </div>
+        </article>
+      )}
 
       {attachment && (
         <article className="panel">
-          <h3>é™„ä»¶è¯¦æƒ…</h3>
+          <h3>¸½¼şÏêÇé</h3>
           <p className="line-metric">
             <span>ID</span>
             <strong>{attachment.id}</strong>
           </p>
           <p className="line-metric">
-            <span>æ–‡ä»¶å</span>
+            <span>ÎÄ¼şÃû</span>
             <strong>{attachment.filename}</strong>
           </p>
           <p className="line-metric">
-            <span>å¤§å°</span>
-            <strong>{attachment.size_bytes} å­—èŠ‚</strong>
+            <span>ÀàĞÍ / ´óĞ¡</span>
+            <strong>
+              {attachment.content_type} / {attachment.size_bytes} ×Ö½Ú
+            </strong>
           </p>
           <p className="line-metric">
-            <span>åç«¯</span>
+            <span>´æ´¢ºó¶Ë</span>
             <strong>{attachment.storage_backend}</strong>
           </p>
-          <button
-            className="ghost-btn"
-            type="button"
-            onClick={() => void downloadFile(attachment.download_url, attachment.filename, { userId })}
-          >
-            ä¸‹è½½é™„ä»¶
-          </button>
+          <p className="line-metric">
+            <span>¹ØÁªÊµÌå</span>
+            <strong>{attachment.entity_type ? `${attachment.entity_type}#${attachment.entity_id ?? '-'}` : '-'}</strong>
+          </p>
+          <p className="line-metric">
+            <span>ÉÏ´«ÈË / Ê±¼ä</span>
+            <strong>
+              #{attachment.uploader_user_id} / {new Date(attachment.created_at).toLocaleString()}
+            </strong>
+          </p>
+          <div className="button-row">
+            <button
+              className="primary-btn"
+              type="button"
+              onClick={() => void downloadFile(attachment.download_url, attachment.filename, { userId })}
+            >
+              ÏÂÔØ¸½¼ş
+            </button>
+          </div>
         </article>
       )}
-
-      <article className="panel">
-        <h3>å®ä½“é™„ä»¶åˆ—è¡¨</h3>
-        <div className="table">
-          <div className="row head">
-            <span>ID</span>
-            <span>æ–‡ä»¶å</span>
-            <span>åç«¯</span>
-            <span>ä¸‹è½½</span>
-          </div>
-          {entityAttachments.map((item) => (
-            <div className="row" key={item.id}>
-              <span>{item.id}</span>
-              <span>{item.filename}</span>
-              <span>{item.storage_backend}</span>
-              <span>
-                <button type="button" onClick={() => void downloadFile(item.download_url, item.filename, { userId })}>
-                  æ‰“å¼€
-                </button>
-              </span>
-            </div>
-          ))}
-        </div>
-      </article>
     </section>
   )
 }

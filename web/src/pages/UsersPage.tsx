@@ -1,4 +1,4 @@
-ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
@@ -29,16 +29,16 @@ function normalizeRoles(roles: string[]): RoleName[] {
 }
 
 function roleLabel(role: RoleName) {
-  if (role === 'admin') return 'ç®¡ç†å‘˜'
-  if (role === 'reviewer') return 'è¯„å®¡'
-  if (role === 'acceptor') return 'éªŒæ”¶äºº'
-  if (role === 'reward_approver') return 'èµ„é‡‘å¤æ ¸'
-  return 'å‘˜å·¥'
+  if (role === 'admin') return '¹ÜÀíÔ±'
+  if (role === 'reviewer') return 'ÆÀÉó'
+  if (role === 'acceptor') return 'ÑéÊÕÈË'
+  if (role === 'reward_approver') return '×Ê½ğ¸´ºË'
+  return 'Ô±¹¤'
 }
 
 function statusLabel(status: string) {
-  if (status === 'enabled') return 'å¯ç”¨'
-  if (status === 'disabled') return 'ç¦ç”¨'
+  if (status === 'enabled') return 'ÆôÓÃ'
+  if (status === 'disabled') return '½ûÓÃ'
   return status
 }
 
@@ -51,17 +51,25 @@ function statusTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'm
 export function UsersPage({ userId }: Props) {
   const toast = useToast()
   const [users, setUsers] = useState<UserProfile[]>([])
-  const [roleDrafts, setRoleDrafts] = useState<Record<number, RoleName[]>>({})
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [loading, setLoading] = useState(false)
+
+  const [manageUserId, setManageUserId] = useState<number | null>(null)
+  const [manageRoles, setManageRoles] = useState<RoleName[]>(['employee'])
+  const [savingRoles, setSavingRoles] = useState(false)
+  const [togglingStatus, setTogglingStatus] = useState(false)
+
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
-  const [passwordUserId, setPasswordUserId] = useState<number | null>(null)
   const [passwordDraft, setPasswordDraft] = useState('')
   const [forceChange, setForceChange] = useState(true)
+
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const managedUser = useMemo(() => users.find((item) => item.id === manageUserId) ?? null, [manageUserId, users])
 
   const userCount = useMemo(() => users.length, [users])
   const filteredUsers = useMemo(() => {
@@ -95,17 +103,8 @@ export function UsersPage({ userId }: Props) {
       setError(null)
       const rows = await requestJson<UserProfile[]>('/users', { userId })
       setUsers(rows)
-      setRoleDrafts((prev) => {
-        const next = { ...prev }
-        for (const item of rows) {
-          if (!next[item.id]) {
-            next[item.id] = normalizeRoles(item.roles)
-          }
-        }
-        return next
-      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½ç”¨æˆ·å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØÓÃ»§Ê§°Ü')
     } finally {
       setLoading(false)
     }
@@ -115,78 +114,87 @@ export function UsersPage({ userId }: Props) {
     void loadUsers()
   }, [loadUsers])
 
-  const saveRoles = async (targetUserId: number) => {
-    const roles = roleDrafts[targetUserId]
-    if (!roles || roles.length === 0) {
-      setError('è‡³å°‘ä¿ç•™ä¸€ä¸ªè§’è‰²')
+  const openManageUser = (user: UserProfile) => {
+    setManageUserId(user.id)
+    setManageRoles(normalizeRoles(user.roles))
+    setPasswordOpen(false)
+    setPasswordDraft('')
+    setForceChange(true)
+  }
+
+  const closeManageUser = () => {
+    if (savingRoles || savingPassword || togglingStatus) {
       return
     }
+    setManageUserId(null)
+    setManageRoles(['employee'])
+    setPasswordOpen(false)
+    setPasswordDraft('')
+    setForceChange(true)
+  }
+
+  const saveRoles = async () => {
+    if (!managedUser) {
+      return
+    }
+    if (manageRoles.length === 0) {
+      setError('ÖÁÉÙ±£ÁôÒ»¸ö½ÇÉ«')
+      return
+    }
+
     try {
+      setSavingRoles(true)
       setError(null)
-      await requestJson(`/users/${targetUserId}/roles`, {
+      await requestJson(`/users/${managedUser.id}/roles`, {
         method: 'PUT',
         userId,
-        body: { roles },
+        body: { roles: manageRoles },
       })
-      setMessage(`ç”¨æˆ· #${targetUserId} è§’è‰²å·²æ›´æ–°`)
+      setMessage(`ÓÃ»§ #${managedUser.id} ½ÇÉ«ÒÑ¸üĞÂ`)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'è§’è‰²æ›´æ–°å¤±è´¥')
+      setError(err instanceof Error ? err.message : '½ÇÉ«¸üĞÂÊ§°Ü')
+    } finally {
+      setSavingRoles(false)
     }
   }
 
-  const toggleUserStatus = async (target: UserProfile) => {
-    const nextStatus = target.status === 'enabled' ? 'disabled' : 'enabled'
-    const ok = window.confirm(`ç¡®è®¤å°†ç”¨æˆ· #${target.id} è®¾ç½®ä¸º${statusLabel(nextStatus)}å—ï¼Ÿ`)
-    if (!ok) {
+  const toggleUserStatus = async () => {
+    if (!managedUser) {
       return
     }
+    const nextStatus = managedUser.status === 'enabled' ? 'disabled' : 'enabled'
+
     try {
+      setTogglingStatus(true)
       setError(null)
-      await requestJson(`/users/${target.id}/status`, {
+      await requestJson(`/users/${managedUser.id}/status`, {
         method: 'PUT',
         userId,
         body: { status: nextStatus },
       })
-      setMessage(`ç”¨æˆ· #${target.id} çŠ¶æ€å·²æ›´æ–°ä¸º${statusLabel(nextStatus)}`)
+      setMessage(`ÓÃ»§ #${managedUser.id} ×´Ì¬ÒÑ¸üĞÂÎª${statusLabel(nextStatus)}`)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'çŠ¶æ€æ›´æ–°å¤±è´¥')
+      setError(err instanceof Error ? err.message : '×´Ì¬¸üĞÂÊ§°Ü')
+    } finally {
+      setTogglingStatus(false)
     }
-  }
-
-  const openPasswordReset = (targetUserId: number) => {
-    setPasswordUserId(targetUserId)
-    setPasswordDraft('')
-    setForceChange(true)
-  }
-
-  const closePasswordReset = () => {
-    if (savingPassword) {
-      return
-    }
-    setPasswordUserId(null)
-    setPasswordDraft('')
-    setForceChange(true)
   }
 
   const submitPasswordReset = async () => {
-    if (!passwordUserId) {
+    if (!managedUser) {
       return
     }
     if (passwordDraft.length < 8) {
-      setError('æ–°å¯†ç è‡³å°‘ 8 ä½')
-      return
-    }
-    const ok = window.confirm(`ç¡®è®¤é‡ç½®ç”¨æˆ· #${passwordUserId} çš„å¯†ç å—ï¼Ÿ`)
-    if (!ok) {
+      setError('ĞÂÃÜÂëÖÁÉÙ 8 Î»')
       return
     }
 
     try {
       setSavingPassword(true)
       setError(null)
-      await requestJson(`/admin/users/${passwordUserId}/password`, {
+      await requestJson(`/admin/users/${managedUser.id}/password`, {
         method: 'POST',
         userId,
         body: {
@@ -194,10 +202,12 @@ export function UsersPage({ userId }: Props) {
           force_change: forceChange,
         },
       })
-      setMessage(`ç”¨æˆ· #${passwordUserId} å¯†ç å·²é‡ç½®`)
-      closePasswordReset()
+      setMessage(`ÓÃ»§ #${managedUser.id} ÃÜÂëÒÑÖØÖÃ`)
+      setPasswordOpen(false)
+      setPasswordDraft('')
+      setForceChange(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'å¯†ç é‡ç½®å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'ÃÜÂëÖØÖÃÊ§°Ü')
     } finally {
       setSavingPassword(false)
     }
@@ -226,36 +236,36 @@ export function UsersPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>è§’è‰²åˆ†é…</h2>
-        <p>ç”¨äºè§’è‰²åˆ†é…ã€è´¦å·çŠ¶æ€ç®¡ç†å’Œå¯†ç é‡ç½®ã€‚</p>
+        <h2>½ÇÉ«·ÖÅä</h2>
+        <p>ÓÃÓÚ½ÇÉ«·ÖÅä¡¢ÕËºÅ×´Ì¬¹ÜÀíºÍÃÜÂëÖØÖÃ¡£</p>
       </header>
 
       <article className="panel">
         <div className="users-toolbar">
           <label className="users-toolbar-search">
-            å…³é”®è¯æœç´¢
+            ¹Ø¼ü´ÊËÑË÷
             <input
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="æœç´¢ ID / å§“å / å·¥å· / éƒ¨é—¨ / é‚®ç®±"
+              placeholder="ËÑË÷ ID / ĞÕÃû / ¹¤ºÅ / ²¿ÃÅ / ÓÊÏä"
             />
           </label>
           <label>
-            çŠ¶æ€
+            ×´Ì¬
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
             >
-              <option value="all">å…¨éƒ¨</option>
-              <option value="enabled">å¯ç”¨</option>
-              <option value="disabled">ç¦ç”¨</option>
+              <option value="all">È«²¿</option>
+              <option value="enabled">ÆôÓÃ</option>
+              <option value="disabled">½ûÓÃ</option>
             </select>
           </label>
           <label>
-            è§’è‰²
+            ½ÇÉ«
             <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
-              <option value="all">å…¨éƒ¨</option>
+              <option value="all">È«²¿</option>
               {allRoles.map((role) => (
                 <option key={`filter-role-${role}`} value={role}>
                   {roleLabel(role)}
@@ -265,28 +275,28 @@ export function UsersPage({ userId }: Props) {
           </label>
           <div className="users-toolbar-actions">
             <button type="button" onClick={resetFilters} disabled={!hasActiveFilters}>
-              é‡ç½®ç­›é€‰
+              ÖØÖÃÉ¸Ñ¡
             </button>
           </div>
         </div>
 
         <div className="panel-headline">
           <h3>
-            ç”¨æˆ·åˆ—è¡¨ï¼ˆ{filteredCount} / {userCount}ï¼‰
+            ÓÃ»§ÁĞ±í£¨{filteredCount} / {userCount}£©
           </h3>
           <button type="button" onClick={() => void loadUsers()} disabled={loading}>
-            åˆ·æ–°
+            Ë¢ĞÂ
           </button>
         </div>
 
         <div className="table">
           <div className="row head users-row">
             <span>ID</span>
-            <span>ç”¨æˆ·</span>
-            <span>éƒ¨é—¨</span>
-            <span>çŠ¶æ€</span>
-            <span>è§’è‰²</span>
-            <span>æ“ä½œ</span>
+            <span>ÓÃ»§</span>
+            <span>²¿ÃÅ</span>
+            <span>×´Ì¬</span>
+            <span>½ÇÉ«</span>
+            <span>²Ù×÷</span>
           </div>
           {filteredUsers.map((item) => (
             <div className="row users-row" key={item.id}>
@@ -294,93 +304,112 @@ export function UsersPage({ userId }: Props) {
               <span className="users-name-cell">
                 <strong>{item.name}</strong>
                 <small>
-                  {item.employee_no ? `å·¥å· ${item.employee_no}` : 'æ— å·¥å·'} / {item.email ?? 'æ— é‚®ç®±'}
+                  {item.employee_no ? `¹¤ºÅ ${item.employee_no}` : 'ÎŞ¹¤ºÅ'} / {item.email ?? 'ÎŞÓÊÏä'}
                 </small>
               </span>
-              <span className="users-department-cell">{item.department ?? 'æœªåˆ†é…'}</span>
+              <span className="users-department-cell">{item.department ?? 'Î´·ÖÅä'}</span>
               <span>
                 <StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge>
               </span>
-              <span>
-                <div className="users-role-grid">
-                  {allRoles.map((role) => (
-                    <label className="users-role-item" key={`row-${item.id}-${role}`}>
-                      <input
-                        type="checkbox"
-                        checked={(roleDrafts[item.id] ?? normalizeRoles(item.roles)).includes(role)}
-                        onChange={() =>
-                          setRoleDrafts((prev) => ({
-                            ...prev,
-                            [item.id]: toggleRole(prev[item.id] ?? normalizeRoles(item.roles), role),
-                          }))
-                        }
-                      />
-                      {roleLabel(role)}
-                    </label>
-                  ))}
-                </div>
-              </span>
+              <span className="users-department-cell">{normalizeRoles(item.roles).map(roleLabel).join(' / ')}</span>
               <span className="users-action-group">
-                <button type="button" onClick={() => void saveRoles(item.id)}>
-                  ä¿å­˜è§’è‰²
-                </button>
-                <button type="button" onClick={() => void toggleUserStatus(item)}>
-                  {item.status === 'enabled' ? 'ç¦ç”¨' : 'å¯ç”¨'}
-                </button>
-                <button type="button" onClick={() => openPasswordReset(item.id)}>
-                  é‡ç½®å¯†ç 
+                <button type="button" onClick={() => openManageUser(item)}>
+                  ¹ÜÀí
                 </button>
               </span>
             </div>
           ))}
           {filteredUsers.length === 0 && (
             <div className="row users-row users-empty-row">
-              <span>-</span>
-              <span className="muted">å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æ²¡æœ‰åŒ¹é…ç”¨æˆ·</span>
-              <span>-</span>
-              <span>-</span>
-              <span>-</span>
-              <span>
-                <button type="button" onClick={resetFilters} disabled={!hasActiveFilters}>
-                  æ¸…ç©ºç­›é€‰
-                </button>
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>
+                µ±Ç°É¸Ñ¡Ìõ¼şÏÂÃ»ÓĞÆ¥ÅäÓÃ»§
               </span>
             </div>
           )}
         </div>
       </article>
 
-      {passwordUserId && (
-        <div className="modal-backdrop" onClick={closePasswordReset}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+      {managedUser && (
+        <div className="modal-backdrop" onClick={closeManageUser}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="manage-user-title">
             <div className="panel-headline">
-              <h3 id="reset-password-title">é‡ç½®å¯†ç ï¼ˆç”¨æˆ· #{passwordUserId}ï¼‰</h3>
-              <button type="button" onClick={closePasswordReset} disabled={savingPassword}>
-                å…³é—­
+              <h3 id="manage-user-title">ÓÃ»§¹ÜÀí #{managedUser.id}</h3>
+              <button type="button" onClick={closeManageUser} disabled={savingRoles || savingPassword || togglingStatus}>
+                ¹Ø±Õ
               </button>
             </div>
-            <label>
-              æ–°å¯†ç ï¼ˆè‡³å°‘ 8 ä½ï¼‰
-              <input
-                type="password"
-                value={passwordDraft}
-                onChange={(event) => setPasswordDraft(event.target.value)}
-                placeholder="è¯·è¾“å…¥æ–°å¯†ç "
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={forceChange}
-                onChange={(event) => setForceChange(event.target.checked)}
-              />
-              ä¸‹æ¬¡ç™»å½•å¼ºåˆ¶ä¿®æ”¹å¯†ç 
-            </label>
-            <div className="button-row">
-              <button className="primary-btn" type="button" onClick={() => void submitPasswordReset()} disabled={savingPassword}>
-                {savingPassword ? 'æäº¤ä¸­...' : 'ç¡®è®¤é‡ç½®'}
-              </button>
-            </div>
+            <p className="line-metric">
+              <span>ÓÃ»§</span>
+              <strong>{managedUser.name}</strong>
+            </p>
+            <p className="line-metric">
+              <span>µ±Ç°×´Ì¬</span>
+              <strong>{statusLabel(managedUser.status)}</strong>
+            </p>
+            <article className="modal-section">
+              <h4>½ÇÉ«ÉèÖÃ</h4>
+              <div className="users-role-grid">
+                {allRoles.map((role) => (
+                  <label className="users-role-item" key={`manage-role-${managedUser.id}-${role}`}>
+                    <input
+                      type="checkbox"
+                      checked={manageRoles.includes(role)}
+                      onChange={() => setManageRoles((prev) => toggleRole(prev, role))}
+                    />
+                    {roleLabel(role)}
+                  </label>
+                ))}
+              </div>
+              <div className="button-row" style={{ marginTop: 12 }}>
+                <button className="primary-btn" type="button" onClick={() => void saveRoles()} disabled={savingRoles}>
+                  {savingRoles ? '±£´æÖĞ...' : '±£´æ½ÇÉ«'}
+                </button>
+                <button type="button" onClick={() => void toggleUserStatus()} disabled={togglingStatus}>
+                  {togglingStatus
+                    ? '´¦ÀíÖĞ...'
+                    : managedUser.status === 'enabled'
+                      ? '½ûÓÃÕËºÅ'
+                      : 'ÆôÓÃÕËºÅ'}
+                </button>
+              </div>
+            </article>
+
+            <article className="modal-section">
+              <h4>ÃÜÂëÖØÖÃ</h4>
+              {!passwordOpen ? (
+                <button type="button" onClick={() => setPasswordOpen(true)}>
+                  ´ò¿ªÖØÖÃÃæ°å
+                </button>
+              ) : (
+                <div className="form-grid">
+                  <label className="wide">
+                    ĞÂÃÜÂë£¨ÖÁÉÙ 8 Î»£©
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      placeholder="ÇëÊäÈëĞÂÃÜÂë"
+                    />
+                  </label>
+                  <label className="wide">
+                    <input
+                      type="checkbox"
+                      checked={forceChange}
+                      onChange={(event) => setForceChange(event.target.checked)}
+                    />
+                    ÏÂ´ÎµÇÂ¼Ç¿ÖÆĞŞ¸ÄÃÜÂë
+                  </label>
+                  <div className="button-row wide">
+                    <button type="button" onClick={() => setPasswordOpen(false)} disabled={savingPassword}>
+                      È¡Ïû
+                    </button>
+                    <button className="primary-btn" type="button" onClick={() => void submitPasswordReset()} disabled={savingPassword}>
+                      {savingPassword ? 'Ìá½»ÖĞ...' : 'È·ÈÏÖØÖÃ'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
           </div>
         </div>
       )}

@@ -33,6 +33,13 @@ type TaskFilters = {
   rewardMax: string
 }
 
+const defaultTaskFilters: TaskFilters = {
+  level: '',
+  scenario: '',
+  rewardMin: '',
+  rewardMax: '',
+}
+
 type CriteriaDraft = {
   key: string
   label: string
@@ -114,13 +121,10 @@ export function TaskHallPage({ userId, profile }: Props) {
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [deliverableOpen, setDeliverableOpen] = useState(false)
+  const [claimPanelOpen, setClaimPanelOpen] = useState(false)
   const [activeDeliverableClaim, setActiveDeliverableClaim] = useState<ClaimExecution | null>(null)
-  const [filters, setFilters] = useState<TaskFilters>({
-    level: '',
-    scenario: '',
-    rewardMin: '',
-    rewardMax: '',
-  })
+  const [filterDraft, setFilterDraft] = useState<TaskFilters>(defaultTaskFilters)
+  const [filters, setFilters] = useState<TaskFilters>(defaultTaskFilters)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -173,6 +177,15 @@ export function TaskHallPage({ userId, profile }: Props) {
         .filter((item) => item.claim_status === 'active')
         .sort((a, b) => b.claim_id - a.claim_id),
     [myClaims],
+  )
+
+  const hasPendingFilterChanges = useMemo(
+    () =>
+      filterDraft.level !== filters.level ||
+      filterDraft.scenario !== filters.scenario ||
+      filterDraft.rewardMin !== filters.rewardMin ||
+      filterDraft.rewardMax !== filters.rewardMax,
+    [filterDraft, filters],
   )
 
   const load = useCallback(async () => {
@@ -297,6 +310,7 @@ export function TaskHallPage({ userId, profile }: Props) {
           body,
         })
         setMessage(`揭榜已提交：任务 #${taskId}，揭榜 #${res.claim_id}`)
+        setClaimPanelOpen(false)
         await load()
         return
       }
@@ -340,6 +354,7 @@ export function TaskHallPage({ userId, profile }: Props) {
       })
       setMessage(`组队揭榜已提交：任务 #${taskId}，揭榜 #${res.claim_id}`)
       setMembers(buildDefaultMembers(userId))
+      setClaimPanelOpen(false)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '揭榜失败')
@@ -437,13 +452,18 @@ export function TaskHallPage({ userId, profile }: Props) {
         className="panel form-grid"
         onSubmit={(event) => {
           event.preventDefault()
+          if (hasPendingFilterChanges) {
+            setFilters(filterDraft)
+            return
+          }
           void load()
         }}
       >
         <h3>任务筛选</h3>
+        <p className="wide muted">修改筛选后点击“应用筛选”，列表才会更新。</p>
         <label>
           等级
-          <select value={filters.level} onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}>
+          <select value={filterDraft.level} onChange={(event) => setFilterDraft((prev) => ({ ...prev, level: event.target.value }))}>
             <option value="">全部</option>
             <option value="S">S</option>
             <option value="A">A</option>
@@ -453,7 +473,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         </label>
         <label>
           场景
-          <select value={filters.scenario} onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}>
+          <select value={filterDraft.scenario} onChange={(event) => setFilterDraft((prev) => ({ ...prev, scenario: event.target.value }))}>
             <option value="">全部</option>
             <option value="rd">研发</option>
             <option value="ops">运维</option>
@@ -464,15 +484,23 @@ export function TaskHallPage({ userId, profile }: Props) {
         </label>
         <label>
           最低奖励
-          <input type="number" value={filters.rewardMin} onChange={(event) => setFilters((prev) => ({ ...prev, rewardMin: event.target.value }))} />
+          <input type="number" value={filterDraft.rewardMin} onChange={(event) => setFilterDraft((prev) => ({ ...prev, rewardMin: event.target.value }))} />
         </label>
         <label>
           最高奖励
-          <input type="number" value={filters.rewardMax} onChange={(event) => setFilters((prev) => ({ ...prev, rewardMax: event.target.value }))} />
+          <input type="number" value={filterDraft.rewardMax} onChange={(event) => setFilterDraft((prev) => ({ ...prev, rewardMax: event.target.value }))} />
         </label>
         <div className="button-row wide">
           <button className="primary-btn" type="submit">应用筛选</button>
-          <button type="button" onClick={() => setFilters({ level: '', scenario: '', rewardMin: '', rewardMax: '' })}>重置</button>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterDraft(defaultTaskFilters)
+              setFilters(defaultTaskFilters)
+            }}
+          >
+            重置
+          </button>
         </div>
       </form>
 
@@ -496,8 +524,16 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span>{task.active_claim_count}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
-                <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>选择</button>
-                <button type="button" onClick={() => { setClaimMode('individual'); setSelectedTaskId(String(task.id)) }}>快速揭榜</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClaimMode('individual')
+                    setSelectedTaskId(String(task.id))
+                    setClaimPanelOpen(true)
+                  }}
+                >
+                  快速揭榜
+                </button>
               </span>
             </div>
           ))}
@@ -528,7 +564,18 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span>{task.active_claim_count}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
-                {task.status === 'open' && <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>选择</button>}
+                {task.status === 'open' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClaimMode('individual')
+                      setSelectedTaskId(String(task.id))
+                      setClaimPanelOpen(true)
+                    }}
+                  >
+                    揭榜
+                  </button>
+                )}
               </span>
             </div>
           ))}
@@ -536,77 +583,91 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
       </article>
 
-      <form className="panel form-grid" onSubmit={submitClaim}>
-        <h3>揭榜设置</h3>
-        <label>
-          任务
-          <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} required>
-            <option value="">请选择任务</option>
-            {claimableTasks.map((task) => (
-              <option key={`claim-task-${task.id}`} value={task.id}>
-                #{task.id} [{formatTaskStatus(task.status)}] {task.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          模式
-          <select value={claimMode} onChange={(event) => setClaimMode(event.target.value as ClaimMode)}>
-            <option value="individual">个人</option>
-            <option value="team">组队</option>
-          </select>
-        </label>
+      <article className="panel">
+        <div className="panel-headline">
+          <h3>揭榜设置</h3>
+          <button type="button" onClick={() => setClaimPanelOpen((prev) => !prev)}>
+            {claimPanelOpen ? '收起' : '展开'}
+          </button>
+        </div>
+        {claimPanelOpen ? (
+          <form className="form-grid" onSubmit={submitClaim}>
+            <label>
+              任务
+              <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} required>
+                <option value="">请选择任务</option>
+                {claimableTasks.map((task) => (
+                  <option key={`claim-task-${task.id}`} value={task.id}>
+                    #{task.id} [{formatTaskStatus(task.status)}] {task.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              模式
+              <select value={claimMode} onChange={(event) => setClaimMode(event.target.value as ClaimMode)}>
+                <option value="individual">个人</option>
+                <option value="team">组队</option>
+              </select>
+            </label>
 
-        {(claimMode === 'team' || canApproveForOthers) && (
-          <label>
-            组长
-            <select value={leadUserId} onChange={(event) => setLeadUserId(event.target.value)} required>
-              {visibleLeadUsers.map((user) => (
-                <option key={`lead-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
-              ))}
-            </select>
-          </label>
-        )}
+            {(claimMode === 'team' || canApproveForOthers) && (
+              <label>
+                组长
+                <select value={leadUserId} onChange={(event) => setLeadUserId(event.target.value)} required>
+                  {visibleLeadUsers.map((user) => (
+                    <option key={`lead-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
-        {claimMode === 'team' && (
-          <div className="wide">
-            <div className="panel-headline">
-              <h3>团队成员分成（总和 = 1）</h3>
-              <button type="button" onClick={addMemberRow}>添加成员</button>
-            </div>
-            {members.map((item, idx) => (
-              <div className="acceptance-editor" key={`member-${idx}`}>
-                <label>
-                  成员
-                  <select
-                    value={item.user_id}
-                    onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, user_id: event.target.value } : row))}
-                  >
-                    <option value="">请选择成员</option>
-                    {activeUsers.map((user) => (
-                      <option key={`member-${idx}-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  比例
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="1"
-                    step="0.01"
-                    value={item.ratio}
-                    onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, ratio: event.target.value } : row))}
-                  />
-                </label>
-                <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>删除</button>
+            {claimMode === 'team' && (
+              <div className="wide">
+                <div className="panel-headline">
+                  <h3>团队成员分成（总和 = 1）</h3>
+                  <button type="button" onClick={addMemberRow}>添加成员</button>
+                </div>
+                {members.map((item, idx) => (
+                  <div className="acceptance-editor" key={`member-${idx}`}>
+                    <label>
+                      成员
+                      <select
+                        value={item.user_id}
+                        onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, user_id: event.target.value } : row))}
+                      >
+                        <option value="">请选择成员</option>
+                        {activeUsers.map((user) => (
+                          <option key={`member-${idx}-${user.id}`} value={user.id}>#{user.id} {user.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      比例
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="1"
+                        step="0.01"
+                        value={item.ratio}
+                        onChange={(event) => setMembers((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, ratio: event.target.value } : row))}
+                      />
+                    </label>
+                    <button type="button" onClick={() => removeMemberRow(idx)} disabled={members.length <= 2}>删除</button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        <button className="primary-btn" type="submit">提交揭榜</button>
-      </form>
+            <div className="button-row wide">
+              <button type="button" onClick={() => setClaimPanelOpen(false)}>取消</button>
+              <button className="primary-btn" type="submit">提交揭榜</button>
+            </div>
+          </form>
+        ) : (
+          <p className="muted">点击“展开”后可选择任务并提交揭榜。</p>
+        )}
+      </article>
 
       <article className="panel">
         <div className="panel-headline">

@@ -1,4 +1,4 @@
-ï»¿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -30,8 +30,11 @@ type SyncResult = {
   mode: string
 }
 
+type FeishuSection = 'oauth' | 'sync' | 'scheduler' | 'departments'
+
 export function FeishuPage({ userId, profile }: Props) {
   const toast = useToast()
+  const [activeSection, setActiveSection] = useState<FeishuSection>('oauth')
   const [code, setCode] = useState('')
   const [state, setState] = useState('')
   const [loginUrl, setLoginUrl] = useState<LoginUrl | null>(null)
@@ -39,19 +42,35 @@ export function FeishuPage({ userId, profile }: Props) {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [departments, setDepartments] = useState<Department[]>([])
   const [frequency, setFrequency] = useState(60)
+  const [frequencyDraft, setFrequencyDraft] = useState('60')
   const [releaseFrequency, setReleaseFrequency] = useState(1440)
+  const [releaseFrequencyDraft, setReleaseFrequencyDraft] = useState('1440')
+  const [confirmReleaseOpen, setConfirmReleaseOpen] = useState(false)
   const [syncingMode, setSyncingMode] = useState<'all' | 'users' | 'departments' | null>(null)
+  const [runningReleaseNow, setRunningReleaseNow] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canAdmin = Boolean(profile?.roles.includes('admin'))
+  const hasFreqChanges = String(frequency) !== frequencyDraft.trim()
+  const hasReleaseFreqChanges = String(releaseFrequency) !== releaseFrequencyDraft.trim()
+
+  const sectionButtons = useMemo(
+    () => [
+      { id: 'oauth' as const, label: 'OAuth µÇÂ¼' },
+      { id: 'sync' as const, label: 'Í¨Ñ¶Â¼Í¬²½' },
+      { id: 'scheduler' as const, label: 'µ÷¶ÈÅäÖÃ' },
+      { id: 'departments' as const, label: `²¿ÃÅÁĞ±í (${departments.length})` },
+    ],
+    [departments.length],
+  )
 
   const loadDepartments = useCallback(async () => {
     try {
       const res = await requestJson<Department[]>('/departments', { userId })
       setDepartments(res)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½éƒ¨é—¨å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØ²¿ÃÅÊ§°Ü')
     }
   }, [userId])
 
@@ -65,15 +84,18 @@ export function FeishuPage({ userId, profile }: Props) {
         requestJson<{ frequency_minutes: number }>('/system/config/release-overdue-frequency', { userId }),
       ])
       setFrequency(feishu.frequency_minutes)
+      setFrequencyDraft(String(feishu.frequency_minutes))
       setReleaseFrequency(release.frequency_minutes)
+      setReleaseFrequencyDraft(String(release.frequency_minutes))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'è¯»å–é¢‘ç‡å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¶ÁÈ¡ÆµÂÊÊ§°Ü')
     }
   }, [canAdmin, userId])
 
   const saveReleaseFrequency = async () => {
-    if (!Number.isInteger(releaseFrequency) || releaseFrequency < 5 || releaseFrequency > 10080) {
-      setError('è¶…æœŸæ£€æŸ¥é¢‘ç‡èŒƒå›´åº”ä¸º 5-10080 åˆ†é’Ÿ')
+    const next = Number(releaseFrequencyDraft)
+    if (!Number.isInteger(next) || next < 5 || next > 10080) {
+      setError('³¬ÆÚ¼ì²éÆµÂÊ·¶Î§Ó¦Îª 5-10080 ·ÖÖÓ')
       return
     }
     try {
@@ -81,17 +103,20 @@ export function FeishuPage({ userId, profile }: Props) {
       await requestJson('/system/config/release-overdue-frequency', {
         method: 'PUT',
         userId,
-        body: { frequency_minutes: releaseFrequency },
+        body: { frequency_minutes: next },
       })
-      setMessage('è¶…æœŸæ£€æŸ¥é¢‘ç‡å·²æ›´æ–°')
+      setReleaseFrequency(next)
+      setReleaseFrequencyDraft(String(next))
+      setMessage('³¬ÆÚ¼ì²éÆµÂÊÒÑ¸üĞÂ')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æ›´æ–°å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¸üĞÂÊ§°Ü')
     }
   }
 
   const saveFrequency = async () => {
-    if (!Number.isInteger(frequency) || frequency < 5 || frequency > 10080) {
-      setError('åŒæ­¥é¢‘ç‡èŒƒå›´åº”ä¸º 5-10080 åˆ†é’Ÿ')
+    const next = Number(frequencyDraft)
+    if (!Number.isInteger(next) || next < 5 || next > 10080) {
+      setError('Í¬²½ÆµÂÊ·¶Î§Ó¦Îª 5-10080 ·ÖÖÓ')
       return
     }
     try {
@@ -99,11 +124,13 @@ export function FeishuPage({ userId, profile }: Props) {
       await requestJson('/system/config/feishu-sync-frequency', {
         method: 'PUT',
         userId,
-        body: { frequency_minutes: frequency },
+        body: { frequency_minutes: next },
       })
-      setMessage('åŒæ­¥é¢‘ç‡å·²æ›´æ–°')
+      setFrequency(next)
+      setFrequencyDraft(String(next))
+      setMessage('Í¬²½ÆµÂÊÒÑ¸üĞÂ')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æ›´æ–°å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¸üĞÂÊ§°Ü')
     }
   }
 
@@ -111,19 +138,19 @@ export function FeishuPage({ userId, profile }: Props) {
     if (!canAdmin) {
       return
     }
-    const ok = window.confirm('ç¡®è®¤ç«‹å³æ‰§è¡Œä¸€æ¬¡è¶…æœŸæ­æ¦œé‡Šæ”¾å—ï¼Ÿ')
-    if (!ok) {
-      return
-    }
     try {
+      setRunningReleaseNow(true)
       setError(null)
       const res = await requestJson<{ released_claims: number }>('/jobs/release-overdue', {
         method: 'POST',
         userId,
       })
-      setMessage(`å·²æ‰§è¡Œè¶…æœŸé‡Šæ”¾ï¼Œæœ¬æ¬¡é‡Šæ”¾ ${res.released_claims} æ¡`) 
+      setMessage(`ÒÑÖ´ĞĞ³¬ÆÚÊÍ·Å£¬±¾´ÎÊÍ·Å ${res.released_claims} Ìõ`)
+      setConfirmReleaseOpen(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æ‰§è¡Œè¶…æœŸé‡Šæ”¾å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'Ö´ĞĞ³¬ÆÚÊÍ·ÅÊ§°Ü')
+    } finally {
+      setRunningReleaseNow(false)
     }
   }
 
@@ -142,7 +169,7 @@ export function FeishuPage({ userId, profile }: Props) {
       setLoginUrl(res)
       setState(res.state)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'ç”Ÿæˆç™»å½•é“¾æ¥å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'Éú³ÉµÇÂ¼Á´½ÓÊ§°Ü')
     }
   }
 
@@ -150,7 +177,7 @@ export function FeishuPage({ userId, profile }: Props) {
     event.preventDefault()
     const trimmedCode = code.trim()
     if (!trimmedCode) {
-      setError('è¯·å…ˆè¾“å…¥æˆæƒç  code')
+      setError('ÇëÏÈÊäÈëÊÚÈ¨Âë code')
       return
     }
     try {
@@ -162,9 +189,9 @@ export function FeishuPage({ userId, profile }: Props) {
       }
       const res = await requestJson<LoginResult>(`/auth/feishu/callback?${query.toString()}`, { userId })
       setLoginResult(res)
-      setMessage(`ç™»å½•æˆåŠŸï¼š${res.user_name} (id=${res.user_id})`)
+      setMessage(`µÇÂ¼³É¹¦£º${res.user_name} (id=${res.user_id})`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'ç™»å½•å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'µÇÂ¼Ê§°Ü')
     }
   }
 
@@ -178,9 +205,9 @@ export function FeishuPage({ userId, profile }: Props) {
       })
       setSyncResult(res)
       await loadDepartments()
-      setMessage(`åŒæ­¥å®Œæˆï¼šéƒ¨é—¨ ${res.synced_departments}ï¼Œäººå‘˜ ${res.synced_users}`)
+      setMessage(`Í¬²½Íê³É£º²¿ÃÅ ${res.synced_departments}£¬ÈËÔ± ${res.synced_users}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŒæ­¥å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'Í¬²½Ê§°Ü')
     } finally {
       setSyncingMode(null)
     }
@@ -203,132 +230,199 @@ export function FeishuPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>é£ä¹¦é›†æˆ</h2>
-        <p>OAuth å›è°ƒã€é€šè®¯å½•åŒæ­¥ä¸é¢‘ç‡é…ç½®ã€‚</p>
+        <h2>·ÉÊé¼¯³É</h2>
+        <p>OAuth »Øµ÷¡¢Í¨Ñ¶Â¼Í¬²½ÓëÆµÂÊÅäÖÃ¡£</p>
       </header>
-      <article className="panel form-grid">
-        <h3>OAuth ç™»å½•</h3>
-        <button type="button" onClick={() => void generateLoginUrl()}>
-          ç”Ÿæˆç™»å½•é“¾æ¥
-        </button>
-        {loginUrl && (
-          <p className="muted">
-            <a href={loginUrl.login_url} target="_blank" rel="noreferrer">
-              æ‰“å¼€æˆæƒé¡µï¼ˆ{loginUrl.provider}ï¼‰
-            </a>
-          </p>
-        )}
-        <form className="nested-form" onSubmit={callbackLogin}>
-          <label>
-            æˆæƒç ï¼ˆcodeï¼‰
-            <input value={code} onChange={(event) => setCode(event.target.value)} required />
-          </label>
-          <label>
-            çŠ¶æ€å‚æ•°ï¼ˆstateï¼‰
-            <input value={state} onChange={(event) => setState(event.target.value)} />
-          </label>
-          <button className="primary-btn" type="submit">
-            è°ƒç”¨å›è°ƒç™»å½•
-          </button>
-        </form>
-        {loginResult && (
-          <p className="line-metric">
-            <span>{loginResult.user_name}</span>
-            <strong>{loginResult.is_new_user ? 'æ–°ç”¨æˆ·' : 'å·²å­˜åœ¨ç”¨æˆ·'}</strong>
-          </p>
-        )}
-      </article>
+
       <article className="panel">
-        <h3>é€šè®¯å½•åŒæ­¥</h3>
-        {canAdmin ? (
-          <div className="button-row">
-            <button type="button" onClick={() => void sync('all')} disabled={syncingMode !== null}>
-              {syncingMode === 'all' ? 'åŒæ­¥ä¸­...' : 'åŒæ­¥å…¨éƒ¨'}
+        <div className="button-row">
+          {sectionButtons.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={activeSection === item.id ? 'primary-btn' : ''}
+              onClick={() => setActiveSection(item.id)}
+            >
+              {item.label}
             </button>
-            <button type="button" onClick={() => void sync('departments')} disabled={syncingMode !== null}>
-              {syncingMode === 'departments' ? 'åŒæ­¥ä¸­...' : 'ä»…åŒæ­¥éƒ¨é—¨'}
-            </button>
-            <button type="button" onClick={() => void sync('users')} disabled={syncingMode !== null}>
-              {syncingMode === 'users' ? 'åŒæ­¥ä¸­...' : 'ä»…åŒæ­¥äººå‘˜'}
-            </button>
-          </div>
-        ) : (
-          <p className="muted">å½“å‰è´¦å·éç®¡ç†å‘˜ï¼Œä»…å¯æŸ¥çœ‹åŒæ­¥ç»“æœã€‚</p>
-        )}
-        {syncResult && (
-          <p className="line-metric">
-            <span>ç»“æœ</span>
-            <strong>
-              éƒ¨é—¨ {syncResult.synced_departments} / äººå‘˜ {syncResult.synced_users}
-            </strong>
-          </p>
-        )}
-      </article>
-      {canAdmin && (
-        <>
-          <article className="panel form-grid">
-            <h3>é£ä¹¦åŒæ­¥é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰</h3>
-            <label>
-              åŒæ­¥é—´éš”ï¼ˆåˆ†é’Ÿï¼‰
-              <input
-                type="number"
-                min={5}
-                max={10080}
-                value={frequency}
-                onChange={(event) => setFrequency(Number(event.target.value))}
-              />
-            </label>
-            <button type="button" onClick={() => void saveFrequency()}>
-              ä¿å­˜é¢‘ç‡
-            </button>
-          </article>
-          <article className="panel form-grid">
-            <h3>è¶…æœŸä»»åŠ¡æ£€æŸ¥é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰</h3>
-            <label>
-              æ£€æŸ¥é—´éš”ï¼ˆåˆ†é’Ÿï¼‰
-              <input
-                type="number"
-                min={5}
-                max={10080}
-                value={releaseFrequency}
-                onChange={(event) => setReleaseFrequency(Number(event.target.value))}
-              />
-            </label>
-            <div className="button-row">
-              <button type="button" onClick={() => void saveReleaseFrequency()}>
-                ä¿å­˜é¢‘ç‡
-              </button>
-              <button type="button" onClick={() => void releaseOverdueNow()}>
-                ç«‹å³æ‰§è¡Œè¶…æœŸé‡Šæ”¾
-              </button>
-            </div>
-          </article>
-        </>
-      )}
-      <article className="panel">
-        <h3>éƒ¨é—¨åˆ—è¡¨</h3>
-        <div className="table">
-          <div className="row head">
-            <span>ID</span>
-            <span>å¤–éƒ¨ ID</span>
-            <span>åç§°</span>
-            <span>æ›´æ–°æ—¶é—´</span>
-          </div>
-          {departments.map((dept) => (
-            <div className="row" key={dept.id}>
-              <span>{dept.id}</span>
-              <span>{dept.external_id}</span>
-              <span>{dept.name}</span>
-              <span>{new Date(dept.updated_at).toLocaleString()}</span>
-            </div>
           ))}
-          {departments.length === 0 && (
-            <div className="row">
-              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>æš‚æ— éƒ¨é—¨æ•°æ®ï¼Œè¯·å…ˆæ‰§è¡ŒåŒæ­¥</span>
-            </div>
-          )}
         </div>
       </article>
+
+      {activeSection === 'oauth' && (
+        <article className="panel form-grid">
+          <div className="panel-headline wide">
+            <h3>OAuth µÇÂ¼</h3>
+            <button type="button" onClick={() => void generateLoginUrl()}>
+              Éú³ÉµÇÂ¼Á´½Ó
+            </button>
+          </div>
+          {loginUrl && (
+            <p className="wide muted">
+              <a href={loginUrl.login_url} target="_blank" rel="noreferrer">
+                ´ò¿ªÊÚÈ¨Ò³£¨{loginUrl.provider}£©
+              </a>
+            </p>
+          )}
+          <form className="wide form-grid" onSubmit={callbackLogin}>
+            <label>
+              ÊÚÈ¨Âë£¨code£©
+              <input value={code} onChange={(event) => setCode(event.target.value)} required />
+            </label>
+            <label>
+              ×´Ì¬²ÎÊı£¨state£©
+              <input value={state} onChange={(event) => setState(event.target.value)} />
+            </label>
+            <div className="button-row wide">
+              <button className="primary-btn" type="submit">
+                µ÷ÓÃ»Øµ÷µÇÂ¼
+              </button>
+            </div>
+          </form>
+          {loginResult && (
+            <p className="line-metric wide">
+              <span>{loginResult.user_name}</span>
+              <strong>{loginResult.is_new_user ? 'ĞÂÓÃ»§' : 'ÒÑ´æÔÚÓÃ»§'}</strong>
+            </p>
+          )}
+        </article>
+      )}
+
+      {activeSection === 'sync' && (
+        <article className="panel">
+          <h3>Í¨Ñ¶Â¼Í¬²½</h3>
+          {canAdmin ? (
+            <div className="button-row">
+              <button type="button" onClick={() => void sync('all')} disabled={syncingMode !== null}>
+                {syncingMode === 'all' ? 'Í¬²½ÖĞ...' : 'Í¬²½È«²¿'}
+              </button>
+              <button type="button" onClick={() => void sync('departments')} disabled={syncingMode !== null}>
+                {syncingMode === 'departments' ? 'Í¬²½ÖĞ...' : '½öÍ¬²½²¿ÃÅ'}
+              </button>
+              <button type="button" onClick={() => void sync('users')} disabled={syncingMode !== null}>
+                {syncingMode === 'users' ? 'Í¬²½ÖĞ...' : '½öÍ¬²½ÈËÔ±'}
+              </button>
+            </div>
+          ) : (
+            <p className="muted">µ±Ç°ÕËºÅ·Ç¹ÜÀíÔ±£¬½ö¿É²é¿´Í¬²½½á¹û¡£</p>
+          )}
+          {syncResult && (
+            <p className="line-metric">
+              <span>×î½üÒ»´ÎÍ¬²½½á¹û</span>
+              <strong>
+                ²¿ÃÅ {syncResult.synced_departments} / ÈËÔ± {syncResult.synced_users} / Ä£Ê½ {syncResult.mode}
+              </strong>
+            </p>
+          )}
+        </article>
+      )}
+
+      {activeSection === 'scheduler' && (
+        <article className="panel form-grid">
+          <h3 className="wide">µ÷¶ÈÅäÖÃ</h3>
+          {!canAdmin ? (
+            <p className="muted wide">µ±Ç°ÕËºÅ·Ç¹ÜÀíÔ±£¬½ö¹ÜÀíÔ±¿ÉĞŞ¸ÄÆµÂÊÓëÖ´ĞĞºóÌ¨ÈÎÎñ¡£</p>
+          ) : (
+            <>
+              <label>
+                ·ÉÊéÍ¬²½ÆµÂÊ£¨·ÖÖÓ£©
+                <input
+                  type="number"
+                  min={5}
+                  max={10080}
+                  value={frequencyDraft}
+                  onChange={(event) => setFrequencyDraft(event.target.value)}
+                />
+              </label>
+              <div className="button-row" style={{ alignItems: 'end' }}>
+                <button className="primary-btn" type="button" onClick={() => void saveFrequency()} disabled={!hasFreqChanges}>
+                  ±£´æÍ¬²½ÆµÂÊ
+                </button>
+                <span className="muted">µ±Ç°£º{frequency} ·ÖÖÓ</span>
+              </div>
+
+              <label>
+                ³¬ÆÚ¼ì²éÆµÂÊ£¨·ÖÖÓ£©
+                <input
+                  type="number"
+                  min={5}
+                  max={10080}
+                  value={releaseFrequencyDraft}
+                  onChange={(event) => setReleaseFrequencyDraft(event.target.value)}
+                />
+              </label>
+              <div className="button-row" style={{ alignItems: 'end' }}>
+                <button
+                  className="primary-btn"
+                  type="button"
+                  onClick={() => void saveReleaseFrequency()}
+                  disabled={!hasReleaseFreqChanges}
+                >
+                  ±£´æ³¬ÆÚÆµÂÊ
+                </button>
+                <button type="button" onClick={() => setConfirmReleaseOpen(true)}>
+                  Á¢¼´Ö´ĞĞ³¬ÆÚÊÍ·Å
+                </button>
+                <span className="muted">µ±Ç°£º{releaseFrequency} ·ÖÖÓ</span>
+              </div>
+            </>
+          )}
+        </article>
+      )}
+
+      {activeSection === 'departments' && (
+        <article className="panel">
+          <div className="panel-headline">
+            <h3>²¿ÃÅÁĞ±í</h3>
+            <button type="button" onClick={() => void loadDepartments()}>
+              Ë¢ĞÂ
+            </button>
+          </div>
+          <div className="table">
+            <div className="row head">
+              <span>ID</span>
+              <span>Íâ²¿ ID</span>
+              <span>Ãû³Æ</span>
+              <span>¸üĞÂÊ±¼ä</span>
+            </div>
+            {departments.map((dept) => (
+              <div className="row" key={dept.id}>
+                <span>{dept.id}</span>
+                <span>{dept.external_id}</span>
+                <span>{dept.name}</span>
+                <span>{new Date(dept.updated_at).toLocaleString()}</span>
+              </div>
+            ))}
+            {departments.length === 0 && (
+              <div className="row">
+                <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>ÔİÎŞ²¿ÃÅÊı¾İ£¬ÇëÏÈÖ´ĞĞÍ¬²½</span>
+              </div>
+            )}
+          </div>
+        </article>
+      )}
+
+      {confirmReleaseOpen && (
+        <div className="modal-backdrop" onClick={() => setConfirmReleaseOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="confirm-release-title">
+            <div className="panel-headline">
+              <h3 id="confirm-release-title">È·ÈÏÖ´ĞĞ³¬ÆÚÊÍ·Å</h3>
+              <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={runningReleaseNow}>
+                ¹Ø±Õ
+              </button>
+            </div>
+            <p>¸Ã²Ù×÷»áÁ¢¼´É¨Ãè²¢ÊÍ·Å³¬ÆÚÎ´Ìá½»½øÕ¹µÄ½Ò°ñ¼ÇÂ¼£¬ÇëÈ·ÈÏµ±Ç°Ê±»úÕıÈ·¡£</p>
+            <div className="button-row">
+              <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={runningReleaseNow}>
+                È¡Ïû
+              </button>
+              <button className="primary-btn" type="button" onClick={() => void releaseOverdueNow()} disabled={runningReleaseNow}>
+                {runningReleaseNow ? 'Ö´ĞĞÖĞ...' : 'È·ÈÏÖ´ĞĞ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

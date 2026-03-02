@@ -1,8 +1,9 @@
-ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { formatScenarioLabel } from '../lib/enumLabels'
 import type { KnowledgeItem } from '../types'
 
 type Props = {
@@ -36,9 +37,14 @@ function buildQuery(filters: FilterState, page: number): string {
   return `?${params.toString()}`
 }
 
+function isSameFilters(a: FilterState, b: FilterState): boolean {
+  return a.keyword === b.keyword && a.scenario === b.scenario && a.level === b.level && a.recommended === b.recommended
+}
+
 export function KnowledgePage({ userId }: Props) {
   const toast = useToast()
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
+  const [filtersDraft, setFiltersDraft] = useState<FilterState>(defaultFilters)
   const [rows, setRows] = useState<KnowledgeItem[]>([])
   const [detail, setDetail] = useState<KnowledgeItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -47,6 +53,7 @@ export function KnowledgePage({ userId }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const hasNext = useMemo(() => rows.length === pageSize, [rows.length])
+  const hasFilterChanges = useMemo(() => !isSameFilters(filters, filtersDraft), [filters, filtersDraft])
 
   const load = useCallback(
     async (nextFilters: FilterState, nextPage: number) => {
@@ -56,7 +63,7 @@ export function KnowledgePage({ userId }: Props) {
         const data = await requestJson<KnowledgeItem[]>(`/knowledge${buildQuery(nextFilters, nextPage)}`, { userId })
         setRows(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'åŠ è½½çŸ¥è¯†æ¡ç›®å¤±è´¥')
+        setError(err instanceof Error ? err.message : '¼ÓÔØÖªÊ¶ÌõÄ¿Ê§°Ü')
       } finally {
         setLoading(false)
       }
@@ -82,19 +89,16 @@ export function KnowledgePage({ userId }: Props) {
     toast.error(error)
   }, [error, toast])
 
-  const submitFilters = async (event: FormEvent) => {
+  const submitFilters = (event: FormEvent) => {
     event.preventDefault()
-    if (page !== 1) {
-      setPage(1)
-      return
-    }
-    await load(filters, 1)
+    setPage(1)
+    setFilters(filtersDraft)
   }
 
-  const resetFilters = async () => {
+  const resetFilters = () => {
+    setFiltersDraft(defaultFilters)
     setFilters(defaultFilters)
     setPage(1)
-    await load(defaultFilters, 1)
   }
 
   const openDetail = async (knowledgeId: number) => {
@@ -104,45 +108,48 @@ export function KnowledgePage({ userId }: Props) {
       setDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½çŸ¥è¯†è¯¦æƒ…å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØÖªÊ¶ÏêÇéÊ§°Ü')
     }
   }
 
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>çŸ¥è¯†åº“</h2>
-        <p>æ”¯æŒæœåŠ¡ç«¯ç­›é€‰ä¸åˆ†é¡µçš„çŸ¥è¯†å½’æ¡£ä¸­å¿ƒã€‚</p>
+        <h2>ÖªÊ¶¿â</h2>
+        <p>Ö§³Ö·şÎñ¶ËÉ¸Ñ¡Óë·ÖÒ³µÄÖªÊ¶¹éµµÖĞĞÄ¡£</p>
       </header>
 
       <form className="panel form-grid" onSubmit={submitFilters}>
-        <h3>ç­›é€‰æ¡ä»¶</h3>
+        <h3>É¸Ñ¡Ìõ¼ş</h3>
         <label>
-          å…³é”®å­—
+          ¹Ø¼ü×Ö
           <input
-            value={filters.keyword}
-            onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
-            placeholder="é—®é¢˜æ‘˜è¦ã€è§£å†³æ–¹æ¡ˆæˆ–æ ‡ç­¾"
+            value={filtersDraft.keyword}
+            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, keyword: event.target.value }))}
+            placeholder="ÎÊÌâÕªÒª¡¢½â¾ö·½°¸»ò±êÇ©"
           />
         </label>
         <label>
-          åœºæ™¯
+          ³¡¾°
           <select
-            value={filters.scenario}
-            onChange={(event) => setFilters((prev) => ({ ...prev, scenario: event.target.value }))}
+            value={filtersDraft.scenario}
+            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, scenario: event.target.value }))}
           >
-            <option value="">å…¨éƒ¨</option>
-            <option value="rd">ç ”å‘</option>
-            <option value="ops">è¿ç»´</option>
-            <option value="delivery">äº¤ä»˜</option>
-            <option value="support">æ”¯æŒ</option>
-            <option value="other">å…¶ä»–</option>
+            <option value="">È«²¿</option>
+            <option value="rd">ÑĞ·¢</option>
+            <option value="ops">ÔËÎ¬</option>
+            <option value="delivery">½»¸¶</option>
+            <option value="support">Ö§³Ö</option>
+            <option value="other">ÆäËû</option>
           </select>
         </label>
         <label>
-          ç­‰çº§
-          <select value={filters.level} onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}>
-            <option value="">å…¨éƒ¨</option>
+          µÈ¼¶
+          <select
+            value={filtersDraft.level}
+            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, level: event.target.value }))}
+          >
+            <option value="">È«²¿</option>
             <option value="S">S</option>
             <option value="A">A</option>
             <option value="B">B</option>
@@ -150,69 +157,72 @@ export function KnowledgePage({ userId }: Props) {
           </select>
         </label>
         <label>
-          æ¨è
+          ÍÆ¼ö
           <select
-            value={filters.recommended}
-            onChange={(event) => setFilters((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))}
+            value={filtersDraft.recommended}
+            onChange={(event) =>
+              setFiltersDraft((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
+            }
           >
-            <option value="all">å…¨éƒ¨</option>
-            <option value="true">æ˜¯</option>
-            <option value="false">å¦</option>
+            <option value="all">È«²¿</option>
+            <option value="true">ÊÇ</option>
+            <option value="false">·ñ</option>
           </select>
         </label>
         <div className="button-row wide">
-          <button className="primary-btn" type="submit" disabled={loading}>
-            {loading ? 'æŸ¥è¯¢ä¸­...' : 'æŸ¥è¯¢'}
+          <button className="primary-btn" type="submit" disabled={loading || !hasFilterChanges}>
+            Ó¦ÓÃÉ¸Ñ¡
           </button>
-          <button type="button" onClick={() => void resetFilters()} disabled={loading}>
-            é‡ç½®
+          <button type="button" onClick={resetFilters} disabled={loading}>
+            ÖØÖÃ
+          </button>
+          <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
+            {loading ? 'Ë¢ĞÂÖĞ...' : 'Ë¢ĞÂ'}
           </button>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>çŸ¥è¯†æ¡ç›®ï¼ˆç¬¬ {page} é¡µï¼‰</h3>
-          <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
-            åˆ·æ–°
-          </button>
+          <h3>ÖªÊ¶ÌõÄ¿£¨µÚ {page} Ò³£©</h3>
+          <span className="muted">{rows.length} Ìõ</span>
         </div>
         <div className="button-row">
           <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
-            ä¸Šä¸€é¡µ
+            ÉÏÒ»Ò³
           </button>
           <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
-            ä¸‹ä¸€é¡µ
+            ÏÂÒ»Ò³
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>ä»»åŠ¡</span>
-            <span>åœºæ™¯/ç­‰çº§</span>
-            <span>æ˜¯å¦æ¨è</span>
-            <span>å½’æ¡£æ—¶é—´</span>
-            <span>æ“ä½œ</span>
+            <span>ÈÎÎñ</span>
+            <span>³¡¾°/µÈ¼¶</span>
+            <span>ÊÇ·ñÍÆ¼ö</span>
+            <span>¹éµµÊ±¼ä</span>
+            <span>²Ù×÷</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{item.problem_summary}</span>
               <span>
-                {item.scenario ?? '-'} / {item.level ?? '-'}
+                {formatScenarioLabel(item.scenario)} / {item.level ?? '-'}
               </span>
-              <span>{item.recommended ? 'æ˜¯' : 'å¦'}</span>
+              <span>{item.recommended ? 'ÊÇ' : '·ñ'}</span>
               <span>{new Date(item.archived_at).toLocaleString()}</span>
               <span>
                 <button type="button" onClick={() => void openDetail(item.id)}>
-                  è¯¦æƒ…
+                  ÏêÇé
                 </button>
               </span>
             </div>
           ))}
           {rows.length === 0 && !loading && (
             <div className="row wide-row">
-              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>æš‚æ— æ•°æ®</span>
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>ÔİÎŞÊı¾İ</span>
             </div>
           )}
         </div>
@@ -225,34 +235,34 @@ export function KnowledgePage({ userId }: Props) {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="çŸ¥è¯†è¯¦æƒ…"
+            aria-label="ÖªÊ¶ÏêÇé"
           >
             <div className="panel-headline">
-              <h3>çŸ¥è¯†æ¡ç›® #{detail.id}</h3>
+              <h3>ÖªÊ¶ÌõÄ¿ #{detail.id}</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                å…³é—­
+                ¹Ø±Õ
               </button>
             </div>
             <p className="line-metric">
-              <span>ä»»åŠ¡ ID</span>
+              <span>ÈÎÎñ ID</span>
               <strong>#{detail.task_id}</strong>
             </p>
             <p className="line-metric">
-              <span>åœºæ™¯/ç­‰çº§</span>
+              <span>³¡¾°/µÈ¼¶</span>
               <strong>
-                {detail.scenario ?? '-'} / {detail.level ?? '-'}
+                {formatScenarioLabel(detail.scenario)} / {detail.level ?? '-'}
               </strong>
             </p>
             <article className="modal-section">
-              <h4>é—®é¢˜æ‘˜è¦</h4>
+              <h4>ÎÊÌâÕªÒª</h4>
               <p>{detail.problem_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>æ–¹æ¡ˆæ‘˜è¦</h4>
+              <h4>·½°¸ÕªÒª</h4>
               <p>{detail.solution_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>æ ‡ç­¾</h4>
+              <h4>±êÇ©</h4>
               <p>{detail.tags.length > 0 ? detail.tags.join(', ') : '-'}</p>
             </article>
           </div>

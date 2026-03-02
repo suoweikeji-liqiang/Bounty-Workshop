@@ -1,4 +1,4 @@
-ï»¿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -8,48 +8,74 @@ type Props = {
   userId: number
 }
 
+type LogQuery = {
+  action: string
+  actorId: string
+  createdFrom: string
+  createdTo: string
+  limit: string
+}
+
+const defaultQuery: LogQuery = {
+  action: '',
+  actorId: '',
+  createdFrom: '',
+  createdTo: '',
+  limit: '200',
+}
+
+function isSameQuery(a: LogQuery, b: LogQuery): boolean {
+  return (
+    a.action === b.action &&
+    a.actorId === b.actorId &&
+    a.createdFrom === b.createdFrom &&
+    a.createdTo === b.createdTo &&
+    a.limit === b.limit
+  )
+}
+
 export function OperationLogsPage({ userId }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<OperationLog[]>([])
-  const [action, setAction] = useState('')
-  const [actorId, setActorId] = useState('')
-  const [createdFrom, setCreatedFrom] = useState('')
-  const [createdTo, setCreatedTo] = useState('')
-  const [limit, setLimit] = useState('200')
+  const [query, setQuery] = useState<LogQuery>(defaultQuery)
+  const [queryDraft, setQueryDraft] = useState<LogQuery>(defaultQuery)
+  const [selectedLog, setSelectedLog] = useState<OperationLog | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const hasQueryChanges = useMemo(() => !isSameQuery(query, queryDraft), [query, queryDraft])
 
   const load = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const query = new URLSearchParams()
-      if (action.trim()) {
-        query.set('action', action.trim())
+      const params = new URLSearchParams()
+      if (query.action.trim()) {
+        params.set('action', query.action.trim())
       }
-      const actor = Number(actorId)
+      const actor = Number(query.actorId)
       if (Number.isInteger(actor) && actor > 0) {
-        query.set('actor_user_id', String(actor))
+        params.set('actor_user_id', String(actor))
       }
-      if (createdFrom) {
-        query.set('created_from', createdFrom)
+      if (query.createdFrom) {
+        params.set('created_from', query.createdFrom)
       }
-      if (createdTo) {
-        query.set('created_to', createdTo)
+      if (query.createdTo) {
+        params.set('created_to', query.createdTo)
       }
-      const limitValue = Number(limit)
+      const limitValue = Number(query.limit)
       if (Number.isInteger(limitValue) && limitValue > 0) {
-        query.set('limit', String(Math.min(limitValue, 1000)))
+        params.set('limit', String(Math.min(limitValue, 1000)))
       }
-      const suffix = query.toString() ? `?${query.toString()}` : ''
+      const suffix = params.toString() ? `?${params.toString()}` : ''
       const data = await requestJson<OperationLog[]>(`/operations/logs${suffix}`, { userId })
       setRows(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½æ“ä½œæ—¥å¿—å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØ²Ù×÷ÈÕÖ¾Ê§°Ü')
     } finally {
       setLoading(false)
     }
-  }, [action, actorId, createdFrom, createdTo, limit, userId])
+  }, [query, userId])
 
   useEffect(() => {
     void load()
@@ -62,60 +88,96 @@ export function OperationLogsPage({ userId }: Props) {
     toast.error(error)
   }, [error, toast])
 
+  const applyQuery = () => {
+    setQuery(queryDraft)
+  }
+
+  const resetQuery = () => {
+    setQueryDraft(defaultQuery)
+    setQuery(defaultQuery)
+  }
+
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>æ“ä½œæ—¥å¿—</h2>
-        <p>è®°å½•ç³»ç»Ÿå…³é”®æ“ä½œã€å®¡æ‰¹è¡Œä¸ºä¸æµç¨‹åŠ¨ä½œï¼Œä¾¿äºå®¡è®¡è¿½è¸ªã€‚</p>
+        <h2>²Ù×÷ÈÕÖ¾</h2>
+        <p>¼ÇÂ¼ÏµÍ³¹Ø¼ü²Ù×÷¡¢ÉóÅúĞĞÎªÓëÁ÷³Ì¶¯×÷£¬±ãÓÚÉó¼Æ×·×Ù¡£</p>
       </header>
       <form
         className="panel form-grid"
         onSubmit={(event) => {
           event.preventDefault()
-          void load()
+          applyQuery()
         }}
       >
-        <h3>ç­›é€‰æ¡ä»¶</h3>
+        <h3>É¸Ñ¡Ìõ¼ş</h3>
         <label>
-          æ“ä½œç±»å‹
-          <input value={action} onChange={(event) => setAction(event.target.value)} placeholder="ä¾‹å¦‚ï¼štask.claim" />
+          ²Ù×÷ÀàĞÍ
+          <input
+            value={queryDraft.action}
+            onChange={(event) => setQueryDraft((prev) => ({ ...prev, action: event.target.value }))}
+            placeholder="ÀıÈç£ºtask.claim"
+          />
         </label>
         <label>
-          æ“ä½œäºº ID
-          <input value={actorId} onChange={(event) => setActorId(event.target.value)} />
+          ²Ù×÷ÈË ID
+          <input
+            value={queryDraft.actorId}
+            onChange={(event) => setQueryDraft((prev) => ({ ...prev, actorId: event.target.value }))}
+          />
         </label>
         <label>
-          å¼€å§‹æ—¥æœŸ
-          <input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} />
+          ¿ªÊ¼ÈÕÆÚ
+          <input
+            type="date"
+            value={queryDraft.createdFrom}
+            onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdFrom: event.target.value }))}
+          />
         </label>
         <label>
-          ç»“æŸæ—¥æœŸ
-          <input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} />
+          ½áÊøÈÕÆÚ
+          <input
+            type="date"
+            value={queryDraft.createdTo}
+            onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdTo: event.target.value }))}
+          />
         </label>
         <label>
-          æ¡æ•°ä¸Šé™
-          <input type="number" min={1} max={1000} value={limit} onChange={(event) => setLimit(event.target.value)} />
+          ÌõÊıÉÏÏŞ
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={queryDraft.limit}
+            onChange={(event) => setQueryDraft((prev) => ({ ...prev, limit: event.target.value }))}
+          />
         </label>
         <div className="button-row wide">
-          <button className="primary-btn" type="submit" disabled={loading}>
-            æŸ¥è¯¢
+          <button className="primary-btn" type="submit" disabled={loading || !hasQueryChanges}>
+            Ó¦ÓÃÉ¸Ñ¡
+          </button>
+          <button type="button" onClick={resetQuery} disabled={loading}>
+            ÖØÖÃ
           </button>
           <button type="button" onClick={() => void load()} disabled={loading}>
-            åˆ·æ–°
+            {loading ? 'Ë¢ĞÂÖĞ...' : 'Ë¢ĞÂ'}
           </button>
         </div>
       </form>
 
       <article className="panel">
-        <h3>æ—¥å¿—è®°å½•ï¼ˆ{rows.length}ï¼‰</h3>
+        <div className="panel-headline">
+          <h3>ÈÕÖ¾¼ÇÂ¼£¨{rows.length}£©</h3>
+          <span className="muted">×î¶àÏÔÊ¾ {Number(query.limit) || 200} Ìõ</span>
+        </div>
         <div className="table">
           <div className="row head op-log-row">
             <span>ID</span>
-            <span>æ—¶é—´</span>
-            <span>æ“ä½œ</span>
-            <span>æ“ä½œäºº</span>
-            <span>ç›®æ ‡</span>
-            <span>è¯¦æƒ…</span>
+            <span>Ê±¼ä</span>
+            <span>²Ù×÷</span>
+            <span>²Ù×÷ÈË</span>
+            <span>Ä¿±ê</span>
+            <span>²Ù×÷</span>
           </div>
           {rows.map((item) => (
             <div className="row op-log-row" key={item.id}>
@@ -126,17 +188,55 @@ export function OperationLogsPage({ userId }: Props) {
               <span>
                 {item.target_type}#{item.target_id ?? '-'}
               </span>
-              <span>
-                <details>
-                  <summary>æŸ¥çœ‹è¯¦æƒ…</summary>
-                  <pre className="json-pre">{JSON.stringify(item.detail, null, 2)}</pre>
-                </details>
+              <span className="actions">
+                <button type="button" onClick={() => setSelectedLog(item)}>
+                  ²é¿´ÏêÇé
+                </button>
               </span>
             </div>
           ))}
-          {rows.length === 0 && <p className="muted">å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æš‚æ— æ—¥å¿—ã€‚</p>}
+          {rows.length === 0 && (
+            <div className="row op-log-row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>µ±Ç°É¸Ñ¡Ìõ¼şÏÂÔİÎŞÈÕÖ¾¡£</span>
+            </div>
+          )}
         </div>
       </article>
+
+      {selectedLog && (
+        <div className="modal-backdrop" onClick={() => setSelectedLog(null)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="log-detail-title">
+            <div className="panel-headline">
+              <h3 id="log-detail-title">ÈÕÖ¾ÏêÇé #{selectedLog.id}</h3>
+              <button type="button" onClick={() => setSelectedLog(null)}>
+                ¹Ø±Õ
+              </button>
+            </div>
+            <p className="line-metric">
+              <span>Ê±¼ä</span>
+              <strong>{new Date(selectedLog.created_at).toLocaleString()}</strong>
+            </p>
+            <p className="line-metric">
+              <span>²Ù×÷</span>
+              <strong>{selectedLog.action}</strong>
+            </p>
+            <p className="line-metric">
+              <span>²Ù×÷ÈË</span>
+              <strong>{selectedLog.actor_user_id ?? '-'}</strong>
+            </p>
+            <p className="line-metric">
+              <span>Ä¿±ê</span>
+              <strong>
+                {selectedLog.target_type}#{selectedLog.target_id ?? '-'}
+              </strong>
+            </p>
+            <article className="modal-section">
+              <h4>ÏêÇé JSON</h4>
+              <pre className="json-pre">{JSON.stringify(selectedLog.detail, null, 2)}</pre>
+            </article>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

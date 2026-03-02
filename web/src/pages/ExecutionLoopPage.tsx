@@ -102,9 +102,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   const [claims, setClaims] = useState<ClaimExecution[]>([])
   const [pendingAcceptance, setPendingAcceptance] = useState<PendingAcceptance[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])
-  const [submitPanelOpen, setSubmitPanelOpen] = useState(true)
-  const [acceptancePanelOpen, setAcceptancePanelOpen] = useState(true)
-  const [rewardPanelOpen, setRewardPanelOpen] = useState(true)
+  const [submitPanelOpen, setSubmitPanelOpen] = useState(false)
+  const [acceptancePanelOpen, setAcceptancePanelOpen] = useState(false)
+  const [rewardPanelOpen, setRewardPanelOpen] = useState(false)
   const [claimId, setClaimId] = useState('')
   const [summary, setSummary] = useState('')
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
@@ -284,15 +284,21 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   }, [loadMilestoneContext, milestoneClaimId])
 
   useEffect(() => {
-    setSubmitPanelOpen(deliverableClaimOptions.length > 0)
+    if (deliverableClaimOptions.length === 0) {
+      setSubmitPanelOpen(false)
+    }
   }, [deliverableClaimOptions.length])
 
   useEffect(() => {
-    setAcceptancePanelOpen(pendingAcceptance.length > 0)
+    if (pendingAcceptance.length === 0) {
+      setAcceptancePanelOpen(false)
+    }
   }, [pendingAcceptance.length])
 
   useEffect(() => {
-    setRewardPanelOpen(pendingGeneratedRewards > 0)
+    if (pendingGeneratedRewards === 0) {
+      setRewardPanelOpen(false)
+    }
   }, [pendingGeneratedRewards])
 
   const submitDeliverable = async (event: FormEvent) => {

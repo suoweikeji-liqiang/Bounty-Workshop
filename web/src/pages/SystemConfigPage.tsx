@@ -1,4 +1,4 @@
-ï»¿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -14,9 +14,20 @@ type Props = {
   userId: number
 }
 
+type ConfigSection = 'sync' | 'threshold' | 'templates' | 'ops'
+
+function parseTemplateLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
 export function SystemConfigPage({ userId }: Props) {
   const toast = useToast()
+  const [activeSection, setActiveSection] = useState<ConfigSection>('sync')
   const [overview, setOverview] = useState<SystemConfigOverview | null>(null)
+
   const [feishuFreq, setFeishuFreq] = useState('')
   const [releaseFreq, setReleaseFreq] = useState('')
   const [claimThreshold, setClaimThreshold] = useState('')
@@ -24,11 +35,40 @@ export function SystemConfigPage({ userId }: Props) {
   const [approvedTemplates, setApprovedTemplates] = useState('')
   const [reworkTemplates, setReworkTemplates] = useState('')
   const [rejectedTemplates, setRejectedTemplates] = useState('')
+
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [savingSync, setSavingSync] = useState(false)
+  const [savingThreshold, setSavingThreshold] = useState(false)
+  const [savingTemplates, setSavingTemplates] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  const [confirmReleaseOpen, setConfirmReleaseOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const hasSyncChanges = useMemo(() => {
+    if (!overview) return false
+    return (
+      Number(feishuFreq) !== overview.feishu_sync_frequency_minutes ||
+      Number(releaseFreq) !== overview.release_overdue_frequency_minutes
+    )
+  }, [feishuFreq, overview, releaseFreq])
+
+  const hasThresholdChanges = useMemo(() => {
+    if (!overview) return false
+    return (
+      Number(claimThreshold) !== overview.claim_approval_overdue_threshold ||
+      Number(budgetThreshold) !== overview.budget_review_threshold
+    )
+  }, [budgetThreshold, claimThreshold, overview])
+
+  const hasTemplateChanges = useMemo(() => {
+    if (!overview) return false
+    return (
+      approvedTemplates !== overview.acceptance_templates.approved.join('\n') ||
+      reworkTemplates !== overview.acceptance_templates.rework.join('\n') ||
+      rejectedTemplates !== overview.acceptance_templates.rejected.join('\n')
+    )
+  }, [approvedTemplates, overview, rejectedTemplates, reworkTemplates])
 
   const load = useCallback(async () => {
     try {
@@ -44,7 +84,7 @@ export function SystemConfigPage({ userId }: Props) {
       setReworkTemplates(data.acceptance_templates.rework.join('\n'))
       setRejectedTemplates(data.acceptance_templates.rejected.join('\n'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'åŠ è½½ç³»ç»Ÿé…ç½®å¤±è´¥')
+      setError(err instanceof Error ? err.message : '¼ÓÔØÏµÍ³ÅäÖÃÊ§°Ü')
     } finally {
       setLoading(false)
     }
@@ -54,50 +94,21 @@ export function SystemConfigPage({ userId }: Props) {
     void load()
   }, [load])
 
-  const saveAll = async () => {
+  const saveSyncConfig = async () => {
     const feishuValue = Number(feishuFreq)
     const releaseValue = Number(releaseFreq)
-    const claimThresholdValue = Number(claimThreshold)
-    const budgetThresholdValue = Number(budgetThreshold)
-    const parseLines = (text: string) =>
-      text
-        .split('\n')
-        .map((item) => item.trim())
-        .filter(Boolean)
-
-    const templatesPayload: AcceptanceTemplatesConfig = {
-      approved: parseLines(approvedTemplates),
-      rework: parseLines(reworkTemplates),
-      rejected: parseLines(rejectedTemplates),
-    }
 
     if (!Number.isInteger(feishuValue) || feishuValue < 5) {
-      setError('é£ä¹¦åŒæ­¥é¢‘ç‡å¿…é¡»æ˜¯å¤§äºç­‰äº 5 çš„æ•´æ•°')
+      setError('·ÉÊéÍ¬²½ÆµÂÊ±ØĞëÊÇ´óÓÚµÈÓÚ 5 µÄÕûÊı')
       return
     }
     if (!Number.isInteger(releaseValue) || releaseValue < 5) {
-      setError('è¶…æœŸé‡Šæ”¾é¢‘ç‡å¿…é¡»æ˜¯å¤§äºç­‰äº 5 çš„æ•´æ•°')
-      return
-    }
-    if (!Number.isInteger(claimThresholdValue) || claimThresholdValue < 1) {
-      setError('æ­æ¦œå®¡æ‰¹é˜ˆå€¼å¿…é¡»æ˜¯å¤§äºç­‰äº 1 çš„æ•´æ•°')
-      return
-    }
-    if (!Number.isFinite(budgetThresholdValue) || budgetThresholdValue < 0) {
-      setError('èµ„é‡‘å¤æ ¸é˜ˆå€¼å¿…é¡»æ˜¯å¤§äºç­‰äº 0 çš„æ•°å­—')
-      return
-    }
-    if (
-      templatesPayload.approved.length === 0 ||
-      templatesPayload.rework.length === 0 ||
-      templatesPayload.rejected.length === 0
-    ) {
-      setError('æ¯ç§éªŒæ”¶ç»“æœè‡³å°‘éœ€è¦ä¸€æ¡æ¨¡æ¿')
+      setError('³¬ÆÚÊÍ·ÅÆµÂÊ±ØĞëÊÇ´óÓÚµÈÓÚ 5 µÄÕûÊı')
       return
     }
 
     try {
-      setSaving(true)
+      setSavingSync(true)
       setError(null)
       await Promise.all([
         requestJson<SyncFrequencyConfig>('/system/config/feishu-sync-frequency', {
@@ -110,6 +121,33 @@ export function SystemConfigPage({ userId }: Props) {
           userId,
           body: { frequency_minutes: releaseValue },
         }),
+      ])
+      setMessage('Í¬²½Ïà¹ØÅäÖÃÒÑ¸üĞÂ')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '±£´æÍ¬²½ÅäÖÃÊ§°Ü')
+    } finally {
+      setSavingSync(false)
+    }
+  }
+
+  const saveThresholdConfig = async () => {
+    const claimThresholdValue = Number(claimThreshold)
+    const budgetThresholdValue = Number(budgetThreshold)
+
+    if (!Number.isInteger(claimThresholdValue) || claimThresholdValue < 1) {
+      setError('½Ò°ñÉóÅúãĞÖµ±ØĞëÊÇ´óÓÚµÈÓÚ 1 µÄÕûÊı')
+      return
+    }
+    if (!Number.isFinite(budgetThresholdValue) || budgetThresholdValue < 0) {
+      setError('×Ê½ğ¸´ºËãĞÖµ±ØĞëÊÇ´óÓÚµÈÓÚ 0 µÄÊı×Ö')
+      return
+    }
+
+    try {
+      setSavingThreshold(true)
+      setError(null)
+      await Promise.all([
         requestJson<ClaimApprovalThresholdConfig>('/system/config/claim-approval-overdue-threshold', {
           method: 'PUT',
           userId,
@@ -120,26 +158,50 @@ export function SystemConfigPage({ userId }: Props) {
           userId,
           body: { threshold: budgetThresholdValue },
         }),
-        requestJson<AcceptanceTemplatesConfig>('/system/config/acceptance-templates', {
-          method: 'PUT',
-          userId,
-          body: templatesPayload,
-        }),
       ])
-      setMessage('ç³»ç»Ÿé…ç½®å·²æ›´æ–°')
+      setMessage('ÉóÅúãĞÖµÒÑ¸üĞÂ')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'ä¿å­˜é…ç½®å¤±è´¥')
+      setError(err instanceof Error ? err.message : '±£´æÉóÅúãĞÖµÊ§°Ü')
     } finally {
-      setSaving(false)
+      setSavingThreshold(false)
+    }
+  }
+
+  const saveTemplates = async () => {
+    const templatesPayload: AcceptanceTemplatesConfig = {
+      approved: parseTemplateLines(approvedTemplates),
+      rework: parseTemplateLines(reworkTemplates),
+      rejected: parseTemplateLines(rejectedTemplates),
+    }
+
+    if (
+      templatesPayload.approved.length === 0 ||
+      templatesPayload.rework.length === 0 ||
+      templatesPayload.rejected.length === 0
+    ) {
+      setError('Ã¿ÖÖÑéÊÕ½á¹ûÖÁÉÙĞèÒªÒ»ÌõÄ£°å')
+      return
+    }
+
+    try {
+      setSavingTemplates(true)
+      setError(null)
+      await requestJson<AcceptanceTemplatesConfig>('/system/config/acceptance-templates', {
+        method: 'PUT',
+        userId,
+        body: templatesPayload,
+      })
+      setMessage('ÑéÊÕÄ£°åÒÑ¸üĞÂ')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '±£´æÑéÊÕÄ£°åÊ§°Ü')
+    } finally {
+      setSavingTemplates(false)
     }
   }
 
   const runReleaseOverdueNow = async () => {
-    const ok = window.confirm('ç¡®è®¤ç«‹å³æ‰§è¡Œä¸€æ¬¡è¶…æœŸæ­æ¦œé‡Šæ”¾å—ï¼Ÿ')
-    if (!ok) {
-      return
-    }
     try {
       setReleasing(true)
       setError(null)
@@ -147,10 +209,11 @@ export function SystemConfigPage({ userId }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`å·²æ‰§è¡Œè¶…æœŸé‡Šæ”¾ï¼Œæœ¬æ¬¡å¤„ç† ${result.released_claims} æ¡æ­æ¦œ`)
+      setMessage(`ÒÑÖ´ĞĞ³¬ÆÚÊÍ·Å£¬±¾´Î´¦Àí ${result.released_claims} Ìõ½Ò°ñ`)
+      setConfirmReleaseOpen(false)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'æ‰§è¡Œè¶…æœŸé‡Šæ”¾å¤±è´¥')
+      setError(err instanceof Error ? err.message : 'Ö´ĞĞ³¬ÆÚÊÍ·ÅÊ§°Ü')
     } finally {
       setReleasing(false)
     }
@@ -169,61 +232,138 @@ export function SystemConfigPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>ç³»ç»Ÿé…ç½®</h2>
-        <p>é›†ä¸­ç®¡ç†åŒæ­¥é¢‘ç‡ã€å®¡æ‰¹é˜ˆå€¼å’ŒéªŒæ”¶æ¨¡æ¿ã€‚</p>
+        <h2>ÏµÍ³ÅäÖÃ</h2>
+        <p>¼¯ÖĞ¹ÜÀíÍ¬²½ÆµÂÊ¡¢ÉóÅúãĞÖµºÍÑéÊÕÄ£°å¡£</p>
       </header>
 
-      <article className="panel form-grid">
-        <h3>é…ç½®ä¸­å¿ƒ</h3>
-        <label>
-          é£ä¹¦åŒæ­¥é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
-          <input type="number" min={5} value={feishuFreq} onChange={(e) => setFeishuFreq(e.target.value)} disabled={loading} />
-        </label>
-        <label>
-          è¶…æœŸé‡Šæ”¾é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
-          <input type="number" min={5} value={releaseFreq} onChange={(e) => setReleaseFreq(e.target.value)} disabled={loading} />
-        </label>
-        <label>
-          æ­æ¦œå®¡æ‰¹é˜ˆå€¼
-          <input type="number" min={1} value={claimThreshold} onChange={(e) => setClaimThreshold(e.target.value)} disabled={loading} />
-        </label>
-        <label>
-          èµ„é‡‘å¤æ ¸é˜ˆå€¼
-          <input type="number" min={0} value={budgetThreshold} onChange={(e) => setBudgetThreshold(e.target.value)} disabled={loading} />
-        </label>
-
-        <label className="wide">
-          éªŒæ”¶æ¨¡æ¿ï¼šé€šè¿‡ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
-          <textarea value={approvedTemplates} onChange={(e) => setApprovedTemplates(e.target.value)} disabled={loading} />
-        </label>
-        <label className="wide">
-          éªŒæ”¶æ¨¡æ¿ï¼šæ•´æ”¹ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
-          <textarea value={reworkTemplates} onChange={(e) => setReworkTemplates(e.target.value)} disabled={loading} />
-        </label>
-        <label className="wide">
-          éªŒæ”¶æ¨¡æ¿ï¼šä¸é€šè¿‡ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
-          <textarea value={rejectedTemplates} onChange={(e) => setRejectedTemplates(e.target.value)} disabled={loading} />
-        </label>
-
-        <div className="button-row wide">
-          <button type="button" onClick={() => void load()} disabled={loading}>åˆ·æ–°</button>
-          <button type="button" onClick={() => void runReleaseOverdueNow()} disabled={releasing}>
-            {releasing ? 'æ‰§è¡Œä¸­...' : 'ç«‹å³é‡Šæ”¾è¶…æœŸæ­æ¦œ'}
+      <article className="panel">
+        <div className="button-row">
+          <button type="button" className={activeSection === 'sync' ? 'primary-btn' : ''} onClick={() => setActiveSection('sync')}>
+            Í¬²½ÆµÂÊ
           </button>
-          <button className="primary-btn" type="button" onClick={() => void saveAll()} disabled={saving}>
-            {saving ? 'ä¿å­˜ä¸­...' : 'ä¿å­˜å…¨éƒ¨'}
+          <button type="button" className={activeSection === 'threshold' ? 'primary-btn' : ''} onClick={() => setActiveSection('threshold')}>
+            ÉóÅúãĞÖµ
+          </button>
+          <button type="button" className={activeSection === 'templates' ? 'primary-btn' : ''} onClick={() => setActiveSection('templates')}>
+            ÑéÊÕÄ£°å
+          </button>
+          <button type="button" className={activeSection === 'ops' ? 'primary-btn' : ''} onClick={() => setActiveSection('ops')}>
+            Î¬»¤²Ù×÷
+          </button>
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            Ë¢ĞÂ
           </button>
         </div>
       </article>
 
+      {activeSection === 'sync' && (
+        <article className="panel form-grid">
+          <h3 className="wide">Í¬²½ÆµÂÊÅäÖÃ</h3>
+          <label>
+            ·ÉÊéÍ¬²½ÆµÂÊ£¨·ÖÖÓ£©
+            <input type="number" min={5} value={feishuFreq} onChange={(e) => setFeishuFreq(e.target.value)} disabled={loading} />
+          </label>
+          <label>
+            ³¬ÆÚÊÍ·ÅÆµÂÊ£¨·ÖÖÓ£©
+            <input type="number" min={5} value={releaseFreq} onChange={(e) => setReleaseFreq(e.target.value)} disabled={loading} />
+          </label>
+          <div className="button-row wide">
+            <button className="primary-btn" type="button" onClick={() => void saveSyncConfig()} disabled={savingSync || !hasSyncChanges}>
+              {savingSync ? '±£´æÖĞ...' : '±£´æÍ¬²½ÅäÖÃ'}
+            </button>
+          </div>
+        </article>
+      )}
+
+      {activeSection === 'threshold' && (
+        <article className="panel form-grid">
+          <h3 className="wide">ÉóÅúãĞÖµÅäÖÃ</h3>
+          <label>
+            ½Ò°ñÉóÅúãĞÖµ
+            <input type="number" min={1} value={claimThreshold} onChange={(e) => setClaimThreshold(e.target.value)} disabled={loading} />
+          </label>
+          <label>
+            ×Ê½ğ¸´ºËãĞÖµ
+            <input type="number" min={0} value={budgetThreshold} onChange={(e) => setBudgetThreshold(e.target.value)} disabled={loading} />
+          </label>
+          <div className="button-row wide">
+            <button
+              className="primary-btn"
+              type="button"
+              onClick={() => void saveThresholdConfig()}
+              disabled={savingThreshold || !hasThresholdChanges}
+            >
+              {savingThreshold ? '±£´æÖĞ...' : '±£´æÉóÅúãĞÖµ'}
+            </button>
+          </div>
+        </article>
+      )}
+
+      {activeSection === 'templates' && (
+        <article className="panel form-grid">
+          <h3 className="wide">ÑéÊÕÄ£°åÅäÖÃ</h3>
+          <label className="wide">
+            ÑéÊÕÄ£°å£ºÍ¨¹ı£¨Ã¿ĞĞÒ»Ìõ£©
+            <textarea value={approvedTemplates} onChange={(e) => setApprovedTemplates(e.target.value)} disabled={loading} />
+          </label>
+          <label className="wide">
+            ÑéÊÕÄ£°å£ºÕû¸Ä£¨Ã¿ĞĞÒ»Ìõ£©
+            <textarea value={reworkTemplates} onChange={(e) => setReworkTemplates(e.target.value)} disabled={loading} />
+          </label>
+          <label className="wide">
+            ÑéÊÕÄ£°å£º²»Í¨¹ı£¨Ã¿ĞĞÒ»Ìõ£©
+            <textarea value={rejectedTemplates} onChange={(e) => setRejectedTemplates(e.target.value)} disabled={loading} />
+          </label>
+          <div className="button-row wide">
+            <button className="primary-btn" type="button" onClick={() => void saveTemplates()} disabled={savingTemplates || !hasTemplateChanges}>
+              {savingTemplates ? '±£´æÖĞ...' : '±£´æÄ£°å'}
+            </button>
+          </div>
+        </article>
+      )}
+
+      {activeSection === 'ops' && (
+        <article className="panel">
+          <h3>Î¬»¤²Ù×÷</h3>
+          <p className="muted">Á¢¼´´¥·¢Ò»´Î³¬ÆÚ½Ò°ñÊÍ·ÅÈÎÎñ£¬ÓÃÓÚÈË¹¤¸ÉÔ¤´¦Àí¡£</p>
+          <div className="button-row">
+            <button type="button" onClick={() => setConfirmReleaseOpen(true)}>
+              Á¢¼´ÊÍ·Å³¬ÆÚ½Ò°ñ
+            </button>
+          </div>
+        </article>
+      )}
+
       {overview && (
         <article className="panel">
-          <h3>å½“å‰é…ç½®å¿«ç…§</h3>
-          <p className="line-metric"><span>é£ä¹¦åŒæ­¥é¢‘ç‡</span><strong>{overview.feishu_sync_frequency_minutes} åˆ†é’Ÿ</strong></p>
-          <p className="line-metric"><span>è¶…æœŸé‡Šæ”¾é¢‘ç‡</span><strong>{overview.release_overdue_frequency_minutes} åˆ†é’Ÿ</strong></p>
-          <p className="line-metric"><span>æ­æ¦œå®¡æ‰¹é˜ˆå€¼</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
-          <p className="line-metric"><span>èµ„é‡‘å¤æ ¸é˜ˆå€¼</span><strong>{overview.budget_review_threshold}</strong></p>
+          <h3>µ±Ç°ÅäÖÃ¿ìÕÕ</h3>
+          <p className="line-metric"><span>·ÉÊéÍ¬²½ÆµÂÊ</span><strong>{overview.feishu_sync_frequency_minutes} ·ÖÖÓ</strong></p>
+          <p className="line-metric"><span>³¬ÆÚÊÍ·ÅÆµÂÊ</span><strong>{overview.release_overdue_frequency_minutes} ·ÖÖÓ</strong></p>
+          <p className="line-metric"><span>½Ò°ñÉóÅúãĞÖµ</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
+          <p className="line-metric"><span>×Ê½ğ¸´ºËãĞÖµ</span><strong>{overview.budget_review_threshold}</strong></p>
         </article>
+      )}
+
+      {confirmReleaseOpen && (
+        <div className="modal-backdrop" onClick={() => setConfirmReleaseOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="release-overdue-title">
+            <div className="panel-headline">
+              <h3 id="release-overdue-title">È·ÈÏÖ´ĞĞ³¬ÆÚÊÍ·Å</h3>
+              <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={releasing}>
+                ¹Ø±Õ
+              </button>
+            </div>
+            <p>¸Ã²Ù×÷»áÁ¢¼´´¥·¢ÊÍ·ÅÈÎÎñ£¬¿ÉÄÜ¸Ä±äÕıÔÚ½øĞĞÖĞµÄ½Ò°ñ×´Ì¬¡£</p>
+            <div className="button-row">
+              <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={releasing}>
+                È¡Ïû
+              </button>
+              <button className="primary-btn" type="button" onClick={() => void runReleaseOverdueNow()} disabled={releasing}>
+                {releasing ? 'Ö´ĞĞÖĞ...' : 'È·ÈÏÖ´ĞĞ'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )

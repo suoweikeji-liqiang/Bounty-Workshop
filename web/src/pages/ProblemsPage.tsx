@@ -6,6 +6,12 @@ import { AttachmentField } from '../components/AttachmentField'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { downloadFile, requestJson } from '../lib/http'
+import {
+  formatImpactScopeLabel,
+  formatProblemFrequencyLabel,
+  formatProblemStatusLabel,
+  formatScenarioLabel,
+} from '../lib/enumLabels'
 import type { Attachment, HypothesisVerification, Problem, ProblemAnalysisReport, ProblemDetail } from '../types'
 
 type Props = {
@@ -72,6 +78,26 @@ const defaultFilters: ProblemFilters = {
   created_to: '',
 }
 
+const problemStatusOptions: Array<{ value: string; label: string }> = [
+  { value: '', label: '全部' },
+  { value: 'draft', label: '草稿' },
+  { value: 'pending_review', label: '待评审' },
+  { value: 'pricing_revision_required', label: '待重新定价' },
+  { value: 'budget_pending', label: '待资金复核' },
+  { value: 'approved', label: '已立项' },
+  { value: 'rejected', label: '不立项' },
+  { value: 'archived', label: '已归档' },
+]
+
+const scenarioOptions: Array<{ value: string; label: string }> = [
+  { value: '', label: '全部' },
+  { value: 'rd', label: '研发' },
+  { value: 'ops', label: '运维' },
+  { value: 'delivery', label: '交付' },
+  { value: 'support', label: '支持' },
+  { value: 'other', label: '其他' },
+]
+
 function normalizeCriteria(
   list: Array<{ description?: string; type?: string }> | undefined,
 ): CriteriaDraft[] {
@@ -121,6 +147,7 @@ function problemStatusTone(status: string): 'success' | 'warn' | 'danger' | 'inf
 export function ProblemsPage({ userId }: Props) {
   const toast = useToast()
   const [form, setForm] = useState<ProblemForm>(defaultForm)
+  const [filtersDraft, setFiltersDraft] = useState<ProblemFilters>(defaultFilters)
   const [filters, setFilters] = useState<ProblemFilters>(defaultFilters)
   const [list, setList] = useState<Problem[]>([])
   const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([])
@@ -395,6 +422,16 @@ export function ProblemsPage({ userId }: Props) {
     [],
   )
 
+  const hasPendingFilterChanges = useMemo(
+    () =>
+      filtersDraft.mine_only !== filters.mine_only ||
+      filtersDraft.status !== filters.status ||
+      filtersDraft.scenario !== filters.scenario ||
+      filtersDraft.created_from !== filters.created_from ||
+      filtersDraft.created_to !== filters.created_to,
+    [filters, filtersDraft],
+  )
+
   return (
     <section className="page-wrap">
       <header className="page-head">
@@ -423,52 +460,75 @@ export function ProblemsPage({ userId }: Props) {
             <span>时间</span>
             <span>操作</span>
           </div>
-          {list.map((item) => (
-            <div className="row wide-row problems-row" key={item.id}>
-              <span>#{item.id}</span>
-              <span title={item.title}>{item.title}</span>
-              <span title={item.submitter_name}>{item.submitter_name || `#${item.submitter_id}`}</span>
-              <span>{item.scenario}</span>
-              <span>
-                <StatusBadge tone={problemStatusTone(item.status)}>{item.status}</StatusBadge>
-              </span>
-              <span>
-                <StatusBadge tone={analysisTone(item.analysis_status)}>
-                  {formatAnalysisStatus(item.analysis_status)}
-                </StatusBadge>
-              </span>
-              <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
-              <span>{new Date(item.created_at).toLocaleDateString()}</span>
-              <span className="actions">
-                <button type="button" onClick={() => void openProblemDetail(item.id)}>查看详情</button>
-                {item.submitter_id === userId && canEditStatus.has(item.status) && (
-                  <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
-                )}
-                {item.submitter_id === userId && item.status === 'draft' && (
-                  <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
-                )}
-                {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
-                  <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
-                )}
-                {item.submitter_id === userId && item.status !== 'archived' && item.status !== 'rejected' && (
-                  <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
-                )}
-              </span>
+          {loading && (
+            <div className="row wide-row problems-row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>加载中...</span>
             </div>
-          ))}
+          )}
+          {!loading && list.length === 0 && (
+            <div className="row wide-row problems-row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>暂无符合条件的问题</span>
+            </div>
+          )}
+          {!loading && list.map((item) => {
+            const canEdit = item.submitter_id === userId && canEditStatus.has(item.status)
+            const canSubmitReview = item.submitter_id === userId && item.status === 'draft'
+            const canOpenAnalysis = item.analysis_status === 'completed' || item.analysis_status === 'failed'
+            const canTriggerAnalysis =
+              item.submitter_id === userId &&
+              item.status !== 'archived' &&
+              item.status !== 'rejected' &&
+              item.analysis_status !== 'analyzing'
+            return (
+              <div className="row wide-row problems-row" key={item.id}>
+                <span>#{item.id}</span>
+                <span title={item.title}>{item.title}</span>
+                <span title={item.submitter_name}>{item.submitter_name || `#${item.submitter_id}`}</span>
+                <span>{formatScenarioLabel(item.scenario)}</span>
+                <span>
+                  <StatusBadge tone={problemStatusTone(item.status)}>{formatProblemStatusLabel(item.status)}</StatusBadge>
+                </span>
+                <span>
+                  <StatusBadge tone={analysisTone(item.analysis_status)}>
+                    {formatAnalysisStatus(item.analysis_status)}
+                  </StatusBadge>
+                </span>
+                <span>{item.reviewer_comment ?? item.reject_reason ?? '-'}</span>
+                <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                <span className="actions problem-row-actions">
+                  <button type="button" onClick={() => void openProblemDetail(item.id)}>详情</button>
+                  {canEdit && <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>}
+                  {canSubmitReview && <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>}
+                  {canOpenAnalysis && <button type="button" onClick={() => void openAnalysisDetail(item.id)}>论证详情</button>}
+                  {canTriggerAnalysis && <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>}
+                </span>
+              </div>
+            )
+          })}
         </div>
       </article>
 
-      <form className="panel form-grid" onSubmit={(event) => { event.preventDefault(); void loadProblems() }}>
+      <form
+        className="panel form-grid"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (hasPendingFilterChanges) {
+            setFilters(filtersDraft)
+            return
+          }
+          void loadProblems()
+        }}
+      >
         <h3>问题筛选</h3>
+        <p className="wide muted">修改筛选条件后，点击“应用筛选”才会更新列表。</p>
         <label className="wide">
           <span>范围</span>
           <span className="checks">
             <label>
               <input
                 type="checkbox"
-                checked={filters.mine_only}
-                onChange={(e) => setFilters((p) => ({ ...p, mine_only: e.target.checked }))}
+                checked={filtersDraft.mine_only}
+                onChange={(e) => setFiltersDraft((p) => ({ ...p, mine_only: e.target.checked }))}
               />
               仅看我提报
             </label>
@@ -476,39 +536,40 @@ export function ProblemsPage({ userId }: Props) {
         </label>
         <label>
           状态
-          <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
-            <option value="">全部</option>
-            <option value="draft">草稿</option>
-            <option value="pending_review">待评审</option>
-            <option value="pricing_revision_required">待重新定价</option>
-            <option value="budget_pending">待资金复核</option>
-            <option value="approved">已立项</option>
-            <option value="rejected">不立项</option>
-            <option value="archived">已归档</option>
+          <select value={filtersDraft.status} onChange={(e) => setFiltersDraft((p) => ({ ...p, status: e.target.value }))}>
+            {problemStatusOptions.map((item) => (
+              <option key={`problem-status-${item.value || 'all'}`} value={item.value}>{item.label}</option>
+            ))}
           </select>
         </label>
         <label>
           场景
-          <select value={filters.scenario} onChange={(e) => setFilters((p) => ({ ...p, scenario: e.target.value }))}>
-            <option value="">全部</option>
-            <option value="rd">研发</option>
-            <option value="ops">运维</option>
-            <option value="delivery">交付</option>
-            <option value="support">支持</option>
-            <option value="other">其他</option>
+          <select value={filtersDraft.scenario} onChange={(e) => setFiltersDraft((p) => ({ ...p, scenario: e.target.value }))}>
+            {scenarioOptions.map((item) => (
+              <option key={`scenario-${item.value || 'all'}`} value={item.value}>{item.label}</option>
+            ))}
           </select>
         </label>
         <label>
           起始日期
-          <input type="date" value={filters.created_from} onChange={(e) => setFilters((p) => ({ ...p, created_from: e.target.value }))} />
+          <input type="date" value={filtersDraft.created_from} onChange={(e) => setFiltersDraft((p) => ({ ...p, created_from: e.target.value }))} />
         </label>
         <label>
           截止日期
-          <input type="date" value={filters.created_to} onChange={(e) => setFilters((p) => ({ ...p, created_to: e.target.value }))} />
+          <input type="date" value={filtersDraft.created_to} onChange={(e) => setFiltersDraft((p) => ({ ...p, created_to: e.target.value }))} />
         </label>
         <div className="button-row wide">
-          <button className="primary-btn" type="submit" disabled={loading}>筛选</button>
-          <button type="button" onClick={() => setFilters(defaultFilters)} disabled={loading}>重置</button>
+          <button className="primary-btn" type="submit" disabled={loading}>应用筛选</button>
+          <button
+            type="button"
+            onClick={() => {
+              setFiltersDraft(defaultFilters)
+              setFilters(defaultFilters)
+            }}
+            disabled={loading}
+          >
+            重置
+          </button>
         </div>
       </form>
 
@@ -684,70 +745,80 @@ export function ProblemsPage({ userId }: Props) {
               <p>加载中...</p>
             ) : detailData ? (
               <>
-                <section className="modal-section">
-                  <h4>基础信息</h4>
-                  <p className="line-metric"><span>标题</span><strong>{detailData.title}</strong></p>
-                  <p className="line-metric"><span>场景</span><strong>{detailData.scenario}</strong></p>
-                  <p className="line-metric"><span>频率</span><strong>{detailData.frequency}</strong></p>
-                  <p className="line-metric"><span>影响范围</span><strong>{detailData.impact_scope}</strong></p>
-                  <p className="line-metric"><span>状态</span><strong>{detailData.status}</strong></p>
-                  <p className="line-metric"><span>提交人</span><strong>{detailData.submitter_name}</strong></p>
-                </section>
-                <section className="modal-section">
-                  <h4>问题内容</h4>
-                  <p><strong>背景：</strong>{detailData.background}</p>
-                  <p><strong>问题描述：</strong>{detailData.description}</p>
-                  <p><strong>价值说明：</strong>{detailData.value_statement}</p>
-                  <p><strong>当前解决方式：</strong>{detailData.current_solution || '-'}</p>
-                </section>
-                <section className="modal-section">
-                  <h4>提交人任务定义</h4>
-                  <p><strong>目标：</strong>{detailData.draft_goal || '-'}</p>
-                  <p><strong>范围：</strong>{detailData.draft_scope || '-'}</p>
-                  <p><strong>截止日期：</strong>{detailData.draft_due_date || '-'}</p>
-                  <p><strong>自我复盘：</strong>{detailData.submitter_reflection || '-'}</p>
-                  <p><strong>验收标准：</strong></p>
-                  {(detailData.draft_acceptance_criteria ?? []).length > 0 ? (
-                    <ul>
-                      {(detailData.draft_acceptance_criteria ?? []).map((item, idx) => (
-                        <li key={`criteria-${idx}`}>
-                          {item.description || '-'}（{item.type === 'behavioral' ? '行为' : '量化'}）
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>-</p>
-                  )}
-                </section>
-                <section className="modal-section">
-                  <h4>评审与定价</h4>
-                  <p><strong>评审意见：</strong>{detailData.reviewer_comment || detailData.reject_reason || '-'}</p>
-                  <p><strong>任务等级：</strong>{detailData.priced_level || '-'}</p>
-                  <p><strong>奖励总额：</strong>{detailData.priced_reward_total ?? '-'}</p>
-                  <p><strong>提交人分成比例：</strong>{detailData.priced_proposer_ratio ?? '-'}</p>
-                  <p><strong>积分：</strong>{detailData.priced_points ?? '-'}</p>
-                  <p><strong>徽章：</strong>{detailData.priced_badge || '-'}</p>
-                </section>
-                <section className="modal-section">
-                  <h4>附件</h4>
-                  {detailAttachments.length > 0 ? (
-                    <ul>
-                      {detailAttachments.map((file) => (
-                        <li key={file.id}>
-                          <button
-                            type="button"
-                            className="link-btn"
-                            onClick={() => void downloadFile(file.download_url, file.filename, { userId })}
-                          >
-                            {file.filename}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>无附件</p>
-                  )}
-                </section>
+                <details className="modal-fold" open>
+                  <summary>基础信息</summary>
+                  <section className="modal-section">
+                    <p className="line-metric"><span>标题</span><strong>{detailData.title}</strong></p>
+                    <p className="line-metric"><span>场景</span><strong>{formatScenarioLabel(detailData.scenario)}</strong></p>
+                    <p className="line-metric"><span>频率</span><strong>{formatProblemFrequencyLabel(detailData.frequency)}</strong></p>
+                    <p className="line-metric"><span>影响范围</span><strong>{formatImpactScopeLabel(detailData.impact_scope)}</strong></p>
+                    <p className="line-metric"><span>状态</span><strong>{formatProblemStatusLabel(detailData.status)}</strong></p>
+                    <p className="line-metric"><span>提交人</span><strong>{detailData.submitter_name}</strong></p>
+                  </section>
+                </details>
+                <details className="modal-fold" open>
+                  <summary>问题内容</summary>
+                  <section className="modal-section">
+                    <p><strong>背景：</strong>{detailData.background}</p>
+                    <p><strong>问题描述：</strong>{detailData.description}</p>
+                    <p><strong>价值说明：</strong>{detailData.value_statement}</p>
+                    <p><strong>当前解决方式：</strong>{detailData.current_solution || '-'}</p>
+                  </section>
+                </details>
+                <details className="modal-fold">
+                  <summary>提交人任务定义</summary>
+                  <section className="modal-section">
+                    <p><strong>目标：</strong>{detailData.draft_goal || '-'}</p>
+                    <p><strong>范围：</strong>{detailData.draft_scope || '-'}</p>
+                    <p><strong>截止日期：</strong>{detailData.draft_due_date || '-'}</p>
+                    <p><strong>自我复盘：</strong>{detailData.submitter_reflection || '-'}</p>
+                    <p><strong>验收标准：</strong></p>
+                    {(detailData.draft_acceptance_criteria ?? []).length > 0 ? (
+                      <ul>
+                        {(detailData.draft_acceptance_criteria ?? []).map((item, idx) => (
+                          <li key={`criteria-${idx}`}>
+                            {item.description || '-'}（{item.type === 'behavioral' ? '行为' : '量化'}）
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>-</p>
+                    )}
+                  </section>
+                </details>
+                <details className="modal-fold">
+                  <summary>评审与定价</summary>
+                  <section className="modal-section">
+                    <p><strong>评审意见：</strong>{detailData.reviewer_comment || detailData.reject_reason || '-'}</p>
+                    <p><strong>任务等级：</strong>{detailData.priced_level || '-'}</p>
+                    <p><strong>奖励总额：</strong>{detailData.priced_reward_total ?? '-'}</p>
+                    <p><strong>提交人分成比例：</strong>{detailData.priced_proposer_ratio ?? '-'}</p>
+                    <p><strong>积分：</strong>{detailData.priced_points ?? '-'}</p>
+                    <p><strong>徽章：</strong>{detailData.priced_badge || '-'}</p>
+                  </section>
+                </details>
+                <details className="modal-fold">
+                  <summary>附件（{detailAttachments.length}）</summary>
+                  <section className="modal-section">
+                    {detailAttachments.length > 0 ? (
+                      <ul>
+                        {detailAttachments.map((file) => (
+                          <li key={file.id}>
+                            <button
+                              type="button"
+                              className="link-btn"
+                              onClick={() => void downloadFile(file.download_url, file.filename, { userId })}
+                            >
+                              {file.filename}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>无附件</p>
+                    )}
+                  </section>
+                </details>
               </>
             ) : (
               <p>暂无问题详情</p>

@@ -7,6 +7,7 @@ import { MilestoneEditor, buildDefaultMilestones } from '../components/Milestone
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { formatProblemStatusLabel } from '../lib/enumLabels'
 import type {
   BadgeDefinition,
   Problem,
@@ -97,6 +98,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(null)
   const [selectedProblemDetail, setSelectedProblemDetail] = useState<ProblemDetail | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<ProblemAnalysisReport | null>(null)
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [reviewTab, setReviewTab] = useState<'draft' | 'analysis' | 'pricing' | 'reject'>('pricing')
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [pricingDraft, setPricingDraft] = useState<PricingDraft>(buildDefaultPricingDraft())
   const [reviewComment, setReviewComment] = useState('')
@@ -112,6 +115,20 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     () => pendingProblems.find((item) => item.id === selectedProblemId) ?? null,
     [pendingProblems, selectedProblemId],
   )
+
+  const resetReviewContext = () => {
+    setSelectedProblemId(null)
+    setSelectedProblemDetail(null)
+    setSelectedAnalysis(null)
+    setReviewComment('')
+    setAnalysisAcceptance('')
+    setPricingDraft(buildDefaultPricingDraft())
+    setIsComplexTask(false)
+    setClosingRewardRatio(0.4)
+    setMilestones(buildDefaultMilestones())
+    setReviewModalOpen(false)
+    setReviewTab('pricing')
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -143,6 +160,8 @@ export function ReviewWorkbenchPage({ userId }: Props) {
 
   const pickProblem = async (problem: Problem) => {
     setSelectedProblemId(problem.id)
+    setReviewModalOpen(true)
+    setReviewTab('pricing')
     setReviewComment('')
     setAnalysisAcceptance('')
     setSelectedAnalysis(null)
@@ -194,8 +213,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
         },
       })
       setMessage(`问题 #${selectedProblem.id} 已退回提报人修改`)
-      setSelectedProblemId(null)
-      setSelectedProblemDetail(null)
+      resetReviewContext()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '退回失败')
@@ -298,12 +316,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       } else {
         setMessage(`问题 #${selectedProblem.id} 已立项并生成任务 #${result.id}`)
       }
-      setSelectedProblemId(null)
-      setSelectedProblemDetail(null)
-      setPricingDraft(buildDefaultPricingDraft())
-      setIsComplexTask(false)
-      setClosingRewardRatio(0.4)
-      setMilestones(buildDefaultMilestones())
+      resetReviewContext()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '定价审核失败')
@@ -343,209 +356,237 @@ export function ReviewWorkbenchPage({ userId }: Props) {
             <span>提交时间</span>
             <span>操作</span>
           </div>
+          {pendingProblems.length === 0 && (
+            <div className="row wide-row">
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>当前没有待评审问题</span>
+            </div>
+          )}
           {pendingProblems.map((item) => (
             <div className="row wide-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{item.title}</span>
               <span>
-                <StatusBadge tone={problemTone(item.status)}>{item.status}</StatusBadge>
+                <StatusBadge tone={problemTone(item.status)}>{formatProblemStatusLabel(item.status)}</StatusBadge>
               </span>
               <span>{item.submitter_name || `#${item.submitter_id}`}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
               <span className="actions">
                 <button type="button" onClick={() => void pickProblem(item)}>
-                  {selectedProblemId === item.id ? '已选中' : '查看'}
+                  {selectedProblemId === item.id && reviewModalOpen ? '评审中' : '进入评审'}
                 </button>
               </span>
             </div>
           ))}
         </div>
       </article>
-
-      {selectedProblem && selectedProblemDetail && (
-        <>
-          <article className="panel">
-            <h3>提交人任务定义（问题 #{selectedProblem.id}）</h3>
-            {analysisLoading ? (
+      {reviewModalOpen && selectedProblem && (
+        <div className="modal-backdrop" onClick={resetReviewContext}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+            <div className="panel-headline">
+              <h3 id="review-modal-title">问题 #{selectedProblem.id} 评审</h3>
+              <button type="button" onClick={resetReviewContext}>关闭</button>
+            </div>
+            <p className="muted">{selectedProblem.title}</p>
+            {analysisLoading || !selectedProblemDetail ? (
               <p>加载中...</p>
             ) : (
               <>
-                <p><strong>目标：</strong>{selectedProblemDetail.draft_goal || '-'}</p>
-                <p><strong>范围：</strong>{selectedProblemDetail.draft_scope || '-'}</p>
-                <p><strong>截止日期：</strong>{selectedProblemDetail.draft_due_date || '-'}</p>
-                <p><strong>自我复盘：</strong>{selectedProblemDetail.submitter_reflection || '-'}</p>
-                <div>
-                  <strong>验收标准：</strong>
-                  <ul>
-                    {(selectedProblemDetail.draft_acceptance_criteria ?? []).map((item, idx) => (
-                      <li key={`${idx}-${item.description ?? 'item'}`}>
-                        {item.description ?? '未命名'} ({item.type ?? '未知'})
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </>
-            )}
-          </article>
-
-          <article className="panel">
-            <h3>ProdMind 论证参考</h3>
-            {selectedAnalysis ? (
-              <>
-                <label>
-                  采纳意见（可选）
-                  <textarea
-                    value={analysisAcceptance}
-                    onChange={(event) => setAnalysisAcceptance(event.target.value)}
-                    placeholder="说明是否采纳论证结论"
-                  />
-                </label>
                 <div className="button-row">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedProblem) {
-                        navigate(`/hypothesis?problemId=${selectedProblem.id}`)
-                      }
-                    }}
-                  >
-                    进入假设验证
-                  </button>
+                  <button type="button" onClick={() => setReviewTab('draft')} disabled={reviewTab === 'draft'}>任务定义</button>
+                  <button type="button" onClick={() => setReviewTab('analysis')} disabled={reviewTab === 'analysis'}>论证参考</button>
+                  <button type="button" onClick={() => setReviewTab('pricing')} disabled={reviewTab === 'pricing'}>评审定价</button>
+                  <button type="button" onClick={() => setReviewTab('reject')} disabled={reviewTab === 'reject'}>退回修改</button>
                 </div>
-                <AnalysisReportView analysis={selectedAnalysis} />
+                {reviewTab === 'draft' && (
+                  <article className="modal-section">
+                    <h4>提交人任务定义</h4>
+                    <p><strong>目标：</strong>{selectedProblemDetail.draft_goal || '-'}</p>
+                    <p><strong>范围：</strong>{selectedProblemDetail.draft_scope || '-'}</p>
+                    <p><strong>截止日期：</strong>{selectedProblemDetail.draft_due_date || '-'}</p>
+                    <p><strong>自我复盘：</strong>{selectedProblemDetail.submitter_reflection || '-'}</p>
+                    <div>
+                      <strong>验收标准：</strong>
+                      <ul>
+                        {(selectedProblemDetail.draft_acceptance_criteria ?? []).map((item, idx) => (
+                          <li key={`${idx}-${item.description ?? 'item'}`}>
+                            {item.description ?? '未命名'} ({item.type ?? '未知'})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </article>
+                )}
+                {reviewTab === 'analysis' && (
+                  <article className="modal-section">
+                    <h4>ProdMind 论证参考</h4>
+                    {selectedAnalysis ? (
+                      <>
+                        <label>
+                          采纳意见（可选）
+                          <textarea
+                            value={analysisAcceptance}
+                            onChange={(event) => setAnalysisAcceptance(event.target.value)}
+                            placeholder="说明是否采纳论证结论"
+                          />
+                        </label>
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedProblem) {
+                                navigate(`/hypothesis?problemId=${selectedProblem.id}`)
+                              }
+                            }}
+                          >
+                            进入假设验证
+                          </button>
+                        </div>
+                        <AnalysisReportView analysis={selectedAnalysis} />
+                      </>
+                    ) : selectedProblemDetail.analysis_status === 'analyzing' ? (
+                      <p>论证进行中，请稍后刷新。</p>
+                    ) : selectedProblemDetail.analysis_status === 'failed' ? (
+                      <p>论证失败，可重新触发。</p>
+                    ) : (
+                      <p>暂无可用论证结果。</p>
+                    )}
+                  </article>
+                )}
+                {reviewTab === 'pricing' && (
+                  <form className="form-grid" onSubmit={submitPricingApprove}>
+                    <h4>评审定价</h4>
+                    <label>
+                      任务等级
+                      <select
+                        value={pricingDraft.level}
+                        onChange={(event) => {
+                          const level = event.target.value as TaskLevel
+                          const range = rewardRangeByLevel[level]
+                          const pointRange = pointsRangeByLevel[level]
+                          setPricingDraft((prev) => ({
+                            ...prev,
+                            level,
+                            reward_total:
+                              Number(prev.reward_total) < range.min || Number(prev.reward_total) > range.max
+                                ? String(range.min)
+                                : prev.reward_total,
+                            points:
+                              Number(prev.points) < pointRange.min || Number(prev.points) > pointRange.max
+                                ? String(pointRange.min)
+                                : prev.points,
+                          }))
+                        }}
+                      >
+                        <option value="S">S</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                      </select>
+                    </label>
+                    <label>
+                      奖励总额
+                      <input
+                        type="number"
+                        value={pricingDraft.reward_total}
+                        onChange={(event) => setPricingDraft((prev) => ({ ...prev, reward_total: event.target.value }))}
+                        required
+                      />
+                    </label>
+                    <label>
+                      提报人分成比例（0.2-0.3）
+                      <input
+                        type="number"
+                        min="0.2"
+                        max="0.3"
+                        step="0.01"
+                        value={pricingDraft.proposer_ratio}
+                        onChange={(event) => setPricingDraft((prev) => ({ ...prev, proposer_ratio: event.target.value }))}
+                        required
+                      />
+                    </label>
+                    <label>
+                      验收人
+                      <select
+                        value={pricingDraft.accepter_id}
+                        onChange={(event) => setPricingDraft((prev) => ({ ...prev, accepter_id: event.target.value }))}
+                        required
+                      >
+                        <option value="">请选择</option>
+                        {acceptors.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            #{item.id} {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      积分
+                      <input
+                        type="number"
+                        value={pricingDraft.points}
+                        onChange={(event) => setPricingDraft((prev) => ({ ...prev, points: event.target.value }))}
+                      />
+                      <small className="muted">
+                        当前等级积分区间：{pointsRangeByLevel[pricingDraft.level].min}-{pointsRangeByLevel[pricingDraft.level].max}
+                      </small>
+                    </label>
+                    <label>
+                      徽章（可选）
+                      <select
+                        value={pricingDraft.badge}
+                        onChange={(event) => setPricingDraft((prev) => ({ ...prev, badge: event.target.value }))}
+                      >
+                        <option value="">不授予</option>
+                        {badges.map((badge) => (
+                          <option key={badge.code} value={badge.code}>
+                            {badge.name} ({badge.code})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="wide">
+                      <span>复杂任务模式</span>
+                      <input
+                        type="checkbox"
+                        checked={isComplexTask}
+                        onChange={(event) => setIsComplexTask(event.target.checked)}
+                      />
+                    </label>
+                    {isComplexTask && (
+                      <div className="wide">
+                        <MilestoneEditor
+                          value={milestones}
+                          onChange={setMilestones}
+                          closingRewardRatio={closingRewardRatio}
+                          onClosingRewardRatioChange={setClosingRewardRatio}
+                        />
+                      </div>
+                    )}
+                    <div className="button-row wide">
+                      <button type="button" onClick={resetReviewContext}>取消</button>
+                      <button className="primary-btn" type="submit">
+                        通过并提交定价
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {reviewTab === 'reject' && (
+                  <form className="form-grid" onSubmit={submitRequestChanges}>
+                    <h4>退回修改</h4>
+                    <label className="wide">
+                      修改意见
+                      <textarea value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} required />
+                    </label>
+                    <div className="button-row wide">
+                      <button type="button" onClick={resetReviewContext}>取消</button>
+                      <button type="submit">退回提报人</button>
+                    </div>
+                  </form>
+                )}
               </>
-            ) : selectedProblemDetail.analysis_status === 'analyzing' ? (
-              <p>论证进行中，请稍后刷新。</p>
-            ) : selectedProblemDetail.analysis_status === 'failed' ? (
-              <p>论证失败，可重新触发。</p>
-            ) : (
-              <p>暂无可用论证结果。</p>
             )}
-          </article>
-
-          <form className="panel form-grid" onSubmit={submitPricingApprove}>
-            <h3>评审定价</h3>
-            <label>
-              任务等级
-              <select
-                value={pricingDraft.level}
-                onChange={(event) => {
-                  const level = event.target.value as TaskLevel
-                  const range = rewardRangeByLevel[level]
-                  const pointRange = pointsRangeByLevel[level]
-                  setPricingDraft((prev) => ({
-                    ...prev,
-                    level,
-                    reward_total:
-                      Number(prev.reward_total) < range.min || Number(prev.reward_total) > range.max
-                        ? String(range.min)
-                        : prev.reward_total,
-                    points:
-                      Number(prev.points) < pointRange.min || Number(prev.points) > pointRange.max
-                        ? String(pointRange.min)
-                        : prev.points,
-                  }))
-                }}
-              >
-                <option value="S">S</option>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="C">C</option>
-              </select>
-            </label>
-            <label>
-              奖励总额
-              <input
-                type="number"
-                value={pricingDraft.reward_total}
-                onChange={(event) => setPricingDraft((prev) => ({ ...prev, reward_total: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              提报人分成比例（0.2-0.3）
-              <input
-                type="number"
-                min="0.2"
-                max="0.3"
-                step="0.01"
-                value={pricingDraft.proposer_ratio}
-                onChange={(event) => setPricingDraft((prev) => ({ ...prev, proposer_ratio: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              验收人
-              <select
-                value={pricingDraft.accepter_id}
-                onChange={(event) => setPricingDraft((prev) => ({ ...prev, accepter_id: event.target.value }))}
-                required
-              >
-                <option value="">请选择</option>
-                {acceptors.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    #{item.id} {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              积分
-              <input
-                type="number"
-                value={pricingDraft.points}
-                onChange={(event) => setPricingDraft((prev) => ({ ...prev, points: event.target.value }))}
-              />
-              <small className="muted">
-                当前等级积分区间：{pointsRangeByLevel[pricingDraft.level].min}-{pointsRangeByLevel[pricingDraft.level].max}
-              </small>
-            </label>
-            <label>
-              徽章（可选）
-              <select
-                value={pricingDraft.badge}
-                onChange={(event) => setPricingDraft((prev) => ({ ...prev, badge: event.target.value }))}
-              >
-                <option value="">不授予</option>
-                {badges.map((badge) => (
-                  <option key={badge.code} value={badge.code}>
-                    {badge.name} ({badge.code})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="wide">
-              <span>复杂任务模式</span>
-              <input
-                type="checkbox"
-                checked={isComplexTask}
-                onChange={(event) => setIsComplexTask(event.target.checked)}
-              />
-            </label>
-            {isComplexTask && (
-              <div className="wide">
-                <MilestoneEditor
-                  value={milestones}
-                  onChange={setMilestones}
-                  closingRewardRatio={closingRewardRatio}
-                  onClosingRewardRatioChange={setClosingRewardRatio}
-                />
-              </div>
-            )}
-            <button className="primary-btn" type="submit">
-              通过并提交定价
-            </button>
-          </form>
-
-          <form className="panel form-grid" onSubmit={submitRequestChanges}>
-            <h3>退回修改</h3>
-            <label className="wide">
-              修改意见
-              <textarea value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} required />
-            </label>
-            <button type="submit">退回提报人</button>
-          </form>
-        </>
+          </div>
+        </div>
       )}
     </section>
   )
