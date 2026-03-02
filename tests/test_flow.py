@@ -354,6 +354,84 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     app.dependency_overrides.clear()
 
 
+def test_is_complex_persists_from_review_to_task_reads(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ComplexReviewer",
+            "employee_no": "R960",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ComplexSubmitter", "employee_no": "E960", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(submitter_id),
+        json={
+            "title": "complex-task-problem",
+            "scenario": "rd",
+            "background": "complex task wiring",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "persist is_complex from review payload",
+            "value_reduce_effort": True,
+            "value_statement": "cover task complexity flag",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "complex-task",
+                "goal": "persist complexity flag",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=4)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "is_complex": True,
+                "acceptance_criteria": [{"description": "complex flag is saved", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    review_payload = review_resp.json()
+    task_id = review_payload["id"]
+    assert review_payload["task"]["is_complex"] is True
+
+    task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
+    assert task_detail_resp.status_code == 200
+    assert task_detail_resp.json()["is_complex"] is True
+
+    task_list_resp = client.get("/tasks", headers=_headers(submitter_id), params={"status": "open"})
+    assert task_list_resp.status_code == 200
+    task_row = next(item for item in task_list_resp.json() if item["id"] == task_id)
+    assert task_row["is_complex"] is True
+
+    app.dependency_overrides.clear()
+
+
 def test_release_overdue_claims(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 

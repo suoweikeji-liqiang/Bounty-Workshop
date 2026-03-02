@@ -366,6 +366,7 @@ def _create_task_from_problem(
     problem: Problem,
     pricing: PricingDefinition,
     title_override: str | None = None,
+    is_complex: bool = False,
 ) -> Task:
     title = ((title_override or "").strip() if title_override is not None else "") or problem.title
     task = Task(
@@ -380,6 +381,7 @@ def _create_task_from_problem(
         accepter_id=pricing.accepter_id,
         points=pricing.points,
         badge=pricing.badge,
+        is_complex=is_complex,
         acceptance_criteria_json=problem.draft_acceptance_criteria_json,
     )
     session.add(task)
@@ -395,6 +397,7 @@ def _task_to_read(task: Task, problem: Problem) -> TaskRead:
         scenario=problem.scenario,
         level=task.level,
         reward_total=task.reward_total,
+        is_complex=task.is_complex,
         active_claim_count=0,
         due_date=task.due_date,
         status=task.status.value,
@@ -534,7 +537,13 @@ def review_problem(
     problem.reject_reason = None
     problem.merged_problem_id = None
     task_title = payload.task.title if payload.task is not None else None
-    task = _create_task_from_problem(session, problem, pricing, title_override=task_title)
+    task = _create_task_from_problem(
+        session,
+        problem,
+        pricing,
+        title_override=task_title,
+        is_complex=payload.task.is_complex if payload.task is not None else False,
+    )
 
     _log(
         session,
