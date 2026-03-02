@@ -82,6 +82,7 @@ class Problem(SQLModel, table=True):
     priced_accepter_id: Optional[int] = Field(default=None, foreign_key="user.id")
     priced_points: int = Field(default=0)
     priced_badge: Optional[str] = None
+    priced_is_complex: bool = Field(default=False)
     priced_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     budget_review_comment: Optional[str] = None
     budget_reviewed_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")

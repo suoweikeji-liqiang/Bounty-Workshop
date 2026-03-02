@@ -52,6 +52,18 @@ def _ensure_task_is_complex(cur: sqlite3.Cursor) -> int:
     return changes
 
 
+def _ensure_problem_priced_is_complex(cur: sqlite3.Cursor) -> int:
+    if not _table_exists(cur, "problem"):
+        print("[SKIP] table problem not found")
+        return 0
+    if _column_exists(cur, "problem", "priced_is_complex"):
+        print("[SKIP] problem.priced_is_complex already exists")
+        return 0
+    cur.execute("ALTER TABLE problem ADD COLUMN priced_is_complex INTEGER NOT NULL DEFAULT 0")
+    print("[ADD] problem.priced_is_complex")
+    return 1
+
+
 def _ensure_task_activity_table(cur: sqlite3.Cursor) -> int:
     changes = 0
     if not _table_exists(cur, "taskactivity"):
@@ -116,6 +128,7 @@ def main() -> int:
         cur = con.cursor()
         changes = 0
         changes += _ensure_task_is_complex(cur)
+        changes += _ensure_problem_priced_is_complex(cur)
         changes += _ensure_task_activity_table(cur)
         con.commit()
         if changes == 0:

@@ -141,6 +141,7 @@ def _reset_pricing(problem: Problem) -> None:
     problem.priced_accepter_id = None
     problem.priced_points = 0
     problem.priced_badge = None
+    problem.priced_is_complex = False
     problem.priced_by_user_id = None
     problem.budget_review_comment = None
     problem.budget_reviewed_by_user_id = None
@@ -509,6 +510,7 @@ def review_problem(
     problem.priced_accepter_id = pricing.accepter_id
     problem.priced_points = pricing.points
     problem.priced_badge = pricing.badge
+    problem.priced_is_complex = payload.task.is_complex if payload.task is not None else False
     problem.priced_by_user_id = actor_id
     problem.reviewer_comment = None
 
@@ -608,7 +610,12 @@ def budget_review_problem(
         badge=problem.priced_badge,
     )
 
-    task = _create_task_from_problem(session, problem, pricing)
+    task = _create_task_from_problem(
+        session,
+        problem,
+        pricing,
+        is_complex=problem.priced_is_complex,
+    )
     problem.status = ProblemStatus.APPROVED
     problem.reject_reason = None
     problem.merged_problem_id = None
