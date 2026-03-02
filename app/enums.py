@@ -61,6 +61,14 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class TaskActivityType(str, Enum):
+    COMMENT = "comment"
+    PROGRESS_UPDATE = "progress_update"
+    BLOCKER = "blocker"
+    OFFICIAL_NOTE = "official_note"
+    SYSTEM_EVENT = "system_event"
+
+
 class ClaimMode(str, Enum):
     INDIVIDUAL = "individual"
     TEAM = "team"

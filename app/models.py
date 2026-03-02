@@ -22,6 +22,7 @@ from app.enums import (
     RiskLevel,
     Role,
     Scenario,
+    TaskActivityType,
     TaskLevel,
     TaskStatus,
     UserStatus,
@@ -164,6 +165,16 @@ class Acceptance(SQLModel, table=True):
     comment: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+
+
+class TaskActivity(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    claim_id: Optional[int] = Field(default=None, foreign_key="claim.id", index=True)
+    activity_type: TaskActivityType = Field(index=True)
+    actor_user_id: int = Field(foreign_key="user.id", index=True)
+    content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class Reward(SQLModel, table=True):

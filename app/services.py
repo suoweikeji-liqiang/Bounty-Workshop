@@ -39,6 +39,13 @@ from app.services_tasks import (  # noqa: F401
     get_task_detail,
 )
 
+# task activities
+from app.services_task_activity import (  # noqa: F401
+    list_task_activities,
+    list_claim_activities,
+    create_task_activity,
+)
+
 # problems
 from app.services_problems import (  # noqa: F401
     get_budget_review_threshold,

@@ -16,6 +16,7 @@ from app.enums import (
     RiskLevel,
     Role,
     Scenario,
+    TaskActivityType,
     TaskLevel,
     UserStatus,
 )
@@ -327,6 +328,21 @@ class TaskDetailRead(BaseModel):
     badge: Optional[str]
     acceptance_criteria: list[dict]
     status: str
+    created_at: datetime
+
+
+class TaskActivityCreate(BaseModel):
+    activity_type: TaskActivityType
+    content: str = Field(min_length=1)
+
+
+class TaskActivityRead(BaseModel):
+    id: int
+    task_id: int
+    claim_id: Optional[int] = None
+    activity_type: TaskActivityType
+    actor_user_id: int
+    content: str
     created_at: datetime
 
 
@@ -786,4 +802,3 @@ class ProblemDetailWithAnalysisRead(ProblemDetailRead):
     analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     analysis: Optional[ProblemAnalysisRead] = None
     analysis_ref: Optional[ProblemReviewAnalysisRefRead] = None
-

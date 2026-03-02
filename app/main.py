@@ -21,7 +21,7 @@ from app.jobs import (
     run_release_overdue_scheduler,
 )
 from app.models import User, UserRole
-from app.routers import auth, users, tasks, problems, claims, attachments, rewards, system
+from app.routers import auth, users, tasks, problems, claims, attachments, rewards, system, task_activities
 
 _logger = logging.getLogger(__name__)
 
@@ -123,6 +123,7 @@ def health() -> dict:
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tasks.router)
+app.include_router(task_activities.router)
 app.include_router(problems.router)
 app.include_router(claims.router)
 app.include_router(attachments.router)

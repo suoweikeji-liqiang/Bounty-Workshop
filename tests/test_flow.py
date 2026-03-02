@@ -2304,3 +2304,137 @@ def test_pricing_review_requires_completed_analysis(tmp_path: Path, monkeypatch)
     assert "analysis is still running" in review_resp.text
 
     app.dependency_overrides.clear()
+
+
+def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ActivityReviewer",
+            "employee_no": "R970",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    claimant_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ActivityLead", "employee_no": "E970", "department": "RD", "roles": ["employee"]},
+    )
+    assert claimant_resp.status_code == 200
+    claimant_id = claimant_resp.json()["id"]
+
+    viewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ActivityViewer", "employee_no": "E971", "department": "OPS", "roles": ["employee"]},
+    )
+    assert viewer_resp.status_code == 200
+    viewer_id = viewer_resp.json()["id"]
+
+    outsider_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ActivityOutsider", "employee_no": "E972", "department": "OPS", "roles": ["employee"]},
+    )
+    assert outsider_resp.status_code == 200
+    outsider_id = outsider_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(claimant_id),
+        json={
+            "title": "task-activity-problem",
+            "scenario": "rd",
+            "background": "add timeline coverage",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "verify task activity permissions",
+            "value_reduce_effort": True,
+            "value_statement": "cover timeline behavior",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "task-activity-task",
+                "goal": "support comments and progress updates",
+                "scope": "timeline permissions only",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "acceptance_criteria": [{"description": "timeline works", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    empty_list_resp = client.get(f"/tasks/{task_id}/activities", headers=_headers(viewer_id))
+    assert empty_list_resp.status_code == 200
+    assert empty_list_resp.json() == []
+
+    comment_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(viewer_id),
+        json={"activity_type": "comment", "content": "I can help review this."},
+    )
+    assert comment_resp.status_code == 200
+    assert comment_resp.json()["task_id"] == task_id
+    assert comment_resp.json()["claim_id"] is None
+    assert comment_resp.json()["activity_type"] == "comment"
+    assert comment_resp.json()["actor_user_id"] == viewer_id
+    assert comment_resp.json()["content"] == "I can help review this."
+
+    claim_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(claimant_id),
+        json={"mode": "individual"},
+    )
+    assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
+
+    progress_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(claimant_id),
+        json={"activity_type": "progress_update", "content": "Finished the first draft."},
+    )
+    assert progress_resp.status_code == 200
+    assert progress_resp.json()["task_id"] == task_id
+    assert progress_resp.json()["claim_id"] == claim_id
+    assert progress_resp.json()["activity_type"] == "progress_update"
+    assert progress_resp.json()["actor_user_id"] == claimant_id
+
+    viewer_progress_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(viewer_id),
+        json={"activity_type": "progress_update", "content": "Pretending to make progress."},
+    )
+    assert viewer_progress_resp.status_code == 403
+
+    claim_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(claimant_id))
+    assert claim_activity_resp.status_code == 200
+    claim_activity_payload = claim_activity_resp.json()
+    assert len(claim_activity_payload) == 1
+    assert claim_activity_payload[0]["id"] == progress_resp.json()["id"]
+    assert claim_activity_payload[0]["activity_type"] == "progress_update"
+
+    outsider_claim_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(outsider_id))
+    assert outsider_claim_activity_resp.status_code == 403
+
+    app.dependency_overrides.clear()
