@@ -2401,6 +2401,12 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert comment_resp.json()["actor_user_id"] == viewer_id
     assert comment_resp.json()["content"] == "I can help review this."
 
+    outsider_task_activity_resp = client.get(f"/tasks/{task_id}/activities", headers=_headers(outsider_id))
+    assert outsider_task_activity_resp.status_code == 200
+    outsider_task_activity_payload = outsider_task_activity_resp.json()
+    assert len(outsider_task_activity_payload) == 1
+    assert outsider_task_activity_payload[0]["id"] == comment_resp.json()["id"]
+
     claim_resp = client.post(
         f"/tasks/{task_id}/claims",
         headers=_headers(claimant_id),
@@ -2419,6 +2425,13 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert progress_resp.json()["claim_id"] == claim_id
     assert progress_resp.json()["activity_type"] == "progress_update"
     assert progress_resp.json()["actor_user_id"] == claimant_id
+
+    reviewer_progress_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(reviewer_id),
+        json={"activity_type": "progress_update", "content": "Reviewer update should be blocked."},
+    )
+    assert reviewer_progress_resp.status_code == 403
 
     viewer_progress_resp = client.post(
         f"/tasks/{task_id}/activities",

@@ -61,12 +61,11 @@ def create_task_activity(
     task_id: int,
     payload: TaskActivityCreate,
 ) -> TaskActivityRead:
-    task = _task_or_404(session, task_id)
-
     claim_id: int | None = None
     if payload.activity_type == TaskActivityType.COMMENT:
-        claim_id = None
+        _task_or_404(session, task_id)
     elif payload.activity_type == TaskActivityType.PROGRESS_UPDATE:
+        _task_or_404(session, task_id)
         active_claim = session.exec(
             select(Claim).where(
                 Claim.task_id == task_id,
@@ -74,9 +73,9 @@ def create_task_activity(
                 Claim.status == ClaimStatus.ACTIVE,
             )
         ).first()
-        if active_claim is None and actor_id != task.accepter_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
+        if active_claim is None:
             raise HTTPException(status_code=403, detail="permission denied")
-        claim_id = active_claim.id if active_claim else None
+        claim_id = active_claim.id
     else:
         raise HTTPException(status_code=400, detail="activity type not supported")
 
