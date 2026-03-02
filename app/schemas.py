@@ -211,6 +211,7 @@ class TaskDefinition(BaseModel):
     accepter_id: int
     points: int = 0
     badge: Optional[str] = None
+    is_complex: bool = False
     acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -281,6 +282,7 @@ class TaskRead(BaseModel):
     scenario: Scenario
     level: TaskLevel
     reward_total: float
+    is_complex: bool = False
     active_claim_count: int = 0
     due_date: date
     status: str
@@ -326,14 +328,18 @@ class TaskDetailRead(BaseModel):
     accepter_id: int
     points: int
     badge: Optional[str]
+    is_complex: bool = False
     acceptance_criteria: list[dict]
     status: str
     created_at: datetime
 
 
 class TaskActivityCreate(BaseModel):
+    claim_id: Optional[int] = None
     activity_type: TaskActivityType
     content: str = Field(min_length=1)
+    detail: dict = Field(default_factory=dict)
+    attachment_ids: list[int] = Field(default_factory=list)
 
     @field_validator("content")
     @classmethod
@@ -351,6 +357,8 @@ class TaskActivityRead(BaseModel):
     activity_type: TaskActivityType
     actor_user_id: int
     content: str
+    detail: dict = Field(default_factory=dict)
+    attachment_urls: list[str] = Field(default_factory=list)
     created_at: datetime
 
 

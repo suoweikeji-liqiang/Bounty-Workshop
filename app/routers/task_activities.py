@@ -6,7 +6,12 @@ from sqlmodel import Session
 from app.auth import get_current_user_id, get_user_roles
 from app.db import get_session
 from app.schemas import TaskActivityCreate, TaskActivityRead
-from app.services import create_task_activity, list_claim_activities, list_task_activities
+from app.services import (
+    create_task_activity,
+    delete_task_activity,
+    list_claim_activities,
+    list_task_activities,
+)
 
 router = APIRouter(tags=["task-activities"])
 
@@ -46,3 +51,13 @@ def get_claim_activities(
 ) -> list[TaskActivityRead]:
     actor_roles = get_user_roles(session, actor_id)
     return list_claim_activities(session, actor_id=actor_id, actor_roles=actor_roles, claim_id=claim_id)
+
+
+@router.delete("/activities/{activity_id}")
+def delete_activity(
+    activity_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> dict:
+    actor_roles = get_user_roles(session, actor_id)
+    return delete_task_activity(session, actor_id=actor_id, actor_roles=actor_roles, activity_id=activity_id)

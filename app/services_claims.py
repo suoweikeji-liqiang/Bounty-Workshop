@@ -50,6 +50,30 @@ from app.services_common import (
 MAX_DELIVERABLE_REWORK_ATTEMPTS = 3
 
 
+def _record_system_activity(
+    session: Session,
+    task_id: int,
+    claim_id: int | None,
+    actor_user_id: int | None,
+    event_key: str,
+    content: str,
+    detail: dict | None = None,
+) -> None:
+    from app.services_task_activity import create_system_task_activity
+
+    payload = {"event_key": event_key}
+    if detail:
+        payload.update(detail)
+    create_system_task_activity(
+        session=session,
+        task_id=task_id,
+        claim_id=claim_id,
+        content=content,
+        detail=payload,
+        actor_user_id=actor_user_id,
+    )
+
+
 def get_claim_approval_overdue_threshold(session: Session) -> int:
     row = session.get(SystemConfig, CLAIM_APPROVAL_OVERDUE_THRESHOLD_KEY)
     if row is None:
@@ -455,6 +479,18 @@ def claim_task(
             session.add(ClaimMember(claim_id=claim.id, user_id=member.user_id, ratio=member.ratio))
 
     task.status = TaskStatus.IN_PROGRESS
+    _record_system_activity(
+        session=session,
+        task_id=task_id,
+        claim_id=claim.id,
+        actor_user_id=actor_id,
+        event_key="claim_created",
+        content=f"Claim created for task #{task_id}.",
+        detail={
+            "lead_user_id": lead_user_id,
+            "claim_mode": claim.mode.value,
+        },
+    )
     _log(
         session,
         actor_id,
@@ -523,6 +559,15 @@ def abandon_claim(session: Session, actor_id: int, claim_id: int) -> dict:
         lead = session.get(User, claim.lead_user_id)
         if lead is not None and lead.overdue_count > 0:
             lead.overdue_count -= 1
+    _record_system_activity(
+        session=session,
+        task_id=task.id,
+        claim_id=claim.id,
+        actor_user_id=actor_id,
+        event_key="claim_abandoned",
+        content=f"Claim #{claim_id} was abandoned.",
+        detail={"task_status": task.status.value},
+    )
 
     _log(
         session,
@@ -588,6 +633,15 @@ def submit_deliverable(
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     task.status = TaskStatus.PENDING_ACCEPTANCE
+    _record_system_activity(
+        session=session,
+        task_id=task.id,
+        claim_id=claim.id,
+        actor_user_id=actor_id,
+        event_key="deliverable_submitted",
+        content=f"Deliverable #{deliverable.id} submitted for review.",
+        detail={"deliverable_id": deliverable.id},
+    )
     _log(
         session,
         actor_id,
@@ -645,6 +699,8 @@ def accept_deliverable(
         deliverable.status = DeliverableStatus.NEEDS_REWORK
         deliverable.rework_count += 1
         task.status = TaskStatus.IN_PROGRESS
+        event_key = "deliverable_rework_requested"
+        event_content = f"Deliverable #{deliverable.id} requires rework."
     elif result == AcceptanceResult.REJECTED:
         deliverable.status = DeliverableStatus.REJECTED
         claim.status = ClaimStatus.ABANDONED
@@ -660,10 +716,14 @@ def accept_deliverable(
             ).one()
         )
         task.status = TaskStatus.IN_PROGRESS if active_claims > 0 else TaskStatus.OPEN
+        event_key = "deliverable_rejected"
+        event_content = f"Deliverable #{deliverable.id} was rejected."
     else:
         deliverable.status = DeliverableStatus.APPROVED
         claim.status = ClaimStatus.COMPLETED
         task.status = TaskStatus.COMPLETED
+        event_key = "deliverable_approved"
+        event_content = f"Deliverable #{deliverable.id} was approved."
         # Clear other active claims under the same task to avoid hanging records.
         other_active_claims = session.exec(
             select(Claim).where(
@@ -677,6 +737,19 @@ def accept_deliverable(
         from app.services_rewards import _generate_rewards_and_knowledge
 
         _generate_rewards_and_knowledge(session, task, claim, deliverable)
+
+    _record_system_activity(
+        session=session,
+        task_id=task.id,
+        claim_id=claim.id,
+        actor_user_id=actor_id,
+        event_key=event_key,
+        content=event_content,
+        detail={
+            "deliverable_id": deliverable.id,
+            "result": result.value,
+        },
+    )
 
     _log(
         session,
@@ -712,6 +785,15 @@ def release_overdue_claims(
         lead = session.get(User, claim.lead_user_id)
         if lead is not None:
             lead.overdue_count += 1
+        _record_system_activity(
+            session=session,
+            task_id=task.id,
+            claim_id=claim.id,
+            actor_user_id=actor_id,
+            event_key="claim_released_overdue",
+            content=f"Claim #{claim.id} was released after becoming overdue.",
+            detail={"rule": "due_date < today"},
+        )
         released += 1
         _log(
             session,
@@ -723,4 +805,3 @@ def release_overdue_claims(
         )
     session.commit()
     return {"released_claims": released, "rule": "due_date < today"}
-

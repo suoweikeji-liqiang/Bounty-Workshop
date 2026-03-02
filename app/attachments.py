@@ -12,9 +12,11 @@ from sqlmodel import Session, select
 from app.enums import Role
 from app.models import Attachment
 from app.models import Claim
+from app.models import ClaimMember
 from app.models import Deliverable
 from app.models import Problem
 from app.models import Task
+from app.models import TaskActivity
 from app.schemas import AttachmentRead
 
 
@@ -247,6 +249,38 @@ def _can_access_deliverable(
     )
 
 
+def _can_access_task_activity(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    activity_id: int,
+) -> bool:
+    activity = session.get(TaskActivity, activity_id)
+    if activity is None:
+        return False
+    if activity.claim_id is None:
+        return True
+    claim = session.get(Claim, activity.claim_id)
+    if claim is None:
+        return False
+    task = session.get(Task, activity.task_id)
+    if task is None:
+        return False
+    member = session.exec(
+        select(ClaimMember).where(
+            ClaimMember.claim_id == claim.id,
+            ClaimMember.user_id == actor_id,
+        )
+    ).first()
+    return (
+        actor_id == claim.lead_user_id
+        or actor_id == task.accepter_id
+        or member is not None
+        or Role.ADMIN in actor_roles
+        or Role.REVIEWER in actor_roles
+    )
+
+
 def ensure_entity_attachment_access(
     session: Session,
     actor_id: int,
@@ -262,6 +296,10 @@ def ensure_entity_attachment_access(
         if _can_access_deliverable(session, actor_id, actor_roles, entity_id):
             return
         raise HTTPException(status_code=403, detail="permission denied for deliverable attachments")
+    if entity_type == "task_activity":
+        if _can_access_task_activity(session, actor_id, actor_roles, entity_id):
+            return
+        raise HTTPException(status_code=403, detail="permission denied for task activity attachments")
     raise HTTPException(status_code=400, detail="unsupported attachment entity_type")
 
 

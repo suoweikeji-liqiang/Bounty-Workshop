@@ -105,6 +105,7 @@ class Task(SQLModel, table=True):
     accepter_id: int = Field(foreign_key="user.id", index=True)
     points: int = Field(default=0)
     badge: Optional[str] = None
+    is_complex: bool = Field(default=False, index=True)
     acceptance_criteria_json: str = Field(default="[]")
     status: TaskStatus = Field(default=TaskStatus.OPEN, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -174,6 +175,8 @@ class TaskActivity(SQLModel, table=True):
     activity_type: TaskActivityType = Field(index=True)
     actor_user_id: int = Field(foreign_key="user.id", index=True)
     content: str
+    detail_json: str = Field(default="{}")
+    attachment_urls: str = Field(default="[]")
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 

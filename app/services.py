@@ -44,6 +44,7 @@ from app.services_task_activity import (  # noqa: F401
     list_task_activities,
     list_claim_activities,
     create_task_activity,
+    delete_task_activity,
 )
 
 # problems

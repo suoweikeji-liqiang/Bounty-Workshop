@@ -432,10 +432,25 @@ def test_release_overdue_claims(tmp_path: Path) -> None:
         json={"mode": "individual"},
     )
     assert claim_resp.status_code == 200
+    claim_id = claim_resp.json()["claim_id"]
 
     job_resp = client.post("/jobs/release-overdue", headers=_headers(reviewer_id))
     assert job_resp.status_code == 200
     assert job_resp.json()["released_claims"] >= 1
+
+    claim_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(employee_id))
+    assert claim_activity_resp.status_code == 200
+    claim_activity_payload = claim_activity_resp.json()
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "claim_created"
+        for item in claim_activity_payload
+    )
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "claim_released_overdue"
+        for item in claim_activity_payload
+    )
 
     app.dependency_overrides.clear()
 
@@ -980,6 +995,17 @@ def test_abandon_claim_flow(tmp_path: Path) -> None:
     )
     claim_b_id = claim_b_resp.json()["claim_id"]
 
+    claim_a_activity_before_resp = client.get(
+        f"/claims/{claim_a_id}/activities",
+        headers=_headers(employee_a_id),
+    )
+    assert claim_a_activity_before_resp.status_code == 200
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "claim_created"
+        for item in claim_a_activity_before_resp.json()
+    )
+
     forbidden_abandon = client.post(f"/claims/{claim_b_id}/abandon", headers=_headers(employee_a_id))
     assert forbidden_abandon.status_code == 403
 
@@ -992,6 +1018,17 @@ def test_abandon_claim_flow(tmp_path: Path) -> None:
     assert abandon_b_resp.status_code == 200
     assert abandon_b_resp.json()["status"] == "abandoned"
     assert abandon_b_resp.json()["task_status"] == "open"
+
+    claim_b_activity_after_resp = client.get(
+        f"/claims/{claim_b_id}/activities",
+        headers=_headers(employee_b_id),
+    )
+    assert claim_b_activity_after_resp.status_code == 200
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "claim_abandoned"
+        for item in claim_b_activity_after_resp.json()
+    )
 
     reopen_tasks_resp = client.get("/tasks", headers=_headers(employee_a_id), params={"status": "open"})
     assert reopen_tasks_resp.status_code == 200
@@ -2385,6 +2422,10 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert review_resp.status_code == 200
     task_id = review_resp.json()["id"]
 
+    task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(viewer_id))
+    assert task_detail_resp.status_code == 200
+    assert task_detail_resp.json()["is_complex"] is False
+
     empty_list_resp = client.get(f"/tasks/{task_id}/activities", headers=_headers(viewer_id))
     assert empty_list_resp.status_code == 200
     assert empty_list_resp.json() == []
@@ -2407,6 +2448,8 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert comment_resp.json()["activity_type"] == "comment"
     assert comment_resp.json()["actor_user_id"] == viewer_id
     assert comment_resp.json()["content"] == "I can help review this."
+    assert comment_resp.json()["attachment_urls"] == []
+    assert comment_resp.json()["detail"] == {}
 
     outsider_task_activity_resp = client.get(f"/tasks/{task_id}/activities", headers=_headers(outsider_id))
     assert outsider_task_activity_resp.status_code == 200
@@ -2422,10 +2465,76 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert claim_resp.status_code == 200
     claim_id = claim_resp.json()["claim_id"]
 
+    claim_created_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(claimant_id))
+    assert claim_created_activity_resp.status_code == 200
+    claim_created_activity_payload = claim_created_activity_resp.json()
+    assert len(claim_created_activity_payload) == 1
+    claim_created_event = claim_created_activity_payload[0]
+    assert claim_created_event["activity_type"] == "system_event"
+    assert claim_created_event["detail"]["event_key"] == "claim_created"
+
+    note_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(reviewer_id),
+        json={
+            "activity_type": "official_note",
+            "content": "Please keep updates in this timeline.",
+            "detail": {"audience": "all"},
+        },
+    )
+    assert note_resp.status_code == 200
+    assert note_resp.json()["activity_type"] == "official_note"
+    assert note_resp.json()["claim_id"] is None
+    assert note_resp.json()["detail"] == {"audience": "all"}
+
+    viewer_note_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(viewer_id),
+        json={"activity_type": "official_note", "content": "Not allowed"},
+    )
+    assert viewer_note_resp.status_code == 403
+
+    blocker_attachment_resp = client.post(
+        "/attachments/upload",
+        headers=_headers(claimant_id),
+        files={"file": ("blocker.txt", b"need access", "text/plain")},
+    )
+    assert blocker_attachment_resp.status_code == 200
+    blocker_attachment_id = blocker_attachment_resp.json()["id"]
+
+    blocker_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(claimant_id),
+        json={
+            "activity_type": "blocker",
+            "claim_id": claim_id,
+            "content": "Blocked on test environment access.",
+            "detail": {"severity": "high"},
+            "attachment_ids": [blocker_attachment_id],
+        },
+    )
+    assert blocker_resp.status_code == 200
+    assert blocker_resp.json()["task_id"] == task_id
+    assert blocker_resp.json()["claim_id"] == claim_id
+    assert blocker_resp.json()["activity_type"] == "blocker"
+    assert blocker_resp.json()["detail"] == {"severity": "high"}
+    assert blocker_resp.json()["attachment_urls"] == [f"/attachments/{blocker_attachment_id}/download"]
+
+    blocker_download_resp = client.get(
+        blocker_resp.json()["attachment_urls"][0],
+        headers=_headers(claimant_id),
+    )
+    assert blocker_download_resp.status_code == 200
+    assert blocker_download_resp.content == b"need access"
+
     progress_resp = client.post(
         f"/tasks/{task_id}/activities",
         headers=_headers(claimant_id),
-        json={"activity_type": "progress_update", "content": "Finished the first draft."},
+        json={
+            "activity_type": "progress_update",
+            "claim_id": claim_id,
+            "content": "Finished the first draft.",
+        },
     )
     assert progress_resp.status_code == 200
     assert progress_resp.json()["task_id"] == task_id
@@ -2433,21 +2542,42 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert progress_resp.json()["activity_type"] == "progress_update"
     assert progress_resp.json()["actor_user_id"] == claimant_id
 
+    reviewer_progress_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(reviewer_id),
+        json={
+            "activity_type": "progress_update",
+            "claim_id": claim_id,
+            "content": "Reviewer confirmed the first draft is in progress.",
+        },
+    )
+    assert reviewer_progress_resp.status_code == 200
+    assert reviewer_progress_resp.json()["claim_id"] == claim_id
+    assert reviewer_progress_resp.json()["actor_user_id"] == reviewer_id
+
     outsider_task_activity_after_progress_resp = client.get(
         f"/tasks/{task_id}/activities",
         headers=_headers(outsider_id),
     )
     assert outsider_task_activity_after_progress_resp.status_code == 200
     outsider_task_activity_after_progress_payload = outsider_task_activity_after_progress_resp.json()
-    assert len(outsider_task_activity_after_progress_payload) == 1
-    assert outsider_task_activity_after_progress_payload[0]["id"] == comment_resp.json()["id"]
+    assert {item["id"] for item in outsider_task_activity_after_progress_payload} == {
+        comment_resp.json()["id"],
+        note_resp.json()["id"],
+    }
 
-    reviewer_progress_resp = client.post(
+    outsider_blocker_resp = client.get(
+        blocker_resp.json()["attachment_urls"][0],
+        headers=_headers(outsider_id),
+    )
+    assert outsider_blocker_resp.status_code == 403
+
+    system_event_create_resp = client.post(
         f"/tasks/{task_id}/activities",
         headers=_headers(reviewer_id),
-        json={"activity_type": "progress_update", "content": "Reviewer update should be blocked."},
+        json={"activity_type": "system_event", "content": "should fail"},
     )
-    assert reviewer_progress_resp.status_code == 403
+    assert system_event_create_resp.status_code == 403
 
     viewer_progress_resp = client.post(
         f"/tasks/{task_id}/activities",
@@ -2459,9 +2589,91 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     claim_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(claimant_id))
     assert claim_activity_resp.status_code == 200
     claim_activity_payload = claim_activity_resp.json()
-    assert len(claim_activity_payload) == 1
-    assert claim_activity_payload[0]["id"] == progress_resp.json()["id"]
-    assert claim_activity_payload[0]["activity_type"] == "progress_update"
+    assert {item["id"] for item in claim_activity_payload} == {
+        claim_created_event["id"],
+        blocker_resp.json()["id"],
+        progress_resp.json()["id"],
+        reviewer_progress_resp.json()["id"],
+    }
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "claim_created"
+        for item in claim_activity_payload
+    )
+
+    deliverable_resp = client.post(
+        f"/claims/{claim_id}/deliverables",
+        headers=_headers(claimant_id),
+        json={
+            "summary": "Delivered the first working version.",
+            "criteria_results": ["timeline works"],
+            "evidence_urls": [],
+        },
+    )
+    assert deliverable_resp.status_code == 200
+    deliverable_id = deliverable_resp.json()["deliverable_id"]
+
+    accept_resp = client.post(
+        f"/deliverables/{deliverable_id}/accept",
+        headers=_headers(reviewer_id),
+        json={"result": "approved", "comment": "Looks good."},
+    )
+    assert accept_resp.status_code == 200
+    assert accept_resp.json()["task_status"] == "completed"
+
+    claim_activity_after_accept_resp = client.get(
+        f"/claims/{claim_id}/activities",
+        headers=_headers(claimant_id),
+    )
+    assert claim_activity_after_accept_resp.status_code == 200
+    claim_activity_after_accept_payload = claim_activity_after_accept_resp.json()
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "deliverable_submitted"
+        for item in claim_activity_after_accept_payload
+    )
+    assert any(
+        item["activity_type"] == "system_event"
+        and item["detail"]["event_key"] == "deliverable_approved"
+        for item in claim_activity_after_accept_payload
+    )
+
+    delete_comment_resp = client.request(
+        "DELETE",
+        f"/activities/{comment_resp.json()['id']}",
+        headers=_headers(viewer_id),
+    )
+    assert delete_comment_resp.status_code == 200
+    assert delete_comment_resp.json()["status"] == "deleted"
+
+    delete_note_forbidden_resp = client.request(
+        "DELETE",
+        f"/activities/{note_resp.json()['id']}",
+        headers=_headers(claimant_id),
+    )
+    assert delete_note_forbidden_resp.status_code == 403
+
+    delete_note_admin_resp = client.request(
+        "DELETE",
+        f"/activities/{note_resp.json()['id']}",
+        headers=_headers(1),
+    )
+    assert delete_note_admin_resp.status_code == 200
+    assert delete_note_admin_resp.json()["status"] == "deleted"
+
+    delete_system_event_resp = client.request(
+        "DELETE",
+        f"/activities/{claim_created_event['id']}",
+        headers=_headers(claimant_id),
+    )
+    assert delete_system_event_resp.status_code == 400
+
+    outsider_task_activity_after_delete_resp = client.get(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(outsider_id),
+    )
+    assert outsider_task_activity_after_delete_resp.status_code == 200
+    assert outsider_task_activity_after_delete_resp.json() == []
 
     outsider_claim_activity_resp = client.get(f"/claims/{claim_id}/activities", headers=_headers(outsider_id))
     assert outsider_claim_activity_resp.status_code == 403
