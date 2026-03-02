@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
@@ -148,7 +148,7 @@ export function UsersPage({ userId }: Props) {
         userId,
         body: { status: nextStatus },
       })
-      setMessage(`用户 #${target.id} 状态已更新为 ${statusLabel(nextStatus)}`)
+      setMessage(`用户 #${target.id} 状态已更新为${statusLabel(nextStatus)}`)
       await loadUsers()
     } catch (err) {
       setError(err instanceof Error ? err.message : '状态更新失败')
@@ -227,7 +227,7 @@ export function UsersPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>角色分配</h2>
-        <p>用户来源统一为飞书登录+同步，本页用于角色分配、状态管理和密码重置。</p>
+        <p>用于角色分配、账号状态管理和密码重置。</p>
       </header>
 
       <article className="panel">

@@ -261,15 +261,14 @@
 }
 
 .page-head {
-  min-height: 72px;
-  max-height: 92px;
-  overflow: hidden;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
   padding-bottom: 12px;
   border-bottom: 2px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
+  display: grid;
+  gap: 8px;
+  align-items: start;
 }
 
 .page-head h2 {
@@ -284,10 +283,11 @@
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
-  line-height: 1.5;
-  max-width: 560px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: right;
+  line-height: 1.6;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: left;
+  overflow-wrap: anywhere;
 }

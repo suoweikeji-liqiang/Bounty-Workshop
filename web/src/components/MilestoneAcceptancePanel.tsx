@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 
 import { acceptMilestone, listMyPendingMilestoneAcceptance } from '../lib/api'
 import type { MilestonePendingAcceptance } from '../types'
@@ -66,7 +66,7 @@ export function MilestoneAcceptancePanel({ userId, canAccept, onChanged }: Props
       </div>
       {error && <p className="muted">{error}</p>}
       <div className="table">
-        <div className="row head wide-row">
+        <div className="row head milestone-accept-row">
           <span>里程碑</span>
           <span>任务</span>
           <span>揭榜</span>
@@ -79,9 +79,9 @@ export function MilestoneAcceptancePanel({ userId, canAccept, onChanged }: Props
           const draft = ensureDraft(item.milestone_id)
           return (
             <div key={item.milestone_id}>
-              <div className="row wide-row">
+              <div className="row milestone-accept-row">
                 <span>#{item.milestone_id} / M{item.sequence}</span>
-                <span>{item.task_title}</span>
+                <span title={item.task_title}>{item.task_title}</span>
                 <span>#{item.claim_id}</span>
                 <span>#{item.submitted_by_user_id}</span>
                 <span>{new Date(item.submitted_at).toLocaleString()}</span>
@@ -136,4 +136,3 @@ export function MilestoneAcceptancePanel({ userId, canAccept, onChanged }: Props
     </article>
   )
 }
-

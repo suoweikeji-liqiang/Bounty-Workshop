@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -8,6 +8,12 @@ import type { ClaimApprovalRequest, UserProfile } from '../types'
 type Props = {
   userId: number
   profile: UserProfile | null
+}
+
+const statusLabel: Record<'pending' | 'approved' | 'rejected', string> = {
+  pending: '待处理',
+  approved: '已通过',
+  rejected: '已驳回',
 }
 
 export function ClaimApprovalPage({ userId, profile }: Props) {
@@ -94,7 +100,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>揭榜审批</h2>
-        <p>超期用户在此提交审批请求，审核人/管理员可通过或驳回。</p>
+        <p>超期用户在此提交审批请求，审核人/管理员可执行通过或驳回。</p>
       </header>
 
       <article className="panel">
@@ -108,7 +114,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
           <p className="muted">暂无待处理审批请求。</p>
         ) : (
           <div className="table">
-            <div className="row head wide-row approval-row">
+            <div className="row head approval-row">
               <span>请求</span>
               <span>任务</span>
               <span>状态</span>
@@ -116,13 +122,11 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
               <span>创建时间</span>
             </div>
             {mine.map((item) => (
-              <div className="row wide-row approval-row" key={item.id}>
+              <div className="row approval-row" key={item.id}>
                 <span>#{item.id}</span>
-                <span>
-                  #{item.task_id} {item.task_title}
-                </span>
-                <span>{item.status}</span>
-                <span>{item.reason ?? '-'}</span>
+                <span title={item.task_title}>#{item.task_id} {item.task_title}</span>
+                <span>{statusLabel[item.status as keyof typeof statusLabel] ?? item.status}</span>
+                <span title={item.reason ?? undefined}>{item.reason ?? '-'}</span>
                 <span>{new Date(item.created_at).toLocaleString()}</span>
               </div>
             ))}
@@ -150,7 +154,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
             <p className="muted">当前筛选条件下暂无请求。</p>
           ) : (
             <div className="table">
-              <div className="row head wide-row approval-review-row">
+              <div className="row head approval-review-row">
                 <span>请求</span>
                 <span>任务</span>
                 <span>申请人</span>
@@ -160,16 +164,12 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
                 <span>操作</span>
               </div>
               {reviewRows.map((item) => (
-                <div className="row wide-row approval-review-row" key={item.id}>
+                <div className="row approval-review-row" key={item.id}>
                   <span>#{item.id}</span>
-                  <span>
-                    #{item.task_id} {item.task_title}
-                  </span>
-                  <span>
-                    #{item.applicant_user_id} {item.applicant_user_name}
-                  </span>
+                  <span title={item.task_title}>#{item.task_id} {item.task_title}</span>
+                  <span title={item.applicant_user_name}>#{item.applicant_user_id} {item.applicant_user_name}</span>
                   <span>{item.applicant_overdue_count}</span>
-                  <span>{item.status}</span>
+                  <span>{statusLabel[item.status as keyof typeof statusLabel] ?? item.status}</span>
                   <span>{item.reviewed_at ? new Date(item.reviewed_at).toLocaleString() : '-'}</span>
                   <span className="actions">
                     {item.status === 'pending' ? (
@@ -189,7 +189,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
                         </button>
                       </>
                     ) : (
-                      <span>{item.reason ?? '-'}</span>
+                      <span title={item.reason ?? undefined}>{item.reason ?? '-'}</span>
                     )}
                   </span>
                 </div>

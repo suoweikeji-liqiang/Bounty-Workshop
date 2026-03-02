@@ -361,7 +361,7 @@ export function AIModelConfigPage({ userId }: Props) {
           </button>
         </div>
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head ai-model-row">
             <span>ID</span>
             <span>名称</span>
             <span>供应商</span>
@@ -371,11 +371,11 @@ export function AIModelConfigPage({ userId }: Props) {
             <span>操作</span>
           </div>
           {models.map((item) => (
-            <div className="row wide-row" key={item.id}>
+            <div className="row ai-model-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>{item.name}</span>
+              <span title={item.name}>{item.name}</span>
               <span>{item.provider}</span>
-              <span>{item.model}</span>
+              <span title={item.model}>{item.model}</span>
               <span>{item.is_default ? '是' : '-'}</span>
               <span>{item.enabled ? '启用' : '禁用'}</span>
               <span className="actions">
@@ -404,7 +404,7 @@ export function AIModelConfigPage({ userId }: Props) {
             </div>
           ))}
           {models.length === 0 && !loading && (
-            <div className="row wide-row">
+            <div className="row ai-model-row">
               <span style={{ textAlign: 'center', color: '#888', gridColumn: '1 / -1' }}>暂无配置，请先添加模型</span>
             </div>
           )}

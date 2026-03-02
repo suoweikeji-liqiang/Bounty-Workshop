@@ -120,7 +120,7 @@ export function BudgetReviewPage({ userId }: Props) {
           </button>
         </div>
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head budget-review-row">
             <span>ID</span>
             <span>标题</span>
             <span>提交人</span>
@@ -128,9 +128,9 @@ export function BudgetReviewPage({ userId }: Props) {
             <span>操作</span>
           </div>
           {items.map((item) => (
-            <div className="row wide-row" key={item.id}>
+            <div className="row budget-review-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>{item.title}</span>
+              <span title={item.title}>{item.title}</span>
               <span>{item.submitter_name || `#${item.submitter_id}`}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
               <span className="actions">

@@ -6,7 +6,7 @@ import { AttachmentField } from '../components/AttachmentField'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { downloadFile, requestJson } from '../lib/http'
-import type { Attachment, Problem, ProblemAnalysisReport, ProblemDetail } from '../types'
+import type { Attachment, HypothesisVerification, Problem, ProblemAnalysisReport, ProblemDetail } from '../types'
 
 type Props = {
   userId: number
@@ -38,6 +38,7 @@ type ProblemForm = {
 }
 
 type ProblemFilters = {
+  mine_only: boolean
   status: string
   scenario: string
   created_from: string
@@ -64,6 +65,7 @@ const defaultForm: ProblemForm = {
 }
 
 const defaultFilters: ProblemFilters = {
+  mine_only: false,
   status: '',
   scenario: '',
   created_from: '',
@@ -100,6 +102,14 @@ function analysisTone(status?: string): 'success' | 'warn' | 'danger' | 'info' |
   return 'muted'
 }
 
+function formatHypothesisVerificationStatus(status?: string) {
+  if (!status) return '-'
+  if (status === 'pending') return '待验证'
+  if (status === 'verified') return '已验证'
+  if (status === 'rejected') return '已否定'
+  return status
+}
+
 function problemStatusTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
   if (status === 'approved' || status === 'archived') return 'success'
   if (status === 'pending_review' || status === 'budget_pending' || status === 'pricing_revision_required') return 'warn'
@@ -122,6 +132,7 @@ export function ProblemsPage({ userId }: Props) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [analysisProblemId, setAnalysisProblemId] = useState<number | null>(null)
   const [analysisDetail, setAnalysisDetail] = useState<ProblemAnalysisReport | null>(null)
+  const [analysisHypotheses, setAnalysisHypotheses] = useState<HypothesisVerification[]>([])
   const [analysisDetailLoading, setAnalysisDetailLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -131,20 +142,22 @@ export function ProblemsPage({ userId }: Props) {
     setUploadedAttachments(next)
   }
 
-  const buildMineQuery = useCallback(() => {
+  const buildProblemsQuery = useCallback(() => {
     const params = new URLSearchParams()
-    params.set('mine_only', 'true')
+    if (filters.mine_only) {
+      params.set('mine_only', 'true')
+    }
     if (filters.status) params.set('status', filters.status)
     if (filters.scenario) params.set('scenario', filters.scenario)
     if (filters.created_from) params.set('created_from', filters.created_from)
     if (filters.created_to) params.set('created_to', filters.created_to)
     return `/problems?${params.toString()}`
-  }, [filters.created_from, filters.created_to, filters.scenario, filters.status])
+  }, [filters.created_from, filters.created_to, filters.mine_only, filters.scenario, filters.status])
 
-  const loadMine = useCallback(async () => {
+  const loadProblems = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await requestJson<Problem[]>(buildMineQuery(), { userId })
+      const rows = await requestJson<Problem[]>(buildProblemsQuery(), { userId })
       setList(rows)
       setError(null)
     } catch (err) {
@@ -152,11 +165,11 @@ export function ProblemsPage({ userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [buildMineQuery, userId])
+  }, [buildProblemsQuery, userId])
 
   useEffect(() => {
-    void loadMine()
-  }, [loadMine])
+    void loadProblems()
+  }, [loadProblems])
 
   const startEdit = async (problemId: number) => {
     try {
@@ -275,7 +288,7 @@ export function ProblemsPage({ userId }: Props) {
       setForm(defaultForm)
       setUploadedAttachments([])
       setComposerOpen(false)
-      await loadMine()
+      await loadProblems()
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交失败')
     }
@@ -289,7 +302,7 @@ export function ProblemsPage({ userId }: Props) {
         userId,
       })
       setMessage(`问题 #${problemId} 已提交评审，ProdMind 已自动开始论证`)
-      await loadMine()
+      await loadProblems()
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交评审失败')
     }
@@ -303,7 +316,7 @@ export function ProblemsPage({ userId }: Props) {
         userId,
       })
       setMessage(`问题 #${problemId} 已触发 ProdMind 论证`)
-      await loadMine()
+      await loadProblems()
     } catch (err) {
       setError(err instanceof Error ? err.message : '触发论证失败')
     }
@@ -327,6 +340,7 @@ export function ProblemsPage({ userId }: Props) {
       if (event.key === 'Escape') {
         setAnalysisProblemId(null)
         setAnalysisDetail(null)
+        setAnalysisHypotheses([])
         setDetailProblemId(null)
         setDetailData(null)
         setDetailAttachments([])
@@ -361,10 +375,15 @@ export function ProblemsPage({ userId }: Props) {
     setAnalysisDetailLoading(true)
     try {
       setError(null)
-      const detail = await requestJson<ProblemAnalysisReport>(`/problems/${problemId}/analysis`, { userId })
+      const [detail, hypotheses] = await Promise.all([
+        requestJson<ProblemAnalysisReport>(`/problems/${problemId}/analysis`, { userId }),
+        requestJson<HypothesisVerification[]>(`/problems/${problemId}/hypotheses`, { userId }).catch(() => []),
+      ])
       setAnalysisDetail(detail)
+      setAnalysisHypotheses(hypotheses)
     } catch (err) {
       setAnalysisDetail(null)
+      setAnalysisHypotheses([])
       setError(err instanceof Error ? err.message : '加载论证详情失败')
     } finally {
       setAnalysisDetailLoading(false)
@@ -380,15 +399,15 @@ export function ProblemsPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>问题提报</h2>
-        <p>先查看你已提报的问题，再按需新建/编辑草稿并提交评审。提交评审后会自动触发 ProdMind 论证。</p>
+        <p>默认展示全量问题，可按需筛选“仅看我提报”，并继续新建/编辑草稿提交评审。提交评审后会自动触发 ProdMind 论证。</p>
         <p className="muted">保存只会更新草稿。补齐任务目标、任务范围、截止日期、验收标准和自我复盘后，再在列表中点击“提交评审”。</p>
       </header>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>我的问题</h3>
+          <h3>问题列表</h3>
           <span className="actions">
-            <button type="button" onClick={() => void loadMine()} disabled={loading}>刷新</button>
+            <button type="button" onClick={() => void loadProblems()} disabled={loading}>刷新</button>
             {!composerOpen && <button type="button" onClick={startCreate}>新建草稿</button>}
           </span>
         </div>
@@ -396,6 +415,7 @@ export function ProblemsPage({ userId }: Props) {
           <div className="row head wide-row problems-row">
             <span>ID</span>
             <span>标题</span>
+            <span>提交人</span>
             <span>场景</span>
             <span>状态</span>
             <span>论证状态</span>
@@ -406,7 +426,8 @@ export function ProblemsPage({ userId }: Props) {
           {list.map((item) => (
             <div className="row wide-row problems-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>{item.title}</span>
+              <span title={item.title}>{item.title}</span>
+              <span title={item.submitter_name}>{item.submitter_name || `#${item.submitter_id}`}</span>
               <span>{item.scenario}</span>
               <span>
                 <StatusBadge tone={problemStatusTone(item.status)}>{item.status}</StatusBadge>
@@ -420,16 +441,16 @@ export function ProblemsPage({ userId }: Props) {
               <span>{new Date(item.created_at).toLocaleDateString()}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openProblemDetail(item.id)}>查看详情</button>
-                {canEditStatus.has(item.status) && (
+                {item.submitter_id === userId && canEditStatus.has(item.status) && (
                   <button type="button" onClick={() => void startEdit(item.id)}>编辑</button>
                 )}
-                {item.status === 'draft' && (
+                {item.submitter_id === userId && item.status === 'draft' && (
                   <button type="button" onClick={() => void submitForReview(item.id)}>提交评审</button>
                 )}
                 {(item.analysis_status === 'completed' || item.analysis_status === 'failed') && (
                   <button type="button" onClick={() => void openAnalysisDetail(item.id)}>查看论证</button>
                 )}
-                {item.status !== 'archived' && item.status !== 'rejected' && (
+                {item.submitter_id === userId && item.status !== 'archived' && item.status !== 'rejected' && (
                   <button type="button" onClick={() => void triggerAnalysisNow(item.id)}>立即论证</button>
                 )}
               </span>
@@ -438,8 +459,21 @@ export function ProblemsPage({ userId }: Props) {
         </div>
       </article>
 
-      <form className="panel form-grid" onSubmit={(event) => { event.preventDefault(); void loadMine() }}>
-        <h3>我的问题筛选</h3>
+      <form className="panel form-grid" onSubmit={(event) => { event.preventDefault(); void loadProblems() }}>
+        <h3>问题筛选</h3>
+        <label className="wide">
+          <span>范围</span>
+          <span className="checks">
+            <label>
+              <input
+                type="checkbox"
+                checked={filters.mine_only}
+                onChange={(e) => setFilters((p) => ({ ...p, mine_only: e.target.checked }))}
+              />
+              仅看我提报
+            </label>
+          </span>
+        </label>
         <label>
           状态
           <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
@@ -492,7 +526,7 @@ export function ProblemsPage({ userId }: Props) {
           </button>
         </div>
         {!composerOpen ? (
-          <p className="muted">默认先展示“我的问题”。如需新增或编辑草稿，请点击“展开”。</p>
+          <p className="muted">默认展示全量问题列表。可勾选“仅看我提报”提升浏览效率。</p>
         ) : (
           <form className="form-grid" onSubmit={submit}>
             <label>
@@ -723,7 +757,7 @@ export function ProblemsPage({ userId }: Props) {
       )}
 
       {analysisProblemId !== null && (
-        <div className="modal-backdrop" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null) }}>
+        <div className="modal-backdrop" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null); setAnalysisHypotheses([]) }}>
           <div
             className="modal-card"
             role="dialog"
@@ -733,14 +767,33 @@ export function ProblemsPage({ userId }: Props) {
           >
             <div className="panel-headline">
               <h3>ProdMind 论证详情（问题 #{analysisProblemId}）</h3>
-              <button type="button" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null) }}>
+              <button type="button" onClick={() => { setAnalysisProblemId(null); setAnalysisDetail(null); setAnalysisHypotheses([]) }}>
                 关闭
               </button>
             </div>
             {analysisDetailLoading ? (
               <p>加载中...</p>
             ) : analysisDetail ? (
-              <AnalysisReportView analysis={analysisDetail} />
+              <>
+                <AnalysisReportView analysis={analysisDetail} />
+                <article className="modal-section">
+                  <h4>人工验证记录</h4>
+                  {analysisHypotheses.length > 0 ? (
+                    <ul>
+                      {analysisHypotheses.map((item) => (
+                        <li key={`analysis-hypothesis-${item.id}`}>
+                          <p><strong>假设：</strong>{item.hypothesis_content || '-'}</p>
+                          <p><strong>结论：</strong>{formatHypothesisVerificationStatus(item.verification_status)}</p>
+                          <p><strong>验证方法：</strong>{item.verification_method || '-'}</p>
+                          <p><strong>验证结果：</strong>{item.verification_result || '-'}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>-</p>
+                  )}
+                </article>
+              </>
             ) : (
               <p>暂无论证详情</p>
             )}

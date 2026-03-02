@@ -209,19 +209,16 @@ def post_problem_analyze(
 
 @router.get(
     "/problems/{problem_id}/analysis",
-    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.EMPLOYEE))],
 )
 def get_problem_analysis_report(
     problem_id: int,
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
+    _ = actor_id
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="problem not found")
-    actor_roles = get_user_roles(session, actor_id)
-    if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
-        raise HTTPException(status_code=403, detail="permission denied")
     analysis = get_problem_analysis(session, problem_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="analysis not found")
@@ -243,19 +240,16 @@ def get_problem_analysis_report(
 
 @router.get(
     "/problems/{problem_id}/hypotheses",
-    dependencies=[Depends(require_roles(Role.ADMIN, Role.REVIEWER, Role.EMPLOYEE))],
 )
 def get_problem_hypotheses(
     problem_id: int,
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> list[dict]:
+    _ = actor_id
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="problem not found")
-    actor_roles = get_user_roles(session, actor_id)
-    if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
-        raise HTTPException(status_code=403, detail="permission denied")
     analysis = get_problem_analysis(session, problem_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="analysis not found")

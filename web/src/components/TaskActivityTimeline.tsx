@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createTaskActivity, listClaimActivities, listTaskActivities } from '../lib/api'
@@ -161,7 +161,7 @@ export function TaskActivityTimeline({
 
       {error && <p className="muted">{error}</p>}
       <div className="table">
-        <div className="row head wide-row">
+        <div className="row head activity-row">
           <span>时间</span>
           <span>类型</span>
           <span>用户</span>
@@ -170,13 +170,22 @@ export function TaskActivityTimeline({
           <span>详情</span>
         </div>
         {visibleItems.map((item) => (
-          <div className="row wide-row" key={item.id}>
+          <div className="row activity-row" key={item.id}>
             <span>{new Date(item.created_at).toLocaleString()}</span>
             <span>{activityTypeLabel[item.activity_type]}</span>
             <span>#{item.actor_user_id}</span>
             <span>{item.claim_id ? `#${item.claim_id}` : '-'}</span>
-            <span>{item.content}</span>
-            <span>{Object.keys(item.detail ?? {}).length > 0 ? JSON.stringify(item.detail) : '-'}</span>
+            <span title={item.content}>{item.content}</span>
+            <span>
+              {Object.keys(item.detail ?? {}).length > 0 ? (
+                <details>
+                  <summary>查看</summary>
+                  <pre className="json-pre">{JSON.stringify(item.detail, null, 2)}</pre>
+                </details>
+              ) : (
+                '-'
+              )}
+            </span>
           </div>
         ))}
         {visibleItems.length === 0 && <p className="muted">暂无记录</p>}
@@ -184,4 +193,3 @@ export function TaskActivityTimeline({
     </article>
   )
 }
-

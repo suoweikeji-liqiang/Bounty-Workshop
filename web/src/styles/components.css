@@ -316,12 +316,19 @@ button:disabled {
 .table {
   display: grid;
   gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.table > p {
+  margin: 4px 2px;
 }
 
 .row {
   display: grid;
-  grid-template-columns: 80px 1.3fr 1fr 1fr 1fr 100px;
-  align-items: center;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(120px, 1fr);
+  align-items: start;
   gap: 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -331,12 +338,19 @@ button:disabled {
   font-size: 14px;
 }
 
+.row > span {
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .row:hover {
   background: var(--bg-tertiary);
   border-color: var(--brand-primary);
 }
 
 .row.head {
+  align-items: center;
   font-weight: 700;
   font-size: 13px;
   text-transform: uppercase;
@@ -350,7 +364,39 @@ button:disabled {
 }
 
 .row.wide-row {
-  grid-template-columns: 90px 1.2fr 1fr 1fr 1fr 220px;
+  grid-auto-columns: minmax(150px, 1fr);
+}
+
+.row.task-open-row {
+  grid-template-columns: 72px minmax(220px, 1.8fr) 96px 72px 90px 120px 72px minmax(220px, 1.2fr);
+}
+
+.row.task-all-row {
+  grid-template-columns: 72px minmax(220px, 1.8fr) 96px 72px 110px 90px 120px 72px minmax(220px, 1.2fr);
+}
+
+.row.task-claim-row {
+  grid-template-columns: 90px minmax(220px, 1.9fr) 90px 110px 110px 120px minmax(220px, 1.2fr);
+}
+
+.row.reward-row {
+  grid-template-columns: 72px minmax(220px, 1.8fr) minmax(160px, 1.3fr) 100px 90px 90px minmax(160px, 1fr);
+}
+
+.row.ai-model-row {
+  grid-template-columns: 72px minmax(160px, 1.1fr) 100px minmax(180px, 1.2fr) 72px 84px minmax(260px, 1.7fr);
+}
+
+.row.budget-review-row {
+  grid-template-columns: 72px minmax(260px, 2fr) minmax(120px, 1fr) 150px minmax(160px, 1fr);
+}
+
+.row.activity-row {
+  grid-template-columns: 170px 110px 90px 90px minmax(260px, 2fr) minmax(180px, 1.2fr);
+}
+
+.row.milestone-accept-row {
+  grid-template-columns: 120px minmax(260px, 2fr) 90px 90px 170px minmax(140px, 1fr);
 }
 
 .users-toolbar {
@@ -452,18 +498,25 @@ button:disabled {
 }
 
 .row.problems-row {
-  grid-template-columns: 80px 1.2fr 80px 110px 100px 1fr 120px 220px;
+  grid-template-columns: 72px minmax(220px, 1.6fr) minmax(130px, 1fr) 90px 110px 110px minmax(220px, 1.6fr) 120px minmax(220px, 1.2fr);
 }
 
 .actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.row > .actions {
+  min-width: 0;
+  overflow: visible;
 }
 
 .actions button {
   padding: 6px 12px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .acceptance-editor {
@@ -728,6 +781,22 @@ button:disabled {
 
 .muted {
   color: var(--text-muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.json-pre {
+  margin: 8px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .link-btn {

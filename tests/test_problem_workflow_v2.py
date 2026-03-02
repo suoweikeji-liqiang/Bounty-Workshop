@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.db import get_session
-from app.enums import Role
+from app.enums import AnalysisStatus, HypothesisStatus, HypothesisType, RiskLevel, Role
 from app.main import app
 from app.models import User, UserRole
 
@@ -421,5 +422,153 @@ def test_submit_for_review_auto_triggers_analysis(tmp_path: Path, monkeypatch) -
     assert submit_resp.status_code == 200
     assert submit_resp.json()["status"] == "pending_review"
     assert called_problem_ids == [problem_id]
+
+    app.dependency_overrides.clear()
+
+
+def test_problem_and_task_transparency_with_mine_filter(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "TransparentReviewer", "employee_no": "R099", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "TransparentSubmitter", "employee_no": "E099", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    viewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "TransparentViewer", "employee_no": "E100", "department": "OPS", "roles": ["employee"]},
+    )
+    assert viewer_resp.status_code == 200
+    viewer_id = viewer_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "pricing": {
+                "level": "C",
+                "reward_total": 600,
+                "proposer_ratio": 0.3,
+                "accepter_id": reviewer_id,
+                "points": 10,
+                "badge": None,
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["task"]["id"]
+
+    all_problems_resp = client.get("/problems", headers=_headers(viewer_id))
+    assert all_problems_resp.status_code == 200
+    assert any(item["id"] == problem_id for item in all_problems_resp.json())
+
+    mine_only_resp = client.get("/problems", headers=_headers(viewer_id), params={"mine_only": "true"})
+    assert mine_only_resp.status_code == 200
+    assert all(item["submitter_id"] == viewer_id for item in mine_only_resp.json())
+
+    other_problem_detail_resp = client.get(f"/problems/{problem_id}", headers=_headers(viewer_id))
+    assert other_problem_detail_resp.status_code == 200
+    assert other_problem_detail_resp.json()["id"] == problem_id
+
+    all_tasks_resp = client.get("/tasks", headers=_headers(viewer_id))
+    assert all_tasks_resp.status_code == 200
+    assert any(item["id"] == task_id for item in all_tasks_resp.json())
+
+    other_task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(viewer_id))
+    assert other_task_detail_resp.status_code == 200
+    assert other_task_detail_resp.json()["id"] == task_id
+
+    app.dependency_overrides.clear()
+
+
+def test_problem_analysis_and_hypotheses_transparency(tmp_path: Path, monkeypatch) -> None:
+    client = _setup_client(tmp_path)
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AnalysisSubmitter", "employee_no": "E110", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    viewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AnalysisViewer", "employee_no": "F111", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert viewer_resp.status_code == 200
+    viewer_id = viewer_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+    now = datetime.utcnow()
+    fake_analysis = SimpleNamespace(
+        id=901,
+        problem_id=problem_id,
+        status=AnalysisStatus.COMPLETED,
+        recommendation="recommend",
+        confidence=0.82,
+        rounds=2,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    fake_hypothesis = SimpleNamespace(
+        id=301,
+        analysis_id=fake_analysis.id,
+        hypothesis_content="Need broader rollout evidence",
+        hypothesis_type=HypothesisType.REQUIREMENT,
+        risk_level=RiskLevel.MEDIUM,
+        verification_status=HypothesisStatus.VERIFIED,
+        verification_method="pilot experiment",
+        verification_result="weekly defects reduced by 35%",
+        verified_by=submitter_id,
+        verified_at=now,
+        created_at=now,
+    )
+
+    monkeypatch.setattr(
+        "app.routers.problems.get_problem_analysis",
+        lambda _session, pid: fake_analysis if pid == problem_id else None,
+    )
+    monkeypatch.setattr(
+        "app.routers.problems.get_analysis_report",
+        lambda _analysis: {"summary": "synthetic analysis report"},
+    )
+    monkeypatch.setattr(
+        "app.routers.problems.list_hypothesis_verifications",
+        lambda _session, analysis_id: [fake_hypothesis] if analysis_id == fake_analysis.id else [],
+    )
+
+    analysis_resp = client.get(f"/problems/{problem_id}/analysis", headers=_headers(viewer_id))
+    assert analysis_resp.status_code == 200
+    assert analysis_resp.json()["id"] == fake_analysis.id
+    assert analysis_resp.json()["problem_id"] == problem_id
+
+    hypotheses_resp = client.get(f"/problems/{problem_id}/hypotheses", headers=_headers(viewer_id))
+    assert hypotheses_resp.status_code == 200
+    hypotheses_payload = hypotheses_resp.json()
+    assert len(hypotheses_payload) == 1
+    assert hypotheses_payload[0]["id"] == fake_hypothesis.id
+    assert hypotheses_payload[0]["verification_status"] == "verified"
+    assert hypotheses_payload[0]["verification_result"] == "weekly defects reduced by 35%"
 
     app.dependency_overrides.clear()

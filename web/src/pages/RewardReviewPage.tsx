@@ -129,7 +129,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
 
       <article className="panel">
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head reward-row">
             <span>ID</span>
             <span>任务</span>
             <span>用户</span>
@@ -139,10 +139,10 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
             <span>操作</span>
           </div>
           {rows.map((item) => (
-            <div className="row wide-row" key={item.id}>
+            <div className="row reward-row" key={item.id}>
               <span>#{item.id}</span>
-              <span>{item.task_title ? `${item.task_title} (#${item.task_id})` : `#${item.task_id}`}</span>
-              <span>{item.user_name ? `${item.user_name} (#${item.user_id})` : `#${item.user_id}`}</span>
+              <span title={item.task_title ?? undefined}>{item.task_title ? `${item.task_title} (#${item.task_id})` : `#${item.task_id}`}</span>
+              <span title={item.user_name ?? undefined}>{item.user_name ? `${item.user_name} (#${item.user_id})` : `#${item.user_id}`}</span>
               <span>{formatRoleType(item.role_type)}</span>
               <span>¥{item.amount.toFixed(2)}</span>
               <span>

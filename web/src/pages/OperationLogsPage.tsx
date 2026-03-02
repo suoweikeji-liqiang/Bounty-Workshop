@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -109,7 +109,7 @@ export function OperationLogsPage({ userId }: Props) {
       <article className="panel">
         <h3>日志记录（{rows.length}）</h3>
         <div className="table">
-          <div className="row head wide-row op-log-row">
+          <div className="row head op-log-row">
             <span>ID</span>
             <span>时间</span>
             <span>操作</span>
@@ -118,10 +118,10 @@ export function OperationLogsPage({ userId }: Props) {
             <span>详情</span>
           </div>
           {rows.map((item) => (
-            <div className="row wide-row op-log-row" key={item.id}>
+            <div className="row op-log-row" key={item.id}>
               <span>#{item.id}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
-              <span>{item.action}</span>
+              <span title={item.action}>{item.action}</span>
               <span>{item.actor_user_id ?? '-'}</span>
               <span>
                 {item.target_type}#{item.target_id ?? '-'}
@@ -129,11 +129,12 @@ export function OperationLogsPage({ userId }: Props) {
               <span>
                 <details>
                   <summary>查看详情</summary>
-                  <pre style={{ margin: 0 }}>{JSON.stringify(item.detail, null, 2)}</pre>
+                  <pre className="json-pre">{JSON.stringify(item.detail, null, 2)}</pre>
                 </details>
               </span>
             </div>
           ))}
+          {rows.length === 0 && <p className="muted">当前筛选条件下暂无日志。</p>}
         </div>
       </article>
     </section>

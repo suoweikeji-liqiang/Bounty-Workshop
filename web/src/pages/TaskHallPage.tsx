@@ -97,8 +97,7 @@ function buildCriteriaDrafts(detail: ClaimExecutionDetail): CriteriaDraft[] {
 
 export function TaskHallPage({ userId, profile }: Props) {
   const toast = useToast()
-  const [openTasks, setOpenTasks] = useState<Task[]>([])
-  const [inProgressTasks, setInProgressTasks] = useState<Task[]>([])
+  const [allTasks, setAllTasks] = useState<Task[]>([])
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([])
   const [myClaims, setMyClaims] = useState<ClaimExecution[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState('')
@@ -143,13 +142,30 @@ export function TaskHallPage({ userId, profile }: Props) {
     return activeUsers.filter((item) => item.id === userId)
   }, [activeUsers, canApproveForOthers, userId])
 
+  const openTasks = useMemo(
+    () => allTasks.filter((item) => item.status === 'open'),
+    [allTasks],
+  )
+  const inProgressTasks = useMemo(
+    () => allTasks.filter((item) => item.status === 'in_progress'),
+    [allTasks],
+  )
+  const pendingAcceptanceTasks = useMemo(
+    () => allTasks.filter((item) => item.status === 'pending_acceptance'),
+    [allTasks],
+  )
+  const completedTasks = useMemo(
+    () => allTasks.filter((item) => item.status === 'completed'),
+    [allTasks],
+  )
+
   const claimableTasks = useMemo(() => {
     const map = new Map<number, Task>()
     for (const row of [...openTasks, ...inProgressTasks]) {
       map.set(row.id, row)
     }
     return Array.from(map.values()).sort((a, b) => b.id - a.id)
-  }, [openTasks, inProgressTasks])
+  }, [inProgressTasks, openTasks])
 
   const deliverableClaimOptions = useMemo(
     () =>
@@ -160,9 +176,8 @@ export function TaskHallPage({ userId, profile }: Props) {
   )
 
   const load = useCallback(async () => {
-    const buildTaskQuery = (status: 'open' | 'in_progress') => {
+    const buildTaskQuery = () => {
       const query = new URLSearchParams()
-      query.set('status', status)
       if (filters.level) {
         query.set('level', filters.level)
       }
@@ -180,14 +195,12 @@ export function TaskHallPage({ userId, profile }: Props) {
 
     try {
       setError(null)
-      const [open, progress, users, claims] = await Promise.all([
-        requestJson<Task[]>(buildTaskQuery('open'), { userId }),
-        requestJson<Task[]>(buildTaskQuery('in_progress'), { userId }),
+      const [tasks, users, claims] = await Promise.all([
+        requestJson<Task[]>(buildTaskQuery(), { userId }),
         requestJson<UserProfile[]>('/users/active', { userId }),
         requestJson<ClaimExecution[]>('/claims/mine', { userId }),
       ])
-      setOpenTasks(open)
-      setInProgressTasks(progress)
+      setAllTasks(tasks)
       setActiveUsers(users)
       setMyClaims(claims)
     } catch (err) {
@@ -469,13 +482,13 @@ export function TaskHallPage({ userId, profile }: Props) {
           <button type="button" onClick={() => void load()}>刷新</button>
         </div>
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head task-open-row">
             <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>操作</span>
           </div>
           {openTasks.map((task) => (
-            <div className="row wide-row" key={task.id}>
+            <div className="row task-open-row" key={task.id}>
               <span>#{task.id}</span>
-              <span>{task.title}</span>
+              <span title={task.title}>{task.title}</span>
               <span>{formatScenario(task.scenario)}</span>
               <span>{task.level}</span>
               <span>¥{task.reward_total.toFixed(0)}</span>
@@ -488,6 +501,38 @@ export function TaskHallPage({ userId, profile }: Props) {
               </span>
             </div>
           ))}
+          {openTasks.length === 0 && <p className="muted">暂无待揭榜任务</p>}
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-headline">
+          <h3>全部任务状态</h3>
+          <p className="muted">
+            待揭榜 {openTasks.length} / 执行中 {inProgressTasks.length} / 待验收 {pendingAcceptanceTasks.length} / 已完成 {completedTasks.length}
+          </p>
+        </div>
+        <div className="table">
+          <div className="row head task-all-row">
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>状态</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>操作</span>
+          </div>
+          {allTasks.map((task) => (
+            <div className="row task-all-row" key={`all-task-${task.id}`}>
+              <span>#{task.id}</span>
+              <span title={task.title}>{task.title}</span>
+              <span>{formatScenario(task.scenario)}</span>
+              <span>{task.level}</span>
+              <span>{formatTaskStatus(task.status)}</span>
+              <span>¥{task.reward_total.toFixed(0)}</span>
+              <span>{task.due_date}</span>
+              <span>{task.active_claim_count}</span>
+              <span className="actions">
+                <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
+                {task.status === 'open' && <button type="button" onClick={() => setSelectedTaskId(String(task.id))}>选择</button>}
+              </span>
+            </div>
+          ))}
+          {allTasks.length === 0 && <p className="muted">暂无匹配任务</p>}
         </div>
       </article>
 
@@ -570,13 +615,13 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
         <p className="muted">提交成果请从任务操作进入，不在页面外层单独暴露。</p>
         <div className="table">
-          <div className="row head wide-row">
+          <div className="row head task-claim-row">
             <span>揭榜ID</span><span>任务</span><span>模式</span><span>揭榜状态</span><span>成果状态</span><span>截止日</span><span>操作</span>
           </div>
           {deliverableClaimOptions.map((item) => (
-            <div className="row wide-row" key={item.claim_id}>
+            <div className="row task-claim-row" key={item.claim_id}>
               <span>#{item.claim_id}</span>
-              <span>{item.task_title}</span>
+              <span title={item.task_title}>{item.task_title}</span>
               <span>{item.claim_mode === 'team' ? '组队' : '个人'}</span>
               <span>{formatTaskStatus(item.claim_status)}</span>
               <span>{formatTaskStatus(item.deliverable_status)}</span>

@@ -52,13 +52,21 @@
   .row,
   .row.head,
   .row.wide-row,
+  .row.task-open-row,
+  .row.task-all-row,
+  .row.task-claim-row,
+  .row.reward-row,
+  .row.ai-model-row,
+  .row.budget-review-row,
+  .row.activity-row,
+  .row.milestone-accept-row,
   .row.users-row,
   .row.problems-row,
   .row.personal-row,
   .row.approval-row,
   .row.approval-review-row,
   .row.op-log-row {
-    min-width: 980px;
+    min-width: max-content;
     font-size: 12px;
     padding: 8px 10px;
   }
@@ -74,6 +82,10 @@
 
   .page-wrap {
     padding: 16px;
+  }
+
+  .page-head {
+    gap: 10px;
   }
 
   .panel {

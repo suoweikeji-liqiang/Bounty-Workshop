@@ -207,16 +207,13 @@ def get_problem_detail(
     actor_roles: set[Role],
     problem_id: int,
 ) -> ProblemDetailRead:
+    # Transparency rule: any authenticated user can view problem detail.
+    # Mutating actions (edit/review/budget review) remain role/owner guarded.
+    _ = actor_id
+    _ = actor_roles
     problem = session.get(Problem, problem_id)
     if problem is None:
         raise HTTPException(status_code=404, detail="problem not found")
-    if (
-        problem.submitter_id != actor_id
-        and Role.ADMIN not in actor_roles
-        and Role.REVIEWER not in actor_roles
-        and Role.REWARD_APPROVER not in actor_roles
-    ):
-        raise HTTPException(status_code=403, detail="permission denied")
     user = session.get(User, problem.submitter_id)
     return _problem_to_detail(problem, user.name if user else "")
 
