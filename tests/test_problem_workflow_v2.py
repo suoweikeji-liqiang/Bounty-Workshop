@@ -214,6 +214,98 @@ def test_budget_review_preserves_task_is_complex(tmp_path: Path) -> None:
     app.dependency_overrides.clear()
 
 
+def test_re_review_pricing_only_preserves_complexity_flag(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewReviewer", "employee_no": "R021", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewFin", "employee_no": "F021", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewSubmitter", "employee_no": "E021", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    first_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "re-review-complex-task",
+                "goal": "keep complexity across re-review",
+                "scope": "single workflow",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "level": "A",
+                "reward_total": 5000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 50,
+                "badge": "impact-maker",
+                "is_complex": True,
+                "acceptance_criteria": [{"description": "complexity survives", "type": "quantified"}],
+            },
+        },
+    )
+    assert first_review_resp.status_code == 200
+    assert first_review_resp.json()["status"] == "budget_pending"
+
+    budget_reject_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": False, "comment": "please lower reward"},
+    )
+    assert budget_reject_resp.status_code == 200
+    assert budget_reject_resp.json()["status"] == "pricing_revision_required"
+
+    second_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "pricing": {
+                "level": "C",
+                "reward_total": 600,
+                "proposer_ratio": 0.3,
+                "accepter_id": reviewer_id,
+                "points": 10,
+                "badge": None,
+            },
+        },
+    )
+    assert second_review_resp.status_code == 200
+    second_review_payload = second_review_resp.json()
+    assert second_review_payload["status"] == "approved"
+    assert second_review_payload["task"]["is_complex"] is True
+    task_id = second_review_payload["task"]["id"]
+
+    task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
+    assert task_detail_resp.status_code == 200
+    assert task_detail_resp.json()["is_complex"] is True
+
+    app.dependency_overrides.clear()
+
+
 def test_reviewer_prices_but_does_not_define_task_content(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 

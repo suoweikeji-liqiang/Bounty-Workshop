@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from app.attachments import bind_attachments
 from app.enums import ClaimStatus, Role, TaskActivityType
-from app.models import Claim, ClaimMember, Task, TaskActivity
+from app.models import Attachment, Claim, ClaimMember, Task, TaskActivity
 from app.schemas import TaskActivityCreate, TaskActivityRead
 from app.services_claims import _has_claim_access, _load_claim_and_task
 from app.services_common import _from_json_dict, _from_json_list, _to_json
@@ -134,7 +134,7 @@ def _resolve_claim_context(
     if own_claim is not None:
         return own_claim
 
-    member_claim = session.exec(
+    member_claims = session.exec(
         select(Claim)
         .join(ClaimMember, ClaimMember.claim_id == Claim.id)
         .where(
@@ -143,9 +143,11 @@ def _resolve_claim_context(
             ClaimMember.user_id == actor_id,
         )
         .order_by(Claim.created_at.desc(), Claim.id.desc())
-    ).first()
-    if member_claim is not None:
-        return member_claim
+    ).all()
+    if len(member_claims) == 1:
+        return member_claims[0]
+    if len(member_claims) > 1:
+        raise HTTPException(status_code=400, detail="claim_id is required when multiple active claims exist")
 
     if actor_id == task.accepter_id or Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles:
         active_claims = session.exec(
@@ -274,6 +276,16 @@ def delete_task_activity(
             raise HTTPException(status_code=400, detail="activity claim/task mismatch")
         if row.actor_user_id != actor_id and not _can_access_claim_activity(session, actor_id, actor_roles, claim, task):
             raise HTTPException(status_code=403, detail="permission denied")
+
+    bound_attachments = session.exec(
+        select(Attachment).where(
+            Attachment.entity_type == "task_activity",
+            Attachment.entity_id == activity_id,
+        )
+    ).all()
+    for attachment in bound_attachments:
+        attachment.entity_type = None
+        attachment.entity_id = None
 
     session.delete(row)
     session.commit()

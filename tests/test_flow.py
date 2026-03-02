@@ -2757,3 +2757,240 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert outsider_claim_activity_resp.status_code == 403
 
     app.dependency_overrides.clear()
+
+
+def test_task_activity_team_member_requires_claim_id_when_multiple_claims_match(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "TeamActivityReviewer",
+            "employee_no": "R971",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    lead_a_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "LeadA", "employee_no": "E973", "department": "RD", "roles": ["employee"]},
+    )
+    assert lead_a_resp.status_code == 200
+    lead_a_id = lead_a_resp.json()["id"]
+
+    lead_b_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "LeadB", "employee_no": "E974", "department": "RD", "roles": ["employee"]},
+    )
+    assert lead_b_resp.status_code == 200
+    lead_b_id = lead_b_resp.json()["id"]
+
+    shared_member_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "SharedMember", "employee_no": "E975", "department": "RD", "roles": ["employee"]},
+    )
+    assert shared_member_resp.status_code == 200
+    shared_member_id = shared_member_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(shared_member_id),
+        json={
+            "title": "team-activity-ambiguity",
+            "scenario": "rd",
+            "background": "multiple team claims share one member",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "member must not auto-post to an arbitrary claim",
+            "value_reduce_effort": True,
+            "value_statement": "force explicit claim selection",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "team-activity-task",
+                "goal": "avoid ambiguous claim resolution",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=5)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "acceptance_criteria": [{"description": "member must provide claim_id", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    claim_a_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(lead_a_id),
+        json={
+            "mode": "team",
+            "members": [
+                {"user_id": lead_a_id, "ratio": 0.5},
+                {"user_id": shared_member_id, "ratio": 0.5},
+            ],
+        },
+    )
+    assert claim_a_resp.status_code == 200
+    claim_a_id = claim_a_resp.json()["claim_id"]
+
+    claim_b_resp = client.post(
+        f"/tasks/{task_id}/claims",
+        headers=_headers(lead_b_id),
+        json={
+            "mode": "team",
+            "members": [
+                {"user_id": lead_b_id, "ratio": 0.5},
+                {"user_id": shared_member_id, "ratio": 0.5},
+            ],
+        },
+    )
+    assert claim_b_resp.status_code == 200
+    claim_b_id = claim_b_resp.json()["claim_id"]
+
+    ambiguous_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(shared_member_id),
+        json={"activity_type": "progress_update", "content": "Working on this now."},
+    )
+    assert ambiguous_resp.status_code == 400
+    assert "claim_id is required" in ambiguous_resp.text
+
+    explicit_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(shared_member_id),
+        json={
+            "activity_type": "progress_update",
+            "claim_id": claim_b_id,
+            "content": "Posting to the selected team claim.",
+        },
+    )
+    assert explicit_resp.status_code == 200
+    assert explicit_resp.json()["claim_id"] == claim_b_id
+
+    claim_b_activity_resp = client.get(f"/claims/{claim_b_id}/activities", headers=_headers(shared_member_id))
+    assert claim_b_activity_resp.status_code == 200
+    assert any(item["id"] == explicit_resp.json()["id"] for item in claim_b_activity_resp.json())
+
+    app.dependency_overrides.clear()
+
+
+def test_delete_task_activity_detaches_bound_attachments(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "DetachReviewer",
+            "employee_no": "R972",
+            "department": "QA",
+            "roles": ["reviewer", "acceptor", "employee"],
+        },
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    author_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "DetachAuthor", "employee_no": "E976", "department": "OPS", "roles": ["employee"]},
+    )
+    assert author_resp.status_code == 200
+    author_id = author_resp.json()["id"]
+
+    problem_resp = client.post(
+        "/problems",
+        headers=_headers(author_id),
+        json={
+            "title": "detach-activity-attachment",
+            "scenario": "ops",
+            "background": "activity attachments should not be orphaned",
+            "frequency": "weekly",
+            "impact_scope": "team",
+            "description": "delete must unbind the file rows",
+            "value_reduce_effort": True,
+            "value_statement": "preserve attachment accessibility",
+        },
+    )
+    assert problem_resp.status_code == 200
+    problem_id = problem_resp.json()["id"]
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "detach-activity-task",
+                "goal": "detach activity attachments on delete",
+                "scope": "single flow",
+                "due_date": (date.today() + timedelta(days=4)).isoformat(),
+                "level": "C",
+                "reward_total": 300,
+                "proposer_ratio": 0.2,
+                "accepter_id": reviewer_id,
+                "points": 5,
+                "acceptance_criteria": [{"description": "attachment row is detached", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    task_id = review_resp.json()["id"]
+
+    upload_resp = client.post(
+        "/attachments/upload",
+        headers=_headers(author_id),
+        files={"file": ("activity.txt", b"activity-attachment", "text/plain")},
+    )
+    assert upload_resp.status_code == 200
+    attachment_id = upload_resp.json()["id"]
+
+    activity_resp = client.post(
+        f"/tasks/{task_id}/activities",
+        headers=_headers(author_id),
+        json={
+            "activity_type": "comment",
+            "content": "Attached note.",
+            "attachment_ids": [attachment_id],
+        },
+    )
+    assert activity_resp.status_code == 200
+    activity_id = activity_resp.json()["id"]
+
+    before_delete_attachment_resp = client.get(f"/attachments/{attachment_id}", headers=_headers(author_id))
+    assert before_delete_attachment_resp.status_code == 200
+    assert before_delete_attachment_resp.json()["entity_type"] == "task_activity"
+    assert before_delete_attachment_resp.json()["entity_id"] == activity_id
+
+    delete_resp = client.request("DELETE", f"/activities/{activity_id}", headers=_headers(author_id))
+    assert delete_resp.status_code == 200
+
+    after_delete_attachment_resp = client.get(f"/attachments/{attachment_id}", headers=_headers(author_id))
+    assert after_delete_attachment_resp.status_code == 200
+    assert after_delete_attachment_resp.json()["entity_type"] is None
+    assert after_delete_attachment_resp.json()["entity_id"] is None
+
+    download_resp = client.get(f"/attachments/{attachment_id}/download", headers=_headers(author_id))
+    assert download_resp.status_code == 200
+    assert download_resp.content == b"activity-attachment"
+
+    app.dependency_overrides.clear()

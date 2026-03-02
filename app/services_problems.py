@@ -510,7 +510,8 @@ def review_problem(
     problem.priced_accepter_id = pricing.accepter_id
     problem.priced_points = pricing.points
     problem.priced_badge = pricing.badge
-    problem.priced_is_complex = payload.task.is_complex if payload.task is not None else False
+    if payload.task is not None:
+        problem.priced_is_complex = payload.task.is_complex
     problem.priced_by_user_id = actor_id
     problem.reviewer_comment = None
 
@@ -544,7 +545,7 @@ def review_problem(
         problem,
         pricing,
         title_override=task_title,
-        is_complex=payload.task.is_complex if payload.task is not None else False,
+        is_complex=payload.task.is_complex if payload.task is not None else problem.priced_is_complex,
     )
 
     _log(
