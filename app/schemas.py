@@ -400,6 +400,8 @@ class TaskActivityRead(BaseModel):
     claim_id: Optional[int] = None
     activity_type: TaskActivityType
     actor_user_id: int
+    actor_user_name: Optional[str] = None
+    claim_name: Optional[str] = None
     content: str
     detail: dict = Field(default_factory=dict)
     attachment_urls: list[str] = Field(default_factory=list)
@@ -469,8 +471,11 @@ class MilestonePendingAcceptanceRead(BaseModel):
     task_title: str
     sequence: int
     claim_id: int
+    claim_mode: str
+    lead_user_name: Optional[str] = None
     submitted_at: datetime
     submitted_by_user_id: int
+    submitted_by_user_name: Optional[str] = None
     status: MilestoneStatus
 
 
@@ -766,9 +771,11 @@ class ClaimExecutionRead(BaseModel):
 class PendingAcceptanceRead(BaseModel):
     deliverable_id: int
     claim_id: int
+    claim_mode: str
     task_id: int
     task_title: str
     lead_user_id: int
+    lead_user_name: Optional[str] = None
     submitted_at: datetime
     deliverable_status: str
 
@@ -806,6 +813,7 @@ class ClaimExecutionDetailRead(BaseModel):
 class OperationLogRead(BaseModel):
     id: int
     actor_user_id: Optional[int]
+    actor_user_name: Optional[str] = None
     action: str
     target_type: str
     target_id: Optional[int]

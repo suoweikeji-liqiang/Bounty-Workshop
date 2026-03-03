@@ -59,10 +59,12 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
   }, [load])
 
   const act = async (id: number, action: 'approve' | 'reject') => {
+    const target = reviewRows.find((row) => row.id === id) ?? mine.find((row) => row.id === id) ?? null
+    const targetTitle = target?.task_title ?? '该请求'
     const ok = window.confirm(
       action === 'approve'
-        ? `确认通过审批请求 #${id} 吗？`
-        : `确认驳回审批请求 #${id} 吗？`,
+        ? `确认通过“${targetTitle}”的审批请求吗？`
+        : `确认驳回“${targetTitle}”的审批请求吗？`,
     )
     if (!ok) {
       return
@@ -75,7 +77,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
         userId,
         body: { comment: comment || null },
       })
-      setMessage(`审批请求 #${id} 已${action === 'approve' ? '通过' : '驳回'}`)
+      setMessage(`审批请求已${action === 'approve' ? '通过' : '驳回'}：${targetTitle}`)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : `${action === 'approve' ? '通过' : '驳回'}失败`)
@@ -115,7 +117,6 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
         ) : (
           <div className="table">
             <div className="row head approval-row">
-              <span>请求</span>
               <span>任务</span>
               <span>状态</span>
               <span>原因</span>
@@ -123,8 +124,7 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
             </div>
             {mine.map((item) => (
               <div className="row approval-row" key={item.id}>
-                <span>#{item.id}</span>
-                <span title={item.task_title}>#{item.task_id} {item.task_title}</span>
+                <span title={item.task_title}>{item.task_title}</span>
                 <span>{statusLabel[item.status as keyof typeof statusLabel] ?? item.status}</span>
                 <span title={item.reason ?? undefined}>{item.reason ?? '-'}</span>
                 <span>{new Date(item.created_at).toLocaleString()}</span>
@@ -155,7 +155,6 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
           ) : (
             <div className="table">
               <div className="row head approval-review-row">
-                <span>请求</span>
                 <span>任务</span>
                 <span>申请人</span>
                 <span>超期次数</span>
@@ -165,9 +164,8 @@ export function ClaimApprovalPage({ userId, profile }: Props) {
               </div>
               {reviewRows.map((item) => (
                 <div className="row approval-review-row" key={item.id}>
-                  <span>#{item.id}</span>
-                  <span title={item.task_title}>#{item.task_id} {item.task_title}</span>
-                  <span title={item.applicant_user_name}>#{item.applicant_user_id} {item.applicant_user_name}</span>
+                  <span title={item.task_title}>{item.task_title}</span>
+                  <span title={item.applicant_user_name}>{item.applicant_user_name}</span>
                   <span>{item.applicant_overdue_count}</span>
                   <span>{statusLabel[item.status as keyof typeof statusLabel] ?? item.status}</span>
                   <span>{item.reviewed_at ? new Date(item.reviewed_at).toLocaleString() : '-'}</span>

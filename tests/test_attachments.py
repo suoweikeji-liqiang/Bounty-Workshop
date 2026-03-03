@@ -151,6 +151,16 @@ def test_attachment_upload_bind_and_download(tmp_path: Path) -> None:
     assert upload_deliverable_attachment.status_code == 200
     attachment_id_2 = upload_deliverable_attachment.json()["id"]
 
+    my_attachments_resp = client.get(
+        "/attachments/mine/list",
+        headers=_headers(employee_id),
+        params={"limit": 50},
+    )
+    assert my_attachments_resp.status_code == 200
+    my_attachment_ids = {item["id"] for item in my_attachments_resp.json()}
+    assert attachment_id_1 in my_attachment_ids
+    assert attachment_id_2 in my_attachment_ids
+
     deliverable_resp = client.post(
         f"/claims/{claim_id}/deliverables",
         headers=_headers(employee_id),

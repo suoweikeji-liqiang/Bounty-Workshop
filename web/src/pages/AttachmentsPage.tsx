@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import { useToast } from '../components/ToastProvider'
 import { downloadFile, requestJson } from '../lib/http'
 import { formatProblemStatusLabel } from '../lib/enumLabels'
-import type { Attachment, ClaimExecution, Problem } from '../types'
+import type { Attachment, ClaimExecution, Problem, UserProfile } from '../types'
 
 type Props = {
   userId: number
@@ -12,7 +12,6 @@ type Props = {
 
 type DeliverableOption = {
   deliverableId: number
-  claimId: number
   taskTitle: string
 }
 
@@ -23,11 +22,14 @@ export function AttachmentsPage({ userId }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [problems, setProblems] = useState<Problem[]>([])
   const [claims, setClaims] = useState<ClaimExecution[]>([])
+  const [users, setUsers] = useState<UserProfile[]>([])
+  const [myAttachments, setMyAttachments] = useState<Attachment[]>([])
   const [view, setView] = useState<AttachmentsView>('entity')
   const [entityType, setEntityType] = useState<'problem' | 'deliverable'>('problem')
   const [selectedProblemId, setSelectedProblemId] = useState('')
   const [selectedDeliverableId, setSelectedDeliverableId] = useState('')
   const [lookupAttachmentId, setLookupAttachmentId] = useState('')
+  const [lookupSearch, setLookupSearch] = useState('')
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [entityAttachments, setEntityAttachments] = useState<Attachment[]>([])
   const [loadingRefs, setLoadingRefs] = useState(false)
@@ -45,7 +47,6 @@ export function AttachmentsPage({ userId }: Props) {
       if (!map.has(item.deliverable_id)) {
         map.set(item.deliverable_id, {
           deliverableId: item.deliverable_id,
-          claimId: item.claim_id,
           taskTitle: item.task_title,
         })
       }
@@ -54,17 +55,56 @@ export function AttachmentsPage({ userId }: Props) {
   }, [claims])
 
   const selectedEntityId = entityType === 'problem' ? selectedProblemId : selectedDeliverableId
+  const userNameMap = useMemo(
+    () => new Map<number, string>(users.map((item) => [item.id, item.name])),
+    [users],
+  )
+  const filteredAttachmentOptions = useMemo(() => {
+    const keyword = lookupSearch.trim().toLowerCase()
+    if (!keyword) {
+      return myAttachments
+    }
+    return myAttachments.filter((item) => {
+      const value = `${item.filename} ${item.content_type} ${item.id}`.toLowerCase()
+      return value.includes(keyword)
+    })
+  }, [lookupSearch, myAttachments])
+  const problemTitleMap = useMemo(
+    () => new Map<number, string>(problems.map((item) => [item.id, item.title])),
+    [problems],
+  )
+  const deliverableTitleMap = useMemo(
+    () => new Map<number, string>(deliverableOptions.map((item) => [item.deliverableId, item.taskTitle])),
+    [deliverableOptions],
+  )
+
+  const formatEntityReference = (entry: Attachment) => {
+    if (!entry.entity_type || entry.entity_id == null) {
+      return '-'
+    }
+    if (entry.entity_type === 'problem') {
+      return problemTitleMap.get(entry.entity_id) ?? `问题${entry.entity_id}`
+    }
+    if (entry.entity_type === 'deliverable') {
+      return deliverableTitleMap.get(entry.entity_id) ?? `成果${entry.entity_id}`
+    }
+    return `${entry.entity_type} / ${entry.entity_id}`
+  }
 
   const loadReferenceData = useCallback(async () => {
     try {
       setLoadingRefs(true)
       setError(null)
-      const [problemRows, claimRows] = await Promise.all([
+      const [problemRows, claimRows, userRows, attachmentRows] = await Promise.all([
         requestJson<Problem[]>('/problems?limit=200', { userId }),
         requestJson<ClaimExecution[]>('/claims/mine', { userId }),
+        requestJson<UserProfile[]>('/users/active', { userId }),
+        requestJson<Attachment[]>('/attachments/mine/list?limit=200', { userId }),
       ])
       setProblems(problemRows)
       setClaims(claimRows)
+      setUsers(userRows)
+      setMyAttachments(attachmentRows)
 
       setSelectedProblemId((prev) => {
         if (prev && problemRows.some((item) => String(item.id) === prev)) {
@@ -86,6 +126,12 @@ export function AttachmentsPage({ userId }: Props) {
           return prev
         }
         return nextDeliverableIds.length > 0 ? nextDeliverableIds[0] : ''
+      })
+      setLookupAttachmentId((prev) => {
+        if (prev && attachmentRows.some((item) => String(item.id) === prev)) {
+          return prev
+        }
+        return attachmentRows.length > 0 ? String(attachmentRows[0].id) : ''
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载问题与成果引用失败')
@@ -112,7 +158,8 @@ export function AttachmentsPage({ userId }: Props) {
       })
       setAttachment(res)
       setLookupAttachmentId(String(res.id))
-      setMessage(`上传成功，附件 ID=${res.id}`)
+      setMyAttachments((prev) => [res, ...prev.filter((item) => item.id !== res.id)])
+      setMessage(`上传成功：${res.filename}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '上传失败')
     } finally {
@@ -123,7 +170,7 @@ export function AttachmentsPage({ userId }: Props) {
   const lookupAttachment = async () => {
     const id = Number(lookupAttachmentId)
     if (!Number.isInteger(id) || id <= 0) {
-      setError('请输入有效附件 ID')
+      setError('请先选择附件')
       return
     }
 
@@ -216,7 +263,7 @@ export function AttachmentsPage({ userId }: Props) {
             className={view === 'attachment' ? 'primary-btn' : ''}
             onClick={() => setView('attachment')}
           >
-            按附件 ID 查询
+            按附件搜索
           </button>
         </div>
       </article>
@@ -239,7 +286,7 @@ export function AttachmentsPage({ userId }: Props) {
                 {problems.length === 0 && <option value="">暂无问题</option>}
                 {problems.map((item) => (
                   <option key={`problem-${item.id}`} value={item.id}>
-                    #{item.id} [{formatProblemStatusLabel(item.status)}] {item.title}
+                    [{formatProblemStatusLabel(item.status)}] {item.title}
                   </option>
                 ))}
               </select>
@@ -251,7 +298,7 @@ export function AttachmentsPage({ userId }: Props) {
                 {deliverableOptions.length === 0 && <option value="">暂无成果</option>}
                 {deliverableOptions.map((item) => (
                   <option key={`deliverable-${item.deliverableId}`} value={item.deliverableId}>
-                    #{item.deliverableId} (claim #{item.claimId}) {item.taskTitle}
+                    {item.taskTitle}
                   </option>
                 ))}
               </select>
@@ -266,15 +313,15 @@ export function AttachmentsPage({ userId }: Props) {
 
           <div className="wide table">
             <div className="row head">
-              <span>ID</span>
               <span>文件名</span>
+              <span>上传时间</span>
               <span>存储</span>
               <span>操作</span>
             </div>
             {entityAttachments.map((item) => (
               <div className="row" key={item.id}>
-                <span>{item.id}</span>
                 <span title={item.filename}>{item.filename}</span>
+                <span>{new Date(item.created_at).toLocaleString()}</span>
                 <span>{item.storage_backend}</span>
                 <span className="actions">
                   <button
@@ -303,18 +350,35 @@ export function AttachmentsPage({ userId }: Props) {
 
       {view === 'attachment' && (
         <article className="panel form-grid">
-          <h3 className="wide">按附件 ID 查询</h3>
+          <h3 className="wide">按附件搜索</h3>
           <label>
-            附件 ID
+            搜索关键词
             <input
+              type="search"
+              value={lookupSearch}
+              onChange={(event) => setLookupSearch(event.target.value)}
+              placeholder="按文件名或类型筛选"
+              disabled={myAttachments.length === 0}
+            />
+          </label>
+          <label>
+            选择附件
+            <select
               value={lookupAttachmentId}
               onChange={(event) => setLookupAttachmentId(event.target.value)}
-              placeholder="请输入附件 ID"
-            />
+              disabled={myAttachments.length === 0}
+            >
+              {myAttachments.length === 0 && <option value="">暂无可选附件</option>}
+              {filteredAttachmentOptions.map((item) => (
+                <option key={`my-attachment-${item.id}`} value={item.id}>
+                  {item.filename}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="button-row" style={{ alignItems: 'end' }}>
             <button type="button" onClick={() => void lookupAttachment()}>
-              查询附件
+              查看附件详情
             </button>
           </div>
         </article>
@@ -343,12 +407,12 @@ export function AttachmentsPage({ userId }: Props) {
           </p>
           <p className="line-metric">
             <span>关联实体</span>
-            <strong>{attachment.entity_type ? `${attachment.entity_type}#${attachment.entity_id ?? '-'}` : '-'}</strong>
+            <strong>{formatEntityReference(attachment)}</strong>
           </p>
           <p className="line-metric">
             <span>上传人 / 时间</span>
             <strong>
-              #{attachment.uploader_user_id} / {new Date(attachment.created_at).toLocaleString()}
+              {userNameMap.get(attachment.uploader_user_id) ?? `用户${attachment.uploader_user_id}`} / {new Date(attachment.created_at).toLocaleString()}
             </strong>
           </p>
           <div className="button-row">

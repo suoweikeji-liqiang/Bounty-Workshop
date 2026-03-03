@@ -5,11 +5,12 @@ from sqlmodel import Session
 
 from app.auth import get_current_user_id, get_user_roles
 from app.db import get_session
-from app.schemas import TaskActivityCreate, TaskActivityRead
+from app.schemas import TaskActiveClaimRead, TaskActivityCreate, TaskActivityRead
 from app.services import (
     create_task_activity,
     delete_task_activity,
     list_claim_activities,
+    list_task_active_claims,
     list_task_activities,
 )
 
@@ -41,6 +42,16 @@ def post_task_activity(
         task_id=task_id,
         payload=payload,
     )
+
+
+@router.get("/tasks/{task_id}/claims/active", response_model=list[TaskActiveClaimRead])
+def get_task_active_claims(
+    task_id: int,
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> list[TaskActiveClaimRead]:
+    actor_roles = get_user_roles(session, actor_id)
+    return list_task_active_claims(session, actor_id=actor_id, actor_roles=actor_roles, task_id=task_id)
 
 
 @router.get("/claims/{claim_id}/activities", response_model=list[TaskActivityRead])

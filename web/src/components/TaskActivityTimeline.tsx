@@ -1,8 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { createTaskActivity, listClaimActivities, listTaskActivities } from '../lib/api'
-import type { TaskActivity, TaskActivityType } from '../types'
+import { createTaskActivity, listClaimActivities, listTaskActiveClaims, listTaskActivities } from '../lib/api'
+import type { TaskActiveClaim, TaskActivity, TaskActivityType } from '../types'
 
 type Props = {
   userId: number
@@ -28,6 +28,15 @@ const composerTypes: Array<Extract<TaskActivityType, 'comment' | 'progress_updat
   'blocker',
 ]
 
+function formatClaimMode(mode: string, teamSize: number) {
+  if (mode === 'team') return `组队(${Math.max(teamSize, 1)}人)`
+  return '个人'
+}
+
+function formatClaimOptionLabel(item: TaskActiveClaim) {
+  return `#${item.claim_id} ${formatClaimMode(item.mode, item.team_size)} · 组长:${item.lead_user_name}`
+}
+
 export function TaskActivityTimeline({
   userId,
   taskId,
@@ -38,6 +47,7 @@ export function TaskActivityTimeline({
   onChanged,
 }: Props) {
   const [items, setItems] = useState<TaskActivity[]>([])
+  const [claimOptions, setClaimOptions] = useState<TaskActiveClaim[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activityType, setActivityType] =
@@ -46,6 +56,7 @@ export function TaskActivityTimeline({
   const [composerClaimId, setComposerClaimId] = useState(
     claimId ?? defaultClaimId ? String(claimId ?? defaultClaimId) : '',
   )
+  const [claimSearch, setClaimSearch] = useState('')
   const [filters, setFilters] = useState<Record<TaskActivityType, boolean>>({
     comment: true,
     progress_update: true,
@@ -58,11 +69,12 @@ export function TaskActivityTimeline({
     try {
       setLoading(true)
       setError(null)
-      if (claimId) {
-        setItems(await listClaimActivities(userId, claimId))
-      } else {
-        setItems(await listTaskActivities(userId, taskId))
-      }
+      const [activities, activeClaims] = await Promise.all([
+        claimId ? listClaimActivities(userId, claimId) : listTaskActivities(userId, taskId),
+        listTaskActiveClaims(userId, taskId).catch(() => []),
+      ])
+      setItems(activities)
+      setClaimOptions(activeClaims)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载时间线失败')
     } finally {
@@ -78,6 +90,15 @@ export function TaskActivityTimeline({
     () => items.filter((item) => filters[item.activity_type]),
     [filters, items],
   )
+  const filteredClaimOptions = useMemo(() => {
+    const keyword = claimSearch.trim().toLowerCase()
+    if (!keyword) return claimOptions
+    return claimOptions.filter((item) => {
+      const modeText = item.mode === 'team' ? '组队' : '个人'
+      const value = `#${item.claim_id} ${modeText} ${item.lead_user_name}`.toLowerCase()
+      return value.includes(keyword)
+    })
+  }, [claimOptions, claimSearch])
 
   const toggleFilter = (type: TaskActivityType) => {
     setFilters((prev) => ({ ...prev, [type]: !prev[type] }))
@@ -139,14 +160,31 @@ export function TaskActivityTimeline({
             </select>
           </label>
           <label>
-            关联揭榜（可选）
+            搜索揭榜
             <input
-              type="number"
-              value={composerClaimId}
-              onChange={(event) => setComposerClaimId(event.target.value)}
-              placeholder="claim_id"
+              type="search"
+              value={claimSearch}
+              onChange={(event) => setClaimSearch(event.target.value)}
+              placeholder="按组长/模式/编号筛选"
+              disabled={claimOptions.length === 0}
             />
           </label>
+          <label>
+            关联揭榜（可选）
+            <select
+              value={composerClaimId}
+              onChange={(event) => setComposerClaimId(event.target.value)}
+              disabled={claimOptions.length === 0}
+            >
+              <option value="">不关联</option>
+              {filteredClaimOptions.map((item) => (
+                <option key={`timeline-claim-${item.claim_id}`} value={item.claim_id}>
+                  {formatClaimOptionLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="wide muted">关联揭榜 = 将这条动态绑定到某个揭榜执行上，便于按揭榜追踪。</p>
           <label className="wide">
             内容
             <textarea value={content} onChange={(event) => setContent(event.target.value)} required />
@@ -173,8 +211,8 @@ export function TaskActivityTimeline({
           <div className="row activity-row" key={item.id}>
             <span>{new Date(item.created_at).toLocaleString()}</span>
             <span>{activityTypeLabel[item.activity_type]}</span>
-            <span>#{item.actor_user_id}</span>
-            <span>{item.claim_id ? `#${item.claim_id}` : '-'}</span>
+            <span>{item.actor_user_name?.trim() || `#${item.actor_user_id}`}</span>
+            <span>{item.claim_name?.trim() || (item.claim_id ? `#${item.claim_id}` : '-')}</span>
             <span title={item.content}>{item.content}</span>
             <span>
               {Object.keys(item.detail ?? {}).length > 0 ? (

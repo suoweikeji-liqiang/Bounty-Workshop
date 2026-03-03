@@ -7,10 +7,10 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.attachments import bind_attachments
-from app.enums import ClaimStatus, Role, TaskActivityType, TaskStatus
+from app.enums import ClaimMode, ClaimStatus, Role, TaskActivityType, TaskStatus
 from app.feishu import notify_stale_progress_reminder
-from app.models import Attachment, Claim, ClaimMember, Task, TaskActivity
-from app.schemas import TaskActivityCreate, TaskActivityRead
+from app.models import Attachment, Claim, ClaimMember, Task, TaskActivity, User
+from app.schemas import TaskActiveClaimRead, TaskActivityCreate, TaskActivityRead
 from app.services_claims import _has_claim_access, _load_claim_and_task
 from app.services_common import (
     DEFAULT_STALE_PROGRESS_REMINDER_COOLDOWN_HOURS,
@@ -62,18 +62,136 @@ def _can_access_claim_activity(
     return _has_claim_access(actor_id, actor_roles, claim, task) or _is_claim_member(session, claim.id, actor_id)
 
 
-def _activity_to_read(row: TaskActivity) -> TaskActivityRead:
+def _build_activity_view_maps(
+    session: Session,
+    rows: list[TaskActivity],
+) -> tuple[dict[int, str], dict[int, str]]:
+    user_ids = {int(row.actor_user_id) for row in rows}
+    claim_ids = {int(row.claim_id) for row in rows if row.claim_id is not None}
+
+    user_name_map: dict[int, str] = {}
+    claim_name_map: dict[int, str] = {}
+
+    if user_ids:
+        user_rows = session.exec(select(User.id, User.name).where(User.id.in_(user_ids))).all()
+        user_name_map = {int(user_id): user_name for user_id, user_name in user_rows}
+
+    if claim_ids:
+        claim_rows = session.exec(
+            select(Claim.id, Claim.mode, User.name)
+            .join(User, User.id == Claim.lead_user_id)
+            .where(Claim.id.in_(claim_ids))
+        ).all()
+        for claim_id, claim_mode, lead_user_name in claim_rows:
+            mode_label = "组队" if claim_mode == ClaimMode.TEAM else "个人"
+            claim_name_map[int(claim_id)] = f"{mode_label} · {lead_user_name}"
+
+    return user_name_map, claim_name_map
+
+
+def _activity_to_read(
+    row: TaskActivity,
+    user_name_map: dict[int, str] | None = None,
+    claim_name_map: dict[int, str] | None = None,
+) -> TaskActivityRead:
+    actor_user_name = user_name_map.get(int(row.actor_user_id)) if user_name_map is not None else None
+    claim_name = (
+        claim_name_map.get(int(row.claim_id))
+        if claim_name_map is not None and row.claim_id is not None
+        else None
+    )
     return TaskActivityRead(
         id=row.id,
         task_id=row.task_id,
         claim_id=row.claim_id,
         activity_type=row.activity_type,
         actor_user_id=row.actor_user_id,
+        actor_user_name=actor_user_name,
+        claim_name=claim_name,
         content=row.content,
         detail=_from_json_dict(row.detail_json),
         attachment_urls=[str(item) for item in _from_json_list(row.attachment_urls)],
         created_at=row.created_at,
     )
+
+
+def _list_task_active_claims(
+    session: Session,
+    task_id: int,
+) -> list[TaskActiveClaimRead]:
+    team_size_subquery = (
+        select(ClaimMember.claim_id, func.count(ClaimMember.user_id).label("team_size"))
+        .group_by(ClaimMember.claim_id)
+        .subquery()
+    )
+    rows = session.exec(
+        select(
+            Claim.id,
+            Claim.mode,
+            Claim.status,
+            Claim.lead_user_id,
+            User.name,
+            func.coalesce(team_size_subquery.c.team_size, 1),
+            Claim.created_at,
+        )
+        .join(User, User.id == Claim.lead_user_id)
+        .outerjoin(team_size_subquery, team_size_subquery.c.claim_id == Claim.id)
+        .where(
+            Claim.task_id == task_id,
+            Claim.status == ClaimStatus.ACTIVE,
+        )
+        .order_by(Claim.created_at.desc(), Claim.id.desc())
+    ).all()
+    return [
+        TaskActiveClaimRead(
+            claim_id=int(claim_id),
+            mode=claim_mode,
+            status=claim_status.value,
+            lead_user_id=int(lead_user_id),
+            lead_user_name=lead_user_name,
+            team_size=max(int(team_size), 1),
+            created_at=claim_created_at,
+        )
+        for claim_id, claim_mode, claim_status, lead_user_id, lead_user_name, team_size, claim_created_at in rows
+    ]
+
+
+def list_task_active_claims(
+    session: Session,
+    actor_id: int,
+    actor_roles: set[Role],
+    task_id: int,
+) -> list[TaskActiveClaimRead]:
+    task = _task_or_404(session, task_id)
+    active_claims = _list_task_active_claims(session, task_id)
+    can_view_all = actor_id == task.accepter_id or Role.ADMIN in actor_roles or Role.REVIEWER in actor_roles
+    if can_view_all:
+        return active_claims
+
+    lead_claim_ids = {
+        int(claim_id)
+        for claim_id in session.exec(
+            select(Claim.id).where(
+                Claim.task_id == task.id,
+                Claim.status == ClaimStatus.ACTIVE,
+                Claim.lead_user_id == actor_id,
+            )
+        ).all()
+    }
+    member_claim_ids = {
+        int(claim_id)
+        for claim_id in session.exec(
+            select(Claim.id)
+            .join(ClaimMember, ClaimMember.claim_id == Claim.id)
+            .where(
+                Claim.task_id == task.id,
+                Claim.status == ClaimStatus.ACTIVE,
+                ClaimMember.user_id == actor_id,
+            )
+        ).all()
+    }
+    visible_claim_ids = lead_claim_ids.union(member_claim_ids)
+    return [item for item in active_claims if item.claim_id in visible_claim_ids]
 
 
 def list_task_activities(
@@ -88,17 +206,18 @@ def list_task_activities(
         .where(TaskActivity.task_id == task_id)
         .order_by(TaskActivity.created_at.asc(), TaskActivity.id.asc())
     ).all()
-    visible_rows: list[TaskActivityRead] = []
+    visible_rows: list[TaskActivity] = []
     for row in rows:
         if row.claim_id is None:
-            visible_rows.append(_activity_to_read(row))
+            visible_rows.append(row)
             continue
         claim = session.get(Claim, row.claim_id)
         if claim is None:
             continue
         if _can_access_claim_activity(session, actor_id, actor_roles, claim, task):
-            visible_rows.append(_activity_to_read(row))
-    return visible_rows
+            visible_rows.append(row)
+    user_name_map, claim_name_map = _build_activity_view_maps(session, visible_rows)
+    return [_activity_to_read(row, user_name_map, claim_name_map) for row in visible_rows]
 
 
 def list_claim_activities(
@@ -115,7 +234,8 @@ def list_claim_activities(
         .where(TaskActivity.claim_id == claim_id)
         .order_by(TaskActivity.created_at.asc(), TaskActivity.id.asc())
     ).all()
-    return [_activity_to_read(row) for row in rows]
+    user_name_map, claim_name_map = _build_activity_view_maps(session, rows)
+    return [_activity_to_read(row, user_name_map, claim_name_map) for row in rows]
 
 
 def _resolve_claim_context(
@@ -265,7 +385,8 @@ def create_task_activity(
 
     session.commit()
     session.refresh(row)
-    return _activity_to_read(row)
+    user_name_map, claim_name_map = _build_activity_view_maps(session, [row])
+    return _activity_to_read(row, user_name_map, claim_name_map)
 
 
 def _latest_progress_update_at(session: Session, claim_id: int) -> datetime | None:

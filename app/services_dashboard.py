@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.enums import ClaimStatus, ProblemStatus, RewardStatus, TaskStatus
-from app.models import Claim, OperationLog, Problem, Reward, Task
+from app.models import Claim, OperationLog, Problem, Reward, Task, User
 from app.schemas import DashboardOverview, OperationLogRead
 from app.services_common import _from_json_dict
 
@@ -64,6 +64,11 @@ def list_operation_logs(
         )
 
     rows = session.exec(statement.order_by(OperationLog.created_at.desc()).limit(max(1, min(limit, 1000)))).all()
+    actor_ids = {int(row.actor_user_id) for row in rows if row.actor_user_id is not None}
+    actor_name_map: dict[int, str] = {}
+    if actor_ids:
+        actor_rows = session.exec(select(User.id, User.name).where(User.id.in_(actor_ids))).all()
+        actor_name_map = {int(user_id): user_name for user_id, user_name in actor_rows}
     output: list[OperationLogRead] = []
     for row in rows:
         detail = _from_json_dict(row.detail)
@@ -71,6 +76,7 @@ def list_operation_logs(
             OperationLogRead(
                 id=row.id,
                 actor_user_id=row.actor_user_id,
+                actor_user_name=actor_name_map.get(int(row.actor_user_id)) if row.actor_user_id is not None else None,
                 action=row.action,
                 target_type=row.target_type,
                 target_id=row.target_id,

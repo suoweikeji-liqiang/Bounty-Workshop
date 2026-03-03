@@ -209,6 +209,8 @@ export type TaskActivity = {
   claim_id: number | null
   activity_type: TaskActivityType
   actor_user_id: number
+  actor_user_name?: string | null
+  claim_name?: string | null
   content: string
   detail: Record<string, unknown>
   attachment_urls: string[]
@@ -264,8 +266,11 @@ export type MilestonePendingAcceptance = {
   task_title: string
   sequence: number
   claim_id: number
+  claim_mode: string
+  lead_user_name?: string | null
   submitted_at: string
   submitted_by_user_id: number
+  submitted_by_user_name?: string | null
   status: MilestoneStatus
 }
 
@@ -398,9 +403,11 @@ export type ClaimApprovalRequest = {
 export type PendingAcceptance = {
   deliverable_id: number
   claim_id: number
+  claim_mode: string
   task_id: number
   task_title: string
   lead_user_id: number
+  lead_user_name?: string | null
   submitted_at: string
   deliverable_status: string
 }
@@ -469,6 +476,7 @@ export type KnowledgeItem = {
 export type OperationLog = {
   id: number
   actor_user_id: number | null
+  actor_user_name?: string | null
   action: string
   target_type: string
   target_id: number | null

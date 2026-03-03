@@ -2551,6 +2551,8 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert comment_resp.json()["claim_id"] is None
     assert comment_resp.json()["activity_type"] == "comment"
     assert comment_resp.json()["actor_user_id"] == viewer_id
+    assert comment_resp.json()["actor_user_name"] == "ActivityViewer"
+    assert comment_resp.json()["claim_name"] is None
     assert comment_resp.json()["content"] == "I can help review this."
     assert comment_resp.json()["attachment_urls"] == []
     assert comment_resp.json()["detail"] == {}
@@ -2575,7 +2577,20 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert len(claim_created_activity_payload) == 1
     claim_created_event = claim_created_activity_payload[0]
     assert claim_created_event["activity_type"] == "system_event"
+    assert claim_created_event["actor_user_name"] == "ActivityLead"
+    assert claim_created_event["claim_name"] == "个人 · ActivityLead"
     assert claim_created_event["detail"]["event_key"] == "claim_created"
+
+    active_claim_options_resp = client.get(f"/tasks/{task_id}/claims/active", headers=_headers(claimant_id))
+    assert active_claim_options_resp.status_code == 200
+    active_claim_options = active_claim_options_resp.json()
+    assert len(active_claim_options) == 1
+    assert active_claim_options[0]["claim_id"] == claim_id
+    assert active_claim_options[0]["lead_user_name"] == "ActivityLead"
+
+    outsider_active_claim_options_resp = client.get(f"/tasks/{task_id}/claims/active", headers=_headers(outsider_id))
+    assert outsider_active_claim_options_resp.status_code == 200
+    assert outsider_active_claim_options_resp.json() == []
 
     note_resp = client.post(
         f"/tasks/{task_id}/activities",
@@ -2620,6 +2635,7 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert blocker_resp.status_code == 200
     assert blocker_resp.json()["task_id"] == task_id
     assert blocker_resp.json()["claim_id"] == claim_id
+    assert blocker_resp.json()["claim_name"] == "个人 · ActivityLead"
     assert blocker_resp.json()["activity_type"] == "blocker"
     assert blocker_resp.json()["detail"] == {"severity": "high"}
     assert blocker_resp.json()["attachment_urls"] == [f"/attachments/{blocker_attachment_id}/download"]

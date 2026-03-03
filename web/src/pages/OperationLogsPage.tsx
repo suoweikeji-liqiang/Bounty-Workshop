@@ -2,7 +2,7 @@
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { OperationLog } from '../types'
+import type { OperationLog, UserProfile } from '../types'
 
 type Props = {
   userId: number
@@ -37,13 +37,29 @@ function isSameQuery(a: LogQuery, b: LogQuery): boolean {
 export function OperationLogsPage({ userId }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<OperationLog[]>([])
+  const [users, setUsers] = useState<UserProfile[]>([])
   const [query, setQuery] = useState<LogQuery>(defaultQuery)
   const [queryDraft, setQueryDraft] = useState<LogQuery>(defaultQuery)
+  const [actorSearch, setActorSearch] = useState('')
   const [selectedLog, setSelectedLog] = useState<OperationLog | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const hasQueryChanges = useMemo(() => !isSameQuery(query, queryDraft), [query, queryDraft])
+  const userNameMap = useMemo(
+    () => new Map<number, string>(users.map((item) => [item.id, item.name])),
+    [users],
+  )
+  const filteredUsers = useMemo(() => {
+    const keyword = actorSearch.trim().toLowerCase()
+    if (!keyword) {
+      return users
+    }
+    return users.filter((item) => {
+      const value = `${item.name} ${item.department ?? ''} ${item.employee_no ?? ''}`.toLowerCase()
+      return value.includes(keyword)
+    })
+  }, [actorSearch, users])
 
   const load = useCallback(async () => {
     try {
@@ -77,9 +93,32 @@ export function OperationLogsPage({ userId }: Props) {
     }
   }, [query, userId])
 
+  const loadUsers = useCallback(async () => {
+    try {
+      const rows = await requestJson<UserProfile[]>('/users/active', { userId })
+      setUsers(rows)
+    } catch {
+      setUsers([])
+    }
+  }, [userId])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadUsers()
+  }, [loadUsers])
+
+  const renderActorName = (item: OperationLog) => {
+    if (item.actor_user_name?.trim()) {
+      return item.actor_user_name
+    }
+    if (item.actor_user_id == null) {
+      return '-'
+    }
+    return userNameMap.get(item.actor_user_id) ?? `用户${item.actor_user_id}`
+  }
 
   useEffect(() => {
     if (!error) {
@@ -95,6 +134,7 @@ export function OperationLogsPage({ userId }: Props) {
   const resetQuery = () => {
     setQueryDraft(defaultQuery)
     setQuery(defaultQuery)
+    setActorSearch('')
   }
 
   return (
@@ -123,11 +163,27 @@ export function OperationLogsPage({ userId }: Props) {
             />
           </label>
           <label className="filter-field">
-            <span>操作人 ID</span>
+            <span>搜索操作人</span>
             <input
+              type="search"
+              value={actorSearch}
+              onChange={(event) => setActorSearch(event.target.value)}
+              placeholder="按姓名/部门筛选"
+            />
+          </label>
+          <label className="filter-field">
+            <span>操作人</span>
+            <select
               value={queryDraft.actorId}
               onChange={(event) => setQueryDraft((prev) => ({ ...prev, actorId: event.target.value }))}
-            />
+            >
+              <option value="">全部</option>
+              {filteredUsers.map((item) => (
+                <option key={`op-log-user-${item.id}`} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="filter-field">
             <span>开始日期</span>
@@ -188,7 +244,7 @@ export function OperationLogsPage({ userId }: Props) {
               <span>#{item.id}</span>
               <span>{new Date(item.created_at).toLocaleString()}</span>
               <span title={item.action}>{item.action}</span>
-              <span>{item.actor_user_id ?? '-'}</span>
+              <span>{renderActorName(item)}</span>
               <span>
                 {item.target_type}#{item.target_id ?? '-'}
               </span>
@@ -226,7 +282,7 @@ export function OperationLogsPage({ userId }: Props) {
             </p>
             <p className="line-metric">
               <span>操作人</span>
-              <strong>{selectedLog.actor_user_id ?? '-'}</strong>
+              <strong>{renderActorName(selectedLog)}</strong>
             </p>
             <p className="line-metric">
               <span>目标</span>

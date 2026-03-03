@@ -219,13 +219,16 @@ def list_my_pending_acceptance(session: Session, user_id: int) -> list[PendingAc
             ).first()
             if deliverable is None:
                 continue
+            lead_user = session.get(User, claim.lead_user_id)
             output.append(
                 PendingAcceptanceRead(
                     deliverable_id=deliverable.id,
                     claim_id=claim.id,
+                    claim_mode=claim.mode.value,
                     task_id=task.id,
                     task_title=task.title,
                     lead_user_id=claim.lead_user_id,
+                    lead_user_name=lead_user.name if lead_user else None,
                     submitted_at=deliverable.submitted_at,
                     deliverable_status=deliverable.status.value,
                 )

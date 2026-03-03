@@ -4,6 +4,7 @@ import type {
   MilestonePendingAcceptance,
   Problem,
   ProblemDetail,
+  TaskActiveClaim,
   TaskActivity,
   TaskActivityType,
   TaskMilestone,
@@ -48,6 +49,10 @@ export async function listTaskActivities(userId: number, taskId: number): Promis
 
 export async function listClaimActivities(userId: number, claimId: number): Promise<TaskActivity[]> {
   return requestJson<TaskActivity[]>(`/claims/${claimId}/activities`, { userId })
+}
+
+export async function listTaskActiveClaims(userId: number, taskId: number): Promise<TaskActiveClaim[]> {
+  return requestJson<TaskActiveClaim[]>(`/tasks/${taskId}/claims/active`, { userId })
 }
 
 export async function createTaskActivity(

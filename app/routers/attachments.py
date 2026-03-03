@@ -15,6 +15,7 @@ from app.attachments import (
     get_attachment_or_404,
     get_presigned_download_url,
     list_attachments_by_entity,
+    list_attachments_uploaded_by_user,
     local_file_path,
 )
 from app.auth import get_current_user_id, get_user_roles
@@ -65,6 +66,21 @@ def get_attachment_metadata(
     actor_roles = get_user_roles(session, actor_id)
     ensure_attachment_access(session, actor_id, actor_roles, attachment)
     return attachment_to_read(attachment)
+
+
+@router.get("/attachments/mine/list", response_model=list[AttachmentRead])
+def get_my_attachments(
+    keyword: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_session),
+    actor_id: int = Depends(get_current_user_id),
+) -> list[AttachmentRead]:
+    return list_attachments_uploaded_by_user(
+        session=session,
+        uploader_user_id=actor_id,
+        keyword=keyword,
+        limit=limit,
+    )
 
 
 @router.get("/attachments/{attachment_id}/download", response_model=None)

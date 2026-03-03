@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.enums import Role
@@ -336,6 +337,26 @@ def list_attachments_by_entity(
         select(Attachment)
         .where(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id)
         .order_by(Attachment.created_at.asc())
+    ).all()
+    return [attachment_to_read(item) for item in rows]
+
+
+def list_attachments_uploaded_by_user(
+    session: Session,
+    uploader_user_id: int,
+    keyword: str | None = None,
+    limit: int = 200,
+) -> list[AttachmentRead]:
+    safe_limit = max(1, min(limit, 500))
+    statement = select(Attachment).where(Attachment.uploader_user_id == uploader_user_id)
+    normalized = (keyword or "").strip()
+    if normalized:
+        conditions = [Attachment.filename.contains(normalized)]
+        if normalized.isdigit():
+            conditions.append(Attachment.id == int(normalized))
+        statement = statement.where(or_(*conditions))
+    rows = session.exec(
+        statement.order_by(Attachment.created_at.desc(), Attachment.id.desc()).limit(safe_limit)
     ).all()
     return [attachment_to_read(item) for item in rows]
 

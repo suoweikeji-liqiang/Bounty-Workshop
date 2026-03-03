@@ -41,6 +41,7 @@ from app.services_tasks import (  # noqa: F401
 
 # task activities
 from app.services_task_activity import (  # noqa: F401
+    list_task_active_claims,
     list_task_activities,
     list_claim_activities,
     create_task_activity,

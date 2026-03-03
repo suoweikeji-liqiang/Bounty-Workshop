@@ -80,10 +80,13 @@ export function MilestoneAcceptancePanel({ userId, canAccept, onChanged }: Props
           return (
             <div key={item.milestone_id}>
               <div className="row milestone-accept-row">
-                <span>#{item.milestone_id} / M{item.sequence}</span>
+                <span>M{item.sequence}</span>
                 <span title={item.task_title}>{item.task_title}</span>
-                <span>#{item.claim_id}</span>
-                <span>#{item.submitted_by_user_id}</span>
+                <span>
+                  {(item.claim_mode === 'team' ? '组队' : '个人')}
+                  {item.lead_user_name ? ` · ${item.lead_user_name}` : ''}
+                </span>
+                <span>{item.submitted_by_user_name || `用户${item.submitted_by_user_id}`}</span>
                 <span>{new Date(item.submitted_at).toLocaleString()}</span>
                 <span className="actions">
                   <button type="button" onClick={() => setOpenId(open ? null : item.milestone_id)}>

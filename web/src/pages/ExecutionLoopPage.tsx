@@ -97,6 +97,10 @@ function formatMilestoneStatus(status: string | null | undefined) {
   return map[status] ?? status
 }
 
+function formatClaimMode(mode: string | null | undefined) {
+  return mode === 'team' ? '组队' : '个人'
+}
+
 export function ExecutionLoopPage({ userId, profile }: Props) {
   const toast = useToast()
   const [claims, setClaims] = useState<ClaimExecution[]>([])
@@ -408,7 +412,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`奖励 #${rewardId} 已确认`)
+      setMessage('奖励已确认')
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '奖励确认失败')
@@ -416,7 +420,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
   }
 
   const abandonClaim = async (targetClaimId: number) => {
-    const ok = window.confirm(`确认放弃揭榜 #${targetClaimId} 吗？该操作不可撤销。`)
+    const claim = claims.find((item) => item.claim_id === targetClaimId)
+    const claimTitle = claim?.task_title ?? '该任务'
+    const ok = window.confirm(`确认放弃“${claimTitle}”的揭榜吗？该操作不可撤销。`)
     if (!ok) {
       return
     }
@@ -425,7 +431,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`揭榜 #${targetClaimId} 已放弃`)
+      setMessage(`已放弃揭榜：${claimTitle}`)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '放弃揭榜失败')
@@ -465,7 +471,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         </div>
         <div className="table">
           <div className="row head wide-row">
-            <span>揭榜</span>
+            <span>模式</span>
             <span>任务</span>
             <span>揭榜状态</span>
             <span>任务状态</span>
@@ -474,7 +480,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
           </div>
           {claims.map((item) => (
             <div className="row wide-row" key={item.claim_id}>
-              <span>#{item.claim_id}</span>
+              <span>{formatClaimMode(item.claim_mode)}</span>
               <span>{item.task_title}</span>
               <span>{formatCommonStatus(item.claim_status)}</span>
               <span>{formatCommonStatus(item.task_status)}</span>
@@ -513,7 +519,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
           <select value={milestoneClaimId} onChange={(event) => setMilestoneClaimId(event.target.value)}>
             {milestoneClaimOptions.map((item) => (
               <option key={`milestone-claim-${item.claim_id}`} value={item.claim_id}>
-                #{item.claim_id} {item.task_title}
+                {item.task_title} · {formatClaimMode(item.claim_mode)}
               </option>
             ))}
           </select>
@@ -602,7 +608,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                   <select value={claimId} onChange={(event) => setClaimId(event.target.value)} required>
                     {deliverableClaimOptions.map((item) => (
                       <option key={`deliverable-claim-${item.claim_id}`} value={item.claim_id}>
-                        #{item.claim_id} [{formatCommonStatus(item.claim_status)}] {item.task_title}
+                        [{formatCommonStatus(item.claim_status)}] {item.task_title}
                       </option>
                     ))}
                   </select>
@@ -644,11 +650,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
               <p className="muted">验收意见可直接手填，也可点模板建议快速填入。模板内容在「系统配置」维护。</p>
               <div className="table">
                 <div className="row head wide-row">
-                  <span>成果</span>
-                  <span>揭榜</span>
+                  <span>揭榜模式</span>
                   <span>任务</span>
-                  <span>提交人</span>
+                  <span>揭榜负责人</span>
                   <span>提交时间</span>
+                  <span>状态</span>
                   <span>操作</span>
                 </div>
                 {pendingAcceptance.map((item) => {
@@ -657,11 +663,11 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
                   return (
                     <div key={item.deliverable_id}>
                       <div className="row wide-row">
-                        <span>#{item.deliverable_id}</span>
-                        <span>#{item.claim_id}</span>
+                        <span>{formatClaimMode(item.claim_mode)}</span>
                         <span>{item.task_title}</span>
-                        <span>#{item.lead_user_id}</span>
+                        <span>{item.lead_user_name || `用户${item.lead_user_id}`}</span>
                         <span>{new Date(item.submitted_at).toLocaleString()}</span>
+                        <span>{formatCommonStatus(item.deliverable_status)}</span>
                         <span className="actions">
                           <button type="button" onClick={() => void openDetail(item.claim_id)}>
                             详情
@@ -756,9 +762,9 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
               </div>
               {rewards.map((item) => (
                 <div className="row wide-row" key={item.id}>
-                  <span>#{item.id}</span>
-                  <span>#{item.task_id}</span>
-                  <span>#{item.user_id}</span>
+                  <span>{item.id}</span>
+                  <span>{item.task_title || `任务${item.task_id}`}</span>
+                  <span>{item.user_name || `用户${item.user_id}`}</span>
                   <span>¥{item.amount.toFixed(2)}</span>
                   <span>{formatCommonStatus(item.status)}</span>
                   <span>
@@ -790,7 +796,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
             aria-labelledby="claim-detail-title"
           >
             <div className="panel-headline">
-              <h3 id="claim-detail-title">揭榜 #{detail.claim_id} 详情</h3>
+              <h3 id="claim-detail-title">任务执行详情</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
                 关闭
               </button>

@@ -21,6 +21,7 @@ from app.models import (
     Problem,
     Task,
     TaskMilestone,
+    User,
 )
 from app.schemas import (
     MilestoneAcceptanceCreate,
@@ -438,6 +439,9 @@ def list_my_pending_milestone_acceptance(
         submission = _latest_submission(session, milestone.id)
         if submission is None:
             continue
+        claim = session.get(Claim, submission.claim_id)
+        lead_user = session.get(User, claim.lead_user_id) if claim is not None else None
+        submitter_user = session.get(User, submission.submitted_by_user_id)
         output.append(
             MilestonePendingAcceptanceRead(
                 milestone_id=milestone.id,
@@ -445,10 +449,12 @@ def list_my_pending_milestone_acceptance(
                 task_title=task.title,
                 sequence=milestone.sequence,
                 claim_id=submission.claim_id,
+                claim_mode=(claim.mode.value if claim is not None else ClaimMode.INDIVIDUAL.value),
+                lead_user_name=lead_user.name if lead_user is not None else None,
                 submitted_at=submission.submitted_at,
                 submitted_by_user_id=submission.submitted_by_user_id,
+                submitted_by_user_name=submitter_user.name if submitter_user is not None else None,
                 status=milestone.status,
             )
         )
     return output
-
