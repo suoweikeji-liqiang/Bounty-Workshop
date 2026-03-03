@@ -1,75 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { allRoles, normalizeRoles, roleLabel, statusLabel, statusTone, type RoleName } from '../lib/userRoles'
 import type { UserProfile } from '../types'
 
 type Props = {
   userId: number
 }
 
-type RoleName = 'admin' | 'reviewer' | 'reward_approver' | 'acceptor' | 'employee'
 type UserStatusFilter = 'all' | 'enabled' | 'disabled'
 type RoleFilter = 'all' | RoleName
 
-const allRoles: RoleName[] = ['admin', 'reviewer', 'reward_approver', 'acceptor', 'employee']
-
-function toggleRole(current: RoleName[], role: RoleName): RoleName[] {
-  if (current.includes(role)) {
-    const next = current.filter((item) => item !== role) as RoleName[]
-    return next.length > 0 ? next : ['employee']
-  }
-  return [...current, role] as RoleName[]
-}
-
-function normalizeRoles(roles: string[]): RoleName[] {
-  const next = roles.filter((role): role is RoleName => allRoles.includes(role as RoleName))
-  return next.length > 0 ? next : ['employee']
-}
-
-function roleLabel(role: RoleName) {
-  if (role === 'admin') return '¹ÜÀíÔ±'
-  if (role === 'reviewer') return 'ÆÀÉó'
-  if (role === 'acceptor') return 'ÑéÊÕÈË'
-  if (role === 'reward_approver') return '×Ê½ğ¸´ºË'
-  return 'Ô±¹¤'
-}
-
-function statusLabel(status: string) {
-  if (status === 'enabled') return 'ÆôÓÃ'
-  if (status === 'disabled') return '½ûÓÃ'
-  return status
-}
-
-function statusTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'muted' {
-  if (status === 'enabled') return 'success'
-  if (status === 'disabled') return 'danger'
-  return 'muted'
-}
-
 export function UsersPage({ userId }: Props) {
   const toast = useToast()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [loading, setLoading] = useState(false)
-
-  const [manageUserId, setManageUserId] = useState<number | null>(null)
-  const [manageRoles, setManageRoles] = useState<RoleName[]>(['employee'])
-  const [savingRoles, setSavingRoles] = useState(false)
-  const [togglingStatus, setTogglingStatus] = useState(false)
-
-  const [passwordOpen, setPasswordOpen] = useState(false)
-  const [savingPassword, setSavingPassword] = useState(false)
-  const [passwordDraft, setPasswordDraft] = useState('')
-  const [forceChange, setForceChange] = useState(true)
-
-  const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const managedUser = useMemo(() => users.find((item) => item.id === manageUserId) ?? null, [manageUserId, users])
 
   const userCount = useMemo(() => users.length, [users])
   const filteredUsers = useMemo(() => {
@@ -104,7 +58,7 @@ export function UsersPage({ userId }: Props) {
       const rows = await requestJson<UserProfile[]>('/users', { userId })
       setUsers(rows)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØÓÃ»§Ê§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½ç”¨æˆ·å¤±è´¥')
     } finally {
       setLoading(false)
     }
@@ -113,112 +67,6 @@ export function UsersPage({ userId }: Props) {
   useEffect(() => {
     void loadUsers()
   }, [loadUsers])
-
-  const openManageUser = (user: UserProfile) => {
-    setManageUserId(user.id)
-    setManageRoles(normalizeRoles(user.roles))
-    setPasswordOpen(false)
-    setPasswordDraft('')
-    setForceChange(true)
-  }
-
-  const closeManageUser = () => {
-    if (savingRoles || savingPassword || togglingStatus) {
-      return
-    }
-    setManageUserId(null)
-    setManageRoles(['employee'])
-    setPasswordOpen(false)
-    setPasswordDraft('')
-    setForceChange(true)
-  }
-
-  const saveRoles = async () => {
-    if (!managedUser) {
-      return
-    }
-    if (manageRoles.length === 0) {
-      setError('ÖÁÉÙ±£ÁôÒ»¸ö½ÇÉ«')
-      return
-    }
-
-    try {
-      setSavingRoles(true)
-      setError(null)
-      await requestJson(`/users/${managedUser.id}/roles`, {
-        method: 'PUT',
-        userId,
-        body: { roles: manageRoles },
-      })
-      setMessage(`ÓÃ»§ #${managedUser.id} ½ÇÉ«ÒÑ¸üĞÂ`)
-      await loadUsers()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '½ÇÉ«¸üĞÂÊ§°Ü')
-    } finally {
-      setSavingRoles(false)
-    }
-  }
-
-  const toggleUserStatus = async () => {
-    if (!managedUser) {
-      return
-    }
-    const nextStatus = managedUser.status === 'enabled' ? 'disabled' : 'enabled'
-
-    try {
-      setTogglingStatus(true)
-      setError(null)
-      await requestJson(`/users/${managedUser.id}/status`, {
-        method: 'PUT',
-        userId,
-        body: { status: nextStatus },
-      })
-      setMessage(`ÓÃ»§ #${managedUser.id} ×´Ì¬ÒÑ¸üĞÂÎª${statusLabel(nextStatus)}`)
-      await loadUsers()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '×´Ì¬¸üĞÂÊ§°Ü')
-    } finally {
-      setTogglingStatus(false)
-    }
-  }
-
-  const submitPasswordReset = async () => {
-    if (!managedUser) {
-      return
-    }
-    if (passwordDraft.length < 8) {
-      setError('ĞÂÃÜÂëÖÁÉÙ 8 Î»')
-      return
-    }
-
-    try {
-      setSavingPassword(true)
-      setError(null)
-      await requestJson(`/admin/users/${managedUser.id}/password`, {
-        method: 'POST',
-        userId,
-        body: {
-          new_password: passwordDraft,
-          force_change: forceChange,
-        },
-      })
-      setMessage(`ÓÃ»§ #${managedUser.id} ÃÜÂëÒÑÖØÖÃ`)
-      setPasswordOpen(false)
-      setPasswordDraft('')
-      setForceChange(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'ÃÜÂëÖØÖÃÊ§°Ü')
-    } finally {
-      setSavingPassword(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!message) {
-      return
-    }
-    toast.success(message)
-  }, [message, toast])
 
   useEffect(() => {
     if (!error) {
@@ -233,39 +81,41 @@ export function UsersPage({ userId }: Props) {
     setRoleFilter('all')
   }
 
+  const encodedBack = encodeURIComponent(`${location.pathname}${location.search}`)
+
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>½ÇÉ«·ÖÅä</h2>
-        <p>ÓÃÓÚ½ÇÉ«·ÖÅä¡¢ÕËºÅ×´Ì¬¹ÜÀíºÍÃÜÂëÖØÖÃ¡£</p>
+        <h2>è§’è‰²åˆ†é…</h2>
+        <p>ç”¨äºè§’è‰²åˆ†é…ã€è´¦å·çŠ¶æ€ç®¡ç†å’Œå¯†ç é‡ç½®ã€‚</p>
       </header>
 
-      <article className="panel">
+      <article className="panel filter-panel">
         <div className="users-toolbar">
           <label className="users-toolbar-search">
-            ¹Ø¼ü´ÊËÑË÷
+            å…³é”®è¯æœç´¢
             <input
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="ËÑË÷ ID / ĞÕÃû / ¹¤ºÅ / ²¿ÃÅ / ÓÊÏä"
+              placeholder="æœç´¢ ID / å§“å / å·¥å· / éƒ¨é—¨ / é‚®ç®±"
             />
           </label>
           <label>
-            ×´Ì¬
+            çŠ¶æ€
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
             >
-              <option value="all">È«²¿</option>
-              <option value="enabled">ÆôÓÃ</option>
-              <option value="disabled">½ûÓÃ</option>
+              <option value="all">å…¨éƒ¨</option>
+              <option value="enabled">å¯ç”¨</option>
+              <option value="disabled">ç¦ç”¨</option>
             </select>
           </label>
           <label>
-            ½ÇÉ«
+            è§’è‰²
             <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
-              <option value="all">È«²¿</option>
+              <option value="all">å…¨éƒ¨</option>
               {allRoles.map((role) => (
                 <option key={`filter-role-${role}`} value={role}>
                   {roleLabel(role)}
@@ -275,28 +125,28 @@ export function UsersPage({ userId }: Props) {
           </label>
           <div className="users-toolbar-actions">
             <button type="button" onClick={resetFilters} disabled={!hasActiveFilters}>
-              ÖØÖÃÉ¸Ñ¡
+              é‡ç½®ç­›é€‰
             </button>
           </div>
         </div>
 
         <div className="panel-headline">
           <h3>
-            ÓÃ»§ÁĞ±í£¨{filteredCount} / {userCount}£©
+            ç”¨æˆ·åˆ—è¡¨ï¼ˆ{filteredCount} / {userCount}ï¼‰
           </h3>
           <button type="button" onClick={() => void loadUsers()} disabled={loading}>
-            Ë¢ĞÂ
+            åˆ·æ–°
           </button>
         </div>
 
         <div className="table">
           <div className="row head users-row">
             <span>ID</span>
-            <span>ÓÃ»§</span>
-            <span>²¿ÃÅ</span>
-            <span>×´Ì¬</span>
-            <span>½ÇÉ«</span>
-            <span>²Ù×÷</span>
+            <span>ç”¨æˆ·</span>
+            <span>éƒ¨é—¨</span>
+            <span>çŠ¶æ€</span>
+            <span>è§’è‰²</span>
+            <span>æ“ä½œ</span>
           </div>
           {filteredUsers.map((item) => (
             <div className="row users-row" key={item.id}>
@@ -304,17 +154,20 @@ export function UsersPage({ userId }: Props) {
               <span className="users-name-cell">
                 <strong>{item.name}</strong>
                 <small>
-                  {item.employee_no ? `¹¤ºÅ ${item.employee_no}` : 'ÎŞ¹¤ºÅ'} / {item.email ?? 'ÎŞÓÊÏä'}
+                  {item.employee_no ? `å·¥å· ${item.employee_no}` : 'æ— å·¥å·'} / {item.email ?? 'æ— é‚®ç®±'}
                 </small>
               </span>
-              <span className="users-department-cell">{item.department ?? 'Î´·ÖÅä'}</span>
+              <span className="users-department-cell">{item.department ?? 'æœªåˆ†é…'}</span>
               <span>
                 <StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge>
               </span>
               <span className="users-department-cell">{normalizeRoles(item.roles).map(roleLabel).join(' / ')}</span>
               <span className="users-action-group">
-                <button type="button" onClick={() => openManageUser(item)}>
-                  ¹ÜÀí
+                <button
+                  type="button"
+                  onClick={() => navigate(`/users/${item.id}/manage?back=${encodedBack}`)}
+                >
+                  ç®¡ç†
                 </button>
               </span>
             </div>
@@ -322,97 +175,12 @@ export function UsersPage({ userId }: Props) {
           {filteredUsers.length === 0 && (
             <div className="row users-row users-empty-row">
               <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>
-                µ±Ç°É¸Ñ¡Ìõ¼şÏÂÃ»ÓĞÆ¥ÅäÓÃ»§
+                å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æ²¡æœ‰åŒ¹é…ç”¨æˆ·
               </span>
             </div>
           )}
         </div>
       </article>
-
-      {managedUser && (
-        <div className="modal-backdrop" onClick={closeManageUser}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="manage-user-title">
-            <div className="panel-headline">
-              <h3 id="manage-user-title">ÓÃ»§¹ÜÀí #{managedUser.id}</h3>
-              <button type="button" onClick={closeManageUser} disabled={savingRoles || savingPassword || togglingStatus}>
-                ¹Ø±Õ
-              </button>
-            </div>
-            <p className="line-metric">
-              <span>ÓÃ»§</span>
-              <strong>{managedUser.name}</strong>
-            </p>
-            <p className="line-metric">
-              <span>µ±Ç°×´Ì¬</span>
-              <strong>{statusLabel(managedUser.status)}</strong>
-            </p>
-            <article className="modal-section">
-              <h4>½ÇÉ«ÉèÖÃ</h4>
-              <div className="users-role-grid">
-                {allRoles.map((role) => (
-                  <label className="users-role-item" key={`manage-role-${managedUser.id}-${role}`}>
-                    <input
-                      type="checkbox"
-                      checked={manageRoles.includes(role)}
-                      onChange={() => setManageRoles((prev) => toggleRole(prev, role))}
-                    />
-                    {roleLabel(role)}
-                  </label>
-                ))}
-              </div>
-              <div className="button-row" style={{ marginTop: 12 }}>
-                <button className="primary-btn" type="button" onClick={() => void saveRoles()} disabled={savingRoles}>
-                  {savingRoles ? '±£´æÖĞ...' : '±£´æ½ÇÉ«'}
-                </button>
-                <button type="button" onClick={() => void toggleUserStatus()} disabled={togglingStatus}>
-                  {togglingStatus
-                    ? '´¦ÀíÖĞ...'
-                    : managedUser.status === 'enabled'
-                      ? '½ûÓÃÕËºÅ'
-                      : 'ÆôÓÃÕËºÅ'}
-                </button>
-              </div>
-            </article>
-
-            <article className="modal-section">
-              <h4>ÃÜÂëÖØÖÃ</h4>
-              {!passwordOpen ? (
-                <button type="button" onClick={() => setPasswordOpen(true)}>
-                  ´ò¿ªÖØÖÃÃæ°å
-                </button>
-              ) : (
-                <div className="form-grid">
-                  <label className="wide">
-                    ĞÂÃÜÂë£¨ÖÁÉÙ 8 Î»£©
-                    <input
-                      type="password"
-                      value={passwordDraft}
-                      onChange={(event) => setPasswordDraft(event.target.value)}
-                      placeholder="ÇëÊäÈëĞÂÃÜÂë"
-                    />
-                  </label>
-                  <label className="wide">
-                    <input
-                      type="checkbox"
-                      checked={forceChange}
-                      onChange={(event) => setForceChange(event.target.checked)}
-                    />
-                    ÏÂ´ÎµÇÂ¼Ç¿ÖÆĞŞ¸ÄÃÜÂë
-                  </label>
-                  <div className="button-row wide">
-                    <button type="button" onClick={() => setPasswordOpen(false)} disabled={savingPassword}>
-                      È¡Ïû
-                    </button>
-                    <button className="primary-btn" type="button" onClick={() => void submitPasswordReset()} disabled={savingPassword}>
-                      {savingPassword ? 'Ìá½»ÖĞ...' : 'È·ÈÏÖØÖÃ'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </article>
-          </div>
-        </div>
-      )}
     </section>
   )
 }

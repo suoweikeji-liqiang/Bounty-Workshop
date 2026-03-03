@@ -11,6 +11,8 @@ web/dist/
 web/*.tsbuildinfo
 web/playwright-report/
 web/test-results/
+.worktrees/
+worktrees/
 *.log
 /login_output.txt
 /package-lock.json

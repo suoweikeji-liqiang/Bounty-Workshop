@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -63,7 +63,7 @@ export function KnowledgePage({ userId }: Props) {
         const data = await requestJson<KnowledgeItem[]>(`/knowledge${buildQuery(nextFilters, nextPage)}`, { userId })
         setRows(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : '¼ÓÔØÖªÊ¶ÌõÄ¿Ê§°Ü')
+        setError(err instanceof Error ? err.message : 'åŠ è½½çŸ¥è¯†æ¡ç›®å¤±è´¥')
       } finally {
         setLoading(false)
       }
@@ -108,101 +108,105 @@ export function KnowledgePage({ userId }: Props) {
       setDetail(payload)
       setDetailOpen(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØÖªÊ¶ÏêÇéÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½çŸ¥è¯†è¯¦æƒ…å¤±è´¥')
     }
   }
 
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>ÖªÊ¶¿â</h2>
-        <p>Ö§³Ö·şÎñ¶ËÉ¸Ñ¡Óë·ÖÒ³µÄÖªÊ¶¹éµµÖĞĞÄ¡£</p>
+        <h2>çŸ¥è¯†åº“</h2>
+        <p>æ”¯æŒæœåŠ¡ç«¯ç­›é€‰ä¸åˆ†é¡µçš„çŸ¥è¯†å½’æ¡£ä¸­å¿ƒã€‚</p>
       </header>
 
-      <form className="panel form-grid" onSubmit={submitFilters}>
-        <h3>É¸Ñ¡Ìõ¼ş</h3>
-        <label>
-          ¹Ø¼ü×Ö
-          <input
-            value={filtersDraft.keyword}
-            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, keyword: event.target.value }))}
-            placeholder="ÎÊÌâÕªÒª¡¢½â¾ö·½°¸»ò±êÇ©"
-          />
-        </label>
-        <label>
-          ³¡¾°
-          <select
-            value={filtersDraft.scenario}
-            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, scenario: event.target.value }))}
-          >
-            <option value="">È«²¿</option>
-            <option value="rd">ÑĞ·¢</option>
-            <option value="ops">ÔËÎ¬</option>
-            <option value="delivery">½»¸¶</option>
-            <option value="support">Ö§³Ö</option>
-            <option value="other">ÆäËû</option>
-          </select>
-        </label>
-        <label>
-          µÈ¼¶
-          <select
-            value={filtersDraft.level}
-            onChange={(event) => setFiltersDraft((prev) => ({ ...prev, level: event.target.value }))}
-          >
-            <option value="">È«²¿</option>
-            <option value="S">S</option>
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
-          </select>
-        </label>
-        <label>
-          ÍÆ¼ö
-          <select
-            value={filtersDraft.recommended}
-            onChange={(event) =>
-              setFiltersDraft((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
-            }
-          >
-            <option value="all">È«²¿</option>
-            <option value="true">ÊÇ</option>
-            <option value="false">·ñ</option>
-          </select>
-        </label>
-        <div className="button-row wide">
-          <button className="primary-btn" type="submit" disabled={loading || !hasFilterChanges}>
-            Ó¦ÓÃÉ¸Ñ¡
-          </button>
-          <button type="button" onClick={resetFilters} disabled={loading}>
-            ÖØÖÃ
-          </button>
-          <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
-            {loading ? 'Ë¢ĞÂÖĞ...' : 'Ë¢ĞÂ'}
-          </button>
+      <form className="panel filter-panel" onSubmit={submitFilters}>
+        <div className="panel-headline">
+          <h3>ç­›é€‰æ¡ä»¶</h3>
+        </div>
+        <div className="filter-toolbar">
+          <label className="filter-field grow">
+            <span>å…³é”®å­—</span>
+            <input
+              value={filtersDraft.keyword}
+              onChange={(event) => setFiltersDraft((prev) => ({ ...prev, keyword: event.target.value }))}
+              placeholder="é—®é¢˜æ‘˜è¦ã€è§£å†³æ–¹æ¡ˆæˆ–æ ‡ç­¾"
+            />
+          </label>
+          <label className="filter-field">
+            <span>åœºæ™¯</span>
+            <select
+              value={filtersDraft.scenario}
+              onChange={(event) => setFiltersDraft((prev) => ({ ...prev, scenario: event.target.value }))}
+            >
+              <option value="">å…¨éƒ¨</option>
+              <option value="rd">ç ”å‘</option>
+              <option value="ops">è¿ç»´</option>
+              <option value="delivery">äº¤ä»˜</option>
+              <option value="support">æ”¯æŒ</option>
+              <option value="other">å…¶ä»–</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>ç­‰çº§</span>
+            <select
+              value={filtersDraft.level}
+              onChange={(event) => setFiltersDraft((prev) => ({ ...prev, level: event.target.value }))}
+            >
+              <option value="">å…¨éƒ¨</option>
+              <option value="S">S</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>æ¨è</span>
+            <select
+              value={filtersDraft.recommended}
+              onChange={(event) =>
+                setFiltersDraft((prev) => ({ ...prev, recommended: event.target.value as FilterState['recommended'] }))
+              }
+            >
+              <option value="all">å…¨éƒ¨</option>
+              <option value="true">æ˜¯</option>
+              <option value="false">å¦</option>
+            </select>
+          </label>
+          <div className="filter-actions">
+            <button className="primary-btn" type="submit" disabled={loading || !hasFilterChanges}>
+              åº”ç”¨ç­›é€‰
+            </button>
+            <button type="button" onClick={resetFilters} disabled={loading}>
+              é‡ç½®
+            </button>
+            <button type="button" onClick={() => void load(filters, page)} disabled={loading}>
+              {loading ? 'åˆ·æ–°ä¸­...' : 'åˆ·æ–°'}
+            </button>
+          </div>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>ÖªÊ¶ÌõÄ¿£¨µÚ {page} Ò³£©</h3>
-          <span className="muted">{rows.length} Ìõ</span>
+          <h3>çŸ¥è¯†æ¡ç›®ï¼ˆç¬¬ {page} é¡µï¼‰</h3>
+          <span className="muted">{rows.length} æ¡</span>
         </div>
         <div className="button-row">
           <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
-            ÉÏÒ»Ò³
+            ä¸Šä¸€é¡µ
           </button>
           <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
-            ÏÂÒ»Ò³
+            ä¸‹ä¸€é¡µ
           </button>
         </div>
         <div className="table">
           <div className="row head wide-row">
             <span>ID</span>
-            <span>ÈÎÎñ</span>
-            <span>³¡¾°/µÈ¼¶</span>
-            <span>ÊÇ·ñÍÆ¼ö</span>
-            <span>¹éµµÊ±¼ä</span>
-            <span>²Ù×÷</span>
+            <span>ä»»åŠ¡</span>
+            <span>åœºæ™¯/ç­‰çº§</span>
+            <span>æ˜¯å¦æ¨è</span>
+            <span>å½’æ¡£æ—¶é—´</span>
+            <span>æ“ä½œ</span>
           </div>
           {rows.map((item) => (
             <div className="row wide-row" key={item.id}>
@@ -211,18 +215,18 @@ export function KnowledgePage({ userId }: Props) {
               <span>
                 {formatScenarioLabel(item.scenario)} / {item.level ?? '-'}
               </span>
-              <span>{item.recommended ? 'ÊÇ' : '·ñ'}</span>
+              <span>{item.recommended ? 'æ˜¯' : 'å¦'}</span>
               <span>{new Date(item.archived_at).toLocaleString()}</span>
               <span>
                 <button type="button" onClick={() => void openDetail(item.id)}>
-                  ÏêÇé
+                  è¯¦æƒ…
                 </button>
               </span>
             </div>
           ))}
           {rows.length === 0 && !loading && (
             <div className="row wide-row">
-              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>ÔİÎŞÊı¾İ</span>
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>æš‚æ— æ•°æ®</span>
             </div>
           )}
         </div>
@@ -235,34 +239,34 @@ export function KnowledgePage({ userId }: Props) {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="ÖªÊ¶ÏêÇé"
+            aria-label="çŸ¥è¯†è¯¦æƒ…"
           >
             <div className="panel-headline">
-              <h3>ÖªÊ¶ÌõÄ¿ #{detail.id}</h3>
+              <h3>çŸ¥è¯†æ¡ç›® #{detail.id}</h3>
               <button type="button" onClick={() => setDetailOpen(false)}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
             <p className="line-metric">
-              <span>ÈÎÎñ ID</span>
+              <span>ä»»åŠ¡ ID</span>
               <strong>#{detail.task_id}</strong>
             </p>
             <p className="line-metric">
-              <span>³¡¾°/µÈ¼¶</span>
+              <span>åœºæ™¯/ç­‰çº§</span>
               <strong>
                 {formatScenarioLabel(detail.scenario)} / {detail.level ?? '-'}
               </strong>
             </p>
             <article className="modal-section">
-              <h4>ÎÊÌâÕªÒª</h4>
+              <h4>é—®é¢˜æ‘˜è¦</h4>
               <p>{detail.problem_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>·½°¸ÕªÒª</h4>
+              <h4>æ–¹æ¡ˆæ‘˜è¦</h4>
               <p>{detail.solution_summary}</p>
             </article>
             <article className="modal-section">
-              <h4>±êÇ©</h4>
+              <h4>æ ‡ç­¾</h4>
               <p>{detail.tags.length > 0 ? detail.tags.join(', ') : '-'}</p>
             </article>
           </div>
@@ -271,3 +275,4 @@ export function KnowledgePage({ userId }: Props) {
     </section>
   )
 }
+

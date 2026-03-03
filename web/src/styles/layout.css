@@ -163,7 +163,7 @@
 .content-shell {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
+  grid-template-columns: minmax(132px, 148px) minmax(0, 1fr);
   gap: 10px;
 }
 

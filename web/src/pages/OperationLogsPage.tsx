@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -71,7 +71,7 @@ export function OperationLogsPage({ userId }: Props) {
       const data = await requestJson<OperationLog[]>(`/operations/logs${suffix}`, { userId })
       setRows(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØ²Ù×÷ÈÕÖ¾Ê§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½æ“ä½œæ—¥å¿—å¤±è´¥')
     } finally {
       setLoading(false)
     }
@@ -100,84 +100,88 @@ export function OperationLogsPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>²Ù×÷ÈÕÖ¾</h2>
-        <p>¼ÇÂ¼ÏµÍ³¹Ø¼ü²Ù×÷¡¢ÉóÅúĞĞÎªÓëÁ÷³Ì¶¯×÷£¬±ãÓÚÉó¼Æ×·×Ù¡£</p>
+        <h2>æ“ä½œæ—¥å¿—</h2>
+        <p>è®°å½•ç³»ç»Ÿå…³é”®æ“ä½œã€å®¡æ‰¹è¡Œä¸ºä¸æµç¨‹åŠ¨ä½œï¼Œä¾¿äºå®¡è®¡è¿½è¸ªã€‚</p>
       </header>
       <form
-        className="panel form-grid"
+        className="panel filter-panel"
         onSubmit={(event) => {
           event.preventDefault()
           applyQuery()
         }}
       >
-        <h3>É¸Ñ¡Ìõ¼ş</h3>
-        <label>
-          ²Ù×÷ÀàĞÍ
-          <input
-            value={queryDraft.action}
-            onChange={(event) => setQueryDraft((prev) => ({ ...prev, action: event.target.value }))}
-            placeholder="ÀıÈç£ºtask.claim"
-          />
-        </label>
-        <label>
-          ²Ù×÷ÈË ID
-          <input
-            value={queryDraft.actorId}
-            onChange={(event) => setQueryDraft((prev) => ({ ...prev, actorId: event.target.value }))}
-          />
-        </label>
-        <label>
-          ¿ªÊ¼ÈÕÆÚ
-          <input
-            type="date"
-            value={queryDraft.createdFrom}
-            onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdFrom: event.target.value }))}
-          />
-        </label>
-        <label>
-          ½áÊøÈÕÆÚ
-          <input
-            type="date"
-            value={queryDraft.createdTo}
-            onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdTo: event.target.value }))}
-          />
-        </label>
-        <label>
-          ÌõÊıÉÏÏŞ
-          <input
-            type="number"
-            min={1}
-            max={1000}
-            value={queryDraft.limit}
-            onChange={(event) => setQueryDraft((prev) => ({ ...prev, limit: event.target.value }))}
-          />
-        </label>
-        <div className="button-row wide">
-          <button className="primary-btn" type="submit" disabled={loading || !hasQueryChanges}>
-            Ó¦ÓÃÉ¸Ñ¡
-          </button>
-          <button type="button" onClick={resetQuery} disabled={loading}>
-            ÖØÖÃ
-          </button>
-          <button type="button" onClick={() => void load()} disabled={loading}>
-            {loading ? 'Ë¢ĞÂÖĞ...' : 'Ë¢ĞÂ'}
-          </button>
+        <div className="panel-headline">
+          <h3>ç­›é€‰æ¡ä»¶</h3>
+        </div>
+        <div className="filter-toolbar">
+          <label className="filter-field grow">
+            <span>æ“ä½œç±»å‹</span>
+            <input
+              value={queryDraft.action}
+              onChange={(event) => setQueryDraft((prev) => ({ ...prev, action: event.target.value }))}
+              placeholder="ä¾‹å¦‚ï¼štask.claim"
+            />
+          </label>
+          <label className="filter-field">
+            <span>æ“ä½œäºº ID</span>
+            <input
+              value={queryDraft.actorId}
+              onChange={(event) => setQueryDraft((prev) => ({ ...prev, actorId: event.target.value }))}
+            />
+          </label>
+          <label className="filter-field">
+            <span>å¼€å§‹æ—¥æœŸ</span>
+            <input
+              type="date"
+              value={queryDraft.createdFrom}
+              onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdFrom: event.target.value }))}
+            />
+          </label>
+          <label className="filter-field">
+            <span>ç»“æŸæ—¥æœŸ</span>
+            <input
+              type="date"
+              value={queryDraft.createdTo}
+              onChange={(event) => setQueryDraft((prev) => ({ ...prev, createdTo: event.target.value }))}
+            />
+          </label>
+          <label className="filter-field">
+            <span>æ¡æ•°ä¸Šé™</span>
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={queryDraft.limit}
+              onChange={(event) => setQueryDraft((prev) => ({ ...prev, limit: event.target.value }))}
+            />
+          </label>
+          <div className="filter-actions">
+            <button className="primary-btn" type="submit" disabled={loading || !hasQueryChanges}>
+              åº”ç”¨ç­›é€‰
+            </button>
+            <button type="button" onClick={resetQuery} disabled={loading}>
+              é‡ç½®
+            </button>
+            <button type="button" onClick={() => void load()} disabled={loading}>
+              {loading ? 'åˆ·æ–°ä¸­...' : 'åˆ·æ–°'}
+            </button>
+          </div>
         </div>
       </form>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>ÈÕÖ¾¼ÇÂ¼£¨{rows.length}£©</h3>
-          <span className="muted">×î¶àÏÔÊ¾ {Number(query.limit) || 200} Ìõ</span>
+          <h3>æ—¥å¿—è®°å½•ï¼ˆ{rows.length}ï¼‰</h3>
+          <span className="muted">æœ€å¤šæ˜¾ç¤º {Number(query.limit) || 200} æ¡</span>
         </div>
         <div className="table">
           <div className="row head op-log-row">
             <span>ID</span>
-            <span>Ê±¼ä</span>
-            <span>²Ù×÷</span>
-            <span>²Ù×÷ÈË</span>
-            <span>Ä¿±ê</span>
-            <span>²Ù×÷</span>
+            <span>æ—¶é—´</span>
+            <span>æ“ä½œ</span>
+            <span>æ“ä½œäºº</span>
+            <span>ç›®æ ‡</span>
+            <span>æ“ä½œ</span>
           </div>
           {rows.map((item) => (
             <div className="row op-log-row" key={item.id}>
@@ -190,14 +194,14 @@ export function OperationLogsPage({ userId }: Props) {
               </span>
               <span className="actions">
                 <button type="button" onClick={() => setSelectedLog(item)}>
-                  ²é¿´ÏêÇé
+                  æŸ¥çœ‹è¯¦æƒ…
                 </button>
               </span>
             </div>
           ))}
           {rows.length === 0 && (
             <div className="row op-log-row">
-              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>µ±Ç°É¸Ñ¡Ìõ¼şÏÂÔİÎŞÈÕÖ¾¡£</span>
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æš‚æ— æ—¥å¿—ã€‚</span>
             </div>
           )}
         </div>
@@ -207,31 +211,31 @@ export function OperationLogsPage({ userId }: Props) {
         <div className="modal-backdrop" onClick={() => setSelectedLog(null)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="log-detail-title">
             <div className="panel-headline">
-              <h3 id="log-detail-title">ÈÕÖ¾ÏêÇé #{selectedLog.id}</h3>
+              <h3 id="log-detail-title">æ—¥å¿—è¯¦æƒ… #{selectedLog.id}</h3>
               <button type="button" onClick={() => setSelectedLog(null)}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
             <p className="line-metric">
-              <span>Ê±¼ä</span>
+              <span>æ—¶é—´</span>
               <strong>{new Date(selectedLog.created_at).toLocaleString()}</strong>
             </p>
             <p className="line-metric">
-              <span>²Ù×÷</span>
+              <span>æ“ä½œ</span>
               <strong>{selectedLog.action}</strong>
             </p>
             <p className="line-metric">
-              <span>²Ù×÷ÈË</span>
+              <span>æ“ä½œäºº</span>
               <strong>{selectedLog.actor_user_id ?? '-'}</strong>
             </p>
             <p className="line-metric">
-              <span>Ä¿±ê</span>
+              <span>ç›®æ ‡</span>
               <strong>
                 {selectedLog.target_type}#{selectedLog.target_id ?? '-'}
               </strong>
             </p>
             <article className="modal-section">
-              <h4>ÏêÇé JSON</h4>
+              <h4>è¯¦æƒ… JSON</h4>
               <pre className="json-pre">{JSON.stringify(selectedLog.detail, null, 2)}</pre>
             </article>
           </div>
@@ -240,3 +244,4 @@ export function OperationLogsPage({ userId }: Props) {
     </section>
   )
 }
+

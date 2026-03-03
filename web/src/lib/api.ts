@@ -1,11 +1,46 @@
 import { requestJson } from './http'
 import type {
+  Attachment,
   MilestonePendingAcceptance,
+  Problem,
+  ProblemDetail,
   TaskActivity,
   TaskActivityType,
   TaskMilestone,
   TaskMilestoneDefinition,
 } from '../types'
+
+export type ProblemListFilters = {
+  mine_only: boolean
+  status: string
+  scenario: string
+  created_from: string
+  created_to: string
+}
+
+export function buildProblemListPath(filters: ProblemListFilters): string {
+  const params = new URLSearchParams()
+  if (filters.mine_only) {
+    params.set('mine_only', 'true')
+  }
+  if (filters.status) params.set('status', filters.status)
+  if (filters.scenario) params.set('scenario', filters.scenario)
+  if (filters.created_from) params.set('created_from', filters.created_from)
+  if (filters.created_to) params.set('created_to', filters.created_to)
+  return `/problems?${params.toString()}`
+}
+
+export async function listProblems(userId: number, filters: ProblemListFilters): Promise<Problem[]> {
+  return requestJson<Problem[]>(buildProblemListPath(filters), { userId })
+}
+
+export async function getProblemDetail(userId: number, problemId: number): Promise<ProblemDetail> {
+  return requestJson<ProblemDetail>(`/problems/${problemId}`, { userId })
+}
+
+export async function listProblemAttachments(userId: number, problemId: number): Promise<Attachment[]> {
+  return requestJson<Attachment[]>(`/entities/problem/${problemId}/attachments`, { userId })
+}
 
 export async function listTaskActivities(userId: number, taskId: number): Promise<TaskActivity[]> {
   return requestJson<TaskActivity[]>(`/tasks/${taskId}/activities`, { userId })
@@ -84,4 +119,3 @@ export async function acceptMilestone(
 export async function listMyPendingMilestoneAcceptance(userId: number): Promise<MilestonePendingAcceptance[]> {
   return requestJson<MilestonePendingAcceptance[]>('/milestones/pending-acceptance/mine', { userId })
 }
-

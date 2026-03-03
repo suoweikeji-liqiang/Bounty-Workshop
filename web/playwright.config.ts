@@ -14,7 +14,8 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000',
+      command:
+        'powershell -NoProfile -Command "if (Test-Path data/e2e.db) { Remove-Item data/e2e.db -Force }; if (Test-Path data/e2e-storage) { Remove-Item data/e2e-storage -Recurse -Force }; python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"',
       cwd: '..',
       url: 'http://127.0.0.1:8000/health',
       reuseExistingServer: true,
@@ -22,6 +23,7 @@ export default defineConfig({
         APP_DB_PATH: 'data/e2e.db',
         ATTACHMENT_STORAGE_DIR: 'data/e2e-storage',
         ENABLE_BACKGROUND_JOBS: 'false',
+        INIT_ADMIN_PASSWORD: 'e2e-admin-123',
       },
     },
     {
@@ -35,4 +37,3 @@ export default defineConfig({
     },
   ],
 })
-

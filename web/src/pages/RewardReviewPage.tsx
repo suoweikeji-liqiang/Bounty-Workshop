@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
@@ -25,8 +25,8 @@ function buildQuery(filter: RewardFilter, page: number) {
 }
 
 function formatStatus(status: string) {
-  if (status === 'generated') return '´ıÈ·ÈÏ'
-  if (status === 'confirmed') return 'ÒÑÈ·ÈÏ'
+  if (status === 'generated') return 'å¾…ç¡®è®¤'
+  if (status === 'confirmed') return 'å·²ç¡®è®¤'
   return status
 }
 
@@ -37,8 +37,8 @@ function rewardTone(status: string): 'success' | 'warn' | 'danger' | 'info' | 'm
 }
 
 function formatRoleType(roleType: string) {
-  if (roleType === 'proposer') return 'ÎÊÌâÌá½»ÈË'
-  if (roleType === 'executor') return '½Ò°ñÖ´ĞĞÈË'
+  if (roleType === 'proposer') return 'é—®é¢˜æäº¤äºº'
+  if (roleType === 'executor') return 'æ­æ¦œæ‰§è¡Œäºº'
   return roleType
 }
 
@@ -65,7 +65,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
       const payload = await requestJson<Reward[]>(buildQuery(filter, page), { userId })
       setRows(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØ½±ÀøÁĞ±íÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½å¥–åŠ±åˆ—è¡¨å¤±è´¥')
     } finally {
       setLoading(false)
     }
@@ -82,11 +82,11 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`½±Àø #${reward.id} ÒÑÈ·ÈÏ`)
+      setMessage(`å¥–åŠ± #${reward.id} å·²ç¡®è®¤`)
       setDetailRewardId(null)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '½±ÀøÈ·ÈÏÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'å¥–åŠ±ç¡®è®¤å¤±è´¥')
     } finally {
       setConfirmingId(null)
     }
@@ -116,53 +116,57 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>½±Àø¸´ºË</h2>
-        <p>²é¿´½±Àø¼ÇÂ¼²¢È·ÈÏ·¢·Å×´Ì¬¡£</p>
+        <h2>å¥–åŠ±å¤æ ¸</h2>
+        <p>æŸ¥çœ‹å¥–åŠ±è®°å½•å¹¶ç¡®è®¤å‘æ”¾çŠ¶æ€ã€‚</p>
       </header>
 
-      <article className="panel form-grid">
-        <h3>É¸Ñ¡Ìõ¼ş</h3>
-        <label>
-          ½±Àø×´Ì¬
-          <select value={filterDraft} onChange={(event) => setFilterDraft(event.target.value as RewardFilter)}>
-            <option value="generated">´ıÈ·ÈÏ</option>
-            <option value="confirmed">ÒÑÈ·ÈÏ</option>
-            <option value="all">È«²¿</option>
-          </select>
-        </label>
-        <div className="button-row wide">
-          <button className="primary-btn" type="button" onClick={applyFilter} disabled={loading || !hasFilterChanges}>
-            Ó¦ÓÃÉ¸Ñ¡
-          </button>
-          <button type="button" onClick={resetFilter} disabled={loading}>
-            ÖØÖÃ
-          </button>
-          <button type="button" onClick={() => void load()} disabled={loading}>
-            {loading ? '¼ÓÔØÖĞ...' : 'Ë¢ĞÂ'}
-          </button>
+      <article className="panel filter-panel">
+        <div className="panel-headline">
+          <h3>ç­›é€‰æ¡ä»¶</h3>
+        </div>
+        <div className="filter-toolbar">
+          <label className="filter-field">
+            <span>å¥–åŠ±çŠ¶æ€</span>
+            <select value={filterDraft} onChange={(event) => setFilterDraft(event.target.value as RewardFilter)}>
+              <option value="generated">å¾…ç¡®è®¤</option>
+              <option value="confirmed">å·²ç¡®è®¤</option>
+              <option value="all">å…¨éƒ¨</option>
+            </select>
+          </label>
+          <div className="filter-actions">
+            <button className="primary-btn" type="button" onClick={applyFilter} disabled={loading || !hasFilterChanges}>
+              åº”ç”¨ç­›é€‰
+            </button>
+            <button type="button" onClick={resetFilter} disabled={loading}>
+              é‡ç½®
+            </button>
+            <button type="button" onClick={() => void load()} disabled={loading}>
+              {loading ? 'åŠ è½½ä¸­...' : 'åˆ·æ–°'}
+            </button>
+          </div>
         </div>
       </article>
 
       <article className="panel">
         <div className="panel-headline">
           <h3>
-            ½±Àø¼ÇÂ¼£¨µÚ {page} Ò³ / µ±Ç°É¸Ñ¡£º{filter === 'all' ? 'È«²¿' : formatStatus(filter)}£©
+            å¥–åŠ±è®°å½•ï¼ˆç¬¬ {page} é¡µ / å½“å‰ç­›é€‰ï¼š{filter === 'all' ? 'å…¨éƒ¨' : formatStatus(filter)}ï¼‰
           </h3>
-          <span className="muted">{rows.length} Ìõ</span>
+          <span className="muted">{rows.length} æ¡</span>
         </div>
         <div className="table">
           <div className="row head reward-row">
             <span>ID</span>
-            <span>ÈÎÎñ</span>
-            <span>ÓÃ»§</span>
-            <span>½ÇÉ«</span>
-            <span>½ğ¶î</span>
-            <span>×´Ì¬</span>
-            <span>²Ù×÷</span>
+            <span>ä»»åŠ¡</span>
+            <span>ç”¨æˆ·</span>
+            <span>è§’è‰²</span>
+            <span>é‡‘é¢</span>
+            <span>çŠ¶æ€</span>
+            <span>æ“ä½œ</span>
           </div>
           {rows.length === 0 && (
             <div className="row reward-row">
-              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>µ±Ç°É¸Ñ¡Ìõ¼şÏÂÔİÎŞ½±Àø¼ÇÂ¼</span>
+              <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æš‚æ— å¥–åŠ±è®°å½•</span>
             </div>
           )}
           {rows.map((item) => (
@@ -171,13 +175,13 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
               <span title={item.task_title ?? undefined}>{item.task_title ? `${item.task_title} (#${item.task_id})` : `#${item.task_id}`}</span>
               <span title={item.user_name ?? undefined}>{item.user_name ? `${item.user_name} (#${item.user_id})` : `#${item.user_id}`}</span>
               <span>{formatRoleType(item.role_type)}</span>
-              <span>£¤{item.amount.toFixed(2)}</span>
+              <span>ï¿¥{item.amount.toFixed(2)}</span>
               <span>
                 <StatusBadge tone={rewardTone(item.status)}>{formatStatus(item.status)}</StatusBadge>
               </span>
               <span className="actions">
                 <button type="button" onClick={() => setDetailRewardId(item.id)}>
-                  ²é¿´ÏêÇé
+                  æŸ¥çœ‹è¯¦æƒ…
                 </button>
               </span>
             </div>
@@ -185,11 +189,11 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
         </div>
         <div className="button-row">
           <button type="button" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1 || loading}>
-            ÉÏÒ»Ò³
+            ä¸Šä¸€é¡µ
           </button>
-          <span className="muted">µÚ {page} Ò³</span>
+          <span className="muted">ç¬¬ {page} é¡µ</span>
           <button type="button" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNext || loading}>
-            ÏÂÒ»Ò³
+            ä¸‹ä¸€é¡µ
           </button>
         </div>
       </article>
@@ -198,40 +202,40 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
         <div className="modal-backdrop" onClick={() => setDetailRewardId(null)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="reward-detail-title">
             <div className="panel-headline">
-              <h3 id="reward-detail-title">½±ÀøÏêÇé #{selectedReward.id}</h3>
+              <h3 id="reward-detail-title">å¥–åŠ±è¯¦æƒ… #{selectedReward.id}</h3>
               <button type="button" onClick={() => setDetailRewardId(null)}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
             <p className="line-metric">
-              <span>ÈÎÎñ</span>
+              <span>ä»»åŠ¡</span>
               <strong>{selectedReward.task_title ? `${selectedReward.task_title} (#${selectedReward.task_id})` : `#${selectedReward.task_id}`}</strong>
             </p>
             <p className="line-metric">
-              <span>ÓÃ»§</span>
+              <span>ç”¨æˆ·</span>
               <strong>{selectedReward.user_name ? `${selectedReward.user_name} (#${selectedReward.user_id})` : `#${selectedReward.user_id}`}</strong>
             </p>
             <p className="line-metric">
-              <span>½ÇÉ«</span>
+              <span>è§’è‰²</span>
               <strong>{formatRoleType(selectedReward.role_type)}</strong>
             </p>
             <p className="line-metric">
-              <span>½ğ¶î / »ı·Ö / »ÕÕÂ</span>
+              <span>é‡‘é¢ / ç§¯åˆ† / å¾½ç« </span>
               <strong>
-                £¤{selectedReward.amount.toFixed(2)} / {selectedReward.points} / {selectedReward.badge ?? '-'}
+                ï¿¥{selectedReward.amount.toFixed(2)} / {selectedReward.points} / {selectedReward.badge ?? '-'}
               </strong>
             </p>
             <p className="line-metric">
-              <span>×´Ì¬</span>
+              <span>çŠ¶æ€</span>
               <strong>{formatStatus(selectedReward.status)}</strong>
             </p>
             <p className="line-metric">
-              <span>È·ÈÏÊ±¼ä</span>
+              <span>ç¡®è®¤æ—¶é—´</span>
               <strong>{selectedReward.confirmed_at ? new Date(selectedReward.confirmed_at).toLocaleString() : '-'}</strong>
             </p>
             <div className="button-row">
               <button type="button" onClick={() => setDetailRewardId(null)}>
-                ·µ»ØÁĞ±í
+                è¿”å›åˆ—è¡¨
               </button>
               {selectedReward.status === 'generated' && (
                 <button
@@ -240,7 +244,7 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
                   onClick={() => void confirmReward(selectedReward)}
                   disabled={confirmingId === selectedReward.id}
                 >
-                  {confirmingId === selectedReward.id ? 'È·ÈÏÖĞ...' : 'È·ÈÏ·¢·Å'}
+                  {confirmingId === selectedReward.id ? 'ç¡®è®¤ä¸­...' : 'ç¡®è®¤å‘æ”¾'}
                 </button>
               )}
             </div>
@@ -250,3 +254,4 @@ export function RewardReviewPage({ userId, profile: _profile }: Props) {
     </section>
   )
 }
+

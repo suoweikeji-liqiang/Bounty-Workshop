@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { requestJson } from './lib/http'
 import { AIModelConfigPage } from './pages/AIModelConfigPage'
+import { AIModelEditorPage } from './pages/AIModelEditorPage'
 import { AttachmentsPage } from './pages/AttachmentsPage'
 import { BudgetReviewPage } from './pages/BudgetReviewPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
@@ -14,6 +15,7 @@ import { HypothesisVerificationPage } from './pages/HypothesisVerificationPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { OperationLogsPage } from './pages/OperationLogsPage'
 import { PersonalCenterPage } from './pages/PersonalCenterPage'
+import { ProblemDraftEditorPage } from './pages/ProblemDraftEditorPage'
 import { ProblemsPage } from './pages/ProblemsPage'
 import { RewardReviewPage } from './pages/RewardReviewPage'
 import { ReviewWorkbenchPage } from './pages/ReviewWorkbenchPage'
@@ -21,6 +23,7 @@ import { SystemConfigPage } from './pages/SystemConfigPage'
 import { SystemGuidePage } from './pages/SystemGuidePage'
 import { TaskHallPage } from './pages/TaskHallPage'
 import { UsersPage } from './pages/UsersPage'
+import { UserManagePage } from './pages/UserManagePage'
 import type { SystemVersion, UserProfile } from './types'
 
 type Props = {
@@ -170,6 +173,8 @@ export default function App(props: Props) {
             <Route path="/personal" element={<PersonalCenterPage userId={userId} />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="/problems" element={<ProblemsPage userId={userId} />} />
+            <Route path="/problems/new" element={<ProblemDraftEditorPage userId={userId} />} />
+            <Route path="/problems/:problemId/edit" element={<ProblemDraftEditorPage userId={userId} />} />
             <Route
               path="/review"
               element={
@@ -225,6 +230,14 @@ export default function App(props: Props) {
               }
             />
             <Route
+              path="/users/:targetUserId/manage"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <UserManagePage userId={userId} />
+                </Guard>
+              }
+            />
+            <Route
               path="/feishu"
               element={
                 <Guard profile={profile} roles={['admin', 'reviewer', 'acceptor']}>
@@ -237,6 +250,22 @@ export default function App(props: Props) {
               element={
                 <Guard profile={profile} roles={['admin']}>
                   <AIModelConfigPage userId={userId} />
+                </Guard>
+              }
+            />
+            <Route
+              path="/ai-models/new"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <AIModelEditorPage userId={userId} />
+                </Guard>
+              }
+            />
+            <Route
+              path="/ai-models/:modelId/edit"
+              element={
+                <Guard profile={profile} roles={['admin']}>
+                  <AIModelEditorPage userId={userId} />
                 </Guard>
               }
             />

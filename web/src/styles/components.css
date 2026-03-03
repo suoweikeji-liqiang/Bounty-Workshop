@@ -312,6 +312,53 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+/* Compact filter bars */
+.filter-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  width: 100%;
+}
+
+.filter-field {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  flex: 0 1 180px;
+}
+
+.filter-field.grow {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.filter-panel .filter-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.filter-panel .filter-field input,
+.filter-panel .filter-field select {
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.filter-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 /* Table / Rows */
 .table {
   display: grid;

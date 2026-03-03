@@ -59,6 +59,31 @@ export type Problem = {
   created_at: string
 }
 
+export type ProblemDraftCriteria = {
+  key: string
+  description: string
+  type: 'quantified' | 'behavioral'
+}
+
+export type ProblemDraftFormState = {
+  title: string
+  scenario: string
+  background: string
+  frequency: string
+  impact_scope: string
+  description: string
+  value_reduce_effort: boolean
+  value_reduce_cost: boolean
+  value_improve_quality: boolean
+  value_statement: string
+  current_solution: string
+  draft_goal: string
+  draft_scope: string
+  draft_due_date: string
+  submitter_reflection: string
+  criteria: ProblemDraftCriteria[]
+}
+
 export type ProblemDetail = {
   id: number
   title: string

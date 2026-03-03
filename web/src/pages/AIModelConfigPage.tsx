@@ -1,68 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
-import type { AIModel, AIProvider } from '../types'
+import type { AIModel } from '../types'
 
 type Props = {
   userId: number
 }
 
-type ModelForm = {
-  name: string
-  provider: AIProvider
-  api_base_url: string
-  api_key: string
-  model: string
-  is_default: boolean
-  enabled: boolean
-  max_tokens: number
-  temperature: number
-  timeout: number
-}
-
-const defaultForm: ModelForm = {
-  name: '',
-  provider: 'openai',
-  api_base_url: 'https://api.openai.com/v1',
-  api_key: '',
-  model: 'gpt-4o',
-  is_default: false,
-  enabled: true,
-  max_tokens: 4096,
-  temperature: 0.7,
-  timeout: 60,
-}
-
-const providerOptions: { value: AIProvider; label: string; defaultUrl: string; defaultModel: string }[] = [
-  { value: 'openai', label: 'OpenAI', defaultUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  {
-    value: 'anthropic',
-    label: 'Anthropic (Claude)',
-    defaultUrl: 'https://api.anthropic.com/v1',
-    defaultModel: 'claude-3-sonnet-20240229',
-  },
-  { value: 'deepseek', label: 'DeepSeek', defaultUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  {
-    value: 'siliconflow',
-    label: '¹è»ùÁ÷¶¯',
-    defaultUrl: 'https://api.siliconflow.cn/v1',
-    defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
-  },
-  { value: 'ollama', label: 'Ollama (±¾µØ)', defaultUrl: 'http://localhost:11434', defaultModel: 'llama3' },
-  { value: 'custom', label: '×Ô¶¨Òå (OpenAI ¼æÈİ)', defaultUrl: '', defaultModel: '' },
-]
-
 export function AIModelConfigPage({ userId }: Props) {
   const toast = useToast()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [models, setModels] = useState<AIModel[]>([])
-  const [form, setForm] = useState<ModelForm>(defaultForm)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState<number | 'form' | null>(null)
+  const [testing, setTesting] = useState<number | null>(null)
   const [loadingApiKeyId, setLoadingApiKeyId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [revealedApiKeys, setRevealedApiKeys] = useState<Record<number, string>>({})
@@ -70,6 +24,7 @@ export function AIModelConfigPage({ userId }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const selectedModel = useMemo(() => models.find((item) => item.id === selectedModelId) ?? null, [models, selectedModelId])
+  const encodedBack = encodeURIComponent(`${location.pathname}${location.search}`)
 
   const loadModels = useCallback(async () => {
     setLoading(true)
@@ -78,7 +33,7 @@ export function AIModelConfigPage({ userId }: Props) {
       setModels(rows)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½å¤±è´¥')
     } finally {
       setLoading(false)
     }
@@ -88,62 +43,17 @@ export function AIModelConfigPage({ userId }: Props) {
     void loadModels()
   }, [loadModels])
 
-  const resetForm = () => {
-    setForm(defaultForm)
-    setEditingId(null)
-  }
-
-  const openCreateEditor = () => {
-    resetForm()
-    setEditorOpen(true)
-  }
-
-  const closeEditor = () => {
-    if (saving || testing === 'form') {
-      return
-    }
-    setEditorOpen(false)
-    resetForm()
-  }
-
-  const handleProviderChange = (provider: AIProvider) => {
-    const opt = providerOptions.find((o) => o.value === provider)
-    setForm((prev) => ({
-      ...prev,
-      provider,
-      api_base_url: opt?.defaultUrl || '',
-      model: opt?.defaultModel || '',
-    }))
-  }
-
-  const openEdit = (model: AIModel) => {
-    setEditingId(model.id)
-    setForm({
-      name: model.name,
-      provider: model.provider,
-      api_base_url: model.api_base_url,
-      api_key: '',
-      model: model.model,
-      is_default: model.is_default,
-      enabled: model.enabled,
-      max_tokens: model.max_tokens,
-      temperature: model.temperature,
-      timeout: model.timeout,
-    })
-    setEditorOpen(true)
-  }
-
   const handleDelete = async (id: number) => {
     try {
       setDeletingId(id)
       await requestJson(`/ai/models/${id}`, { method: 'DELETE', userId })
-      setMessage('Ä£ĞÍÒÑÉ¾³ı')
+      setMessage('æ¨¡å‹å·²åˆ é™¤')
       if (selectedModelId === id) {
         setSelectedModelId(null)
       }
       await loadModels()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'É¾³ıÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åˆ é™¤å¤±è´¥')
     } finally {
       setDeletingId(null)
     }
@@ -156,7 +66,7 @@ export function AIModelConfigPage({ userId }: Props) {
       const payload = await requestJson<{ api_key: string }>(`/ai/models/${id}/api-key`, { userId })
       setRevealedApiKeys((prev) => ({ ...prev, [id]: payload.api_key }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '»ñÈ¡ API Key Ê§°Ü')
+      setError(err instanceof Error ? err.message : 'è·å– API Key å¤±è´¥')
     } finally {
       setLoadingApiKeyId(null)
     }
@@ -170,83 +80,14 @@ export function AIModelConfigPage({ userId }: Props) {
         { method: 'POST', userId },
       )
       if (res.ok) {
-        toast.success(`Á¬½Ó³É¹¦ (${res.latency_ms}ms)`)
+        toast.success(`è¿æ¥æˆåŠŸ (${res.latency_ms}ms)`)
       } else {
-        toast.error(`Á¬½ÓÊ§°Ü: ${res.error}`)
+        toast.error(`è¿æ¥å¤±è´¥: ${res.error}`)
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '²âÊÔÊ§°Ü')
+      toast.error(err instanceof Error ? err.message : 'æµ‹è¯•å¤±è´¥')
     } finally {
       setTesting(null)
-    }
-  }
-
-  const handleTestForm = async () => {
-    if (!form.api_base_url.trim() || !form.api_key.trim() || !form.model.trim()) {
-      toast.error('ÇëÏÈÌîĞ´ API µØÖ·¡¢API Key ºÍÄ£ĞÍÃû³Æ')
-      return
-    }
-    setTesting('form')
-    try {
-      const res = await requestJson<{ ok: boolean; latency_ms: number; error: string | null }>('/ai/models/test', {
-        method: 'POST',
-        userId,
-        body: {
-          api_base_url: form.api_base_url,
-          api_key: form.api_key,
-          model: form.model,
-          provider: form.provider,
-          timeout: form.timeout,
-        },
-      })
-      if (res.ok) {
-        toast.success(`Á¬½Ó³É¹¦ (${res.latency_ms}ms)`)
-      } else {
-        toast.error(`Á¬½ÓÊ§°Ü: ${res.error}`)
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '²âÊÔÊ§°Ü')
-    } finally {
-      setTesting(null)
-    }
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.name.trim()) {
-      setError('ÇëÊäÈëÄ£ĞÍÃû³Æ')
-      return
-    }
-    if (!form.api_base_url.trim()) {
-      setError('ÇëÊäÈë API µØÖ·')
-      return
-    }
-    if (!form.model.trim()) {
-      setError('ÇëÊäÈëÄ£ĞÍÃû³Æ')
-      return
-    }
-
-    try {
-      setSaving(true)
-      setError(null)
-      const body: Record<string, unknown> = { ...form }
-      if (!body.api_key) {
-        delete (body as Record<string, unknown>)['api_key']
-      }
-
-      if (editingId) {
-        await requestJson(`/ai/models/${editingId}`, { method: 'PUT', userId, body })
-        setMessage('Ä£ĞÍÒÑ¸üĞÂ')
-      } else {
-        await requestJson('/ai/models', { method: 'POST', userId, body })
-        setMessage('Ä£ĞÍÒÑ´´½¨')
-      }
-      closeEditor()
-      await loadModels()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '±£´æÊ§°Ü')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -261,31 +102,31 @@ export function AIModelConfigPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>AI Ä£ĞÍÅäÖÃ</h2>
-        <p>¹ÜÀí ProdMind ÂÛÖ¤·şÎñÊ¹ÓÃµÄ AI Ä£ĞÍÅäÖÃ¡£</p>
+        <h2>AI æ¨¡å‹é…ç½®</h2>
+        <p>ç®¡ç† ProdMind è®ºè¯æœåŠ¡ä½¿ç”¨çš„ AI æ¨¡å‹é…ç½®ã€‚</p>
       </header>
 
       <article className="panel">
         <div className="panel-headline">
-          <h3>ÒÑÅäÖÃÄ£ĞÍ£¨{models.length}£©</h3>
+          <h3>å·²é…ç½®æ¨¡å‹ï¼ˆ{models.length}ï¼‰</h3>
           <div className="button-row">
-            <button type="button" onClick={openCreateEditor}>
-              ĞÂÔöÄ£ĞÍ
+            <button type="button" onClick={() => navigate(`/ai-models/new?back=${encodedBack}`)}>
+              æ–°å¢æ¨¡å‹
             </button>
             <button type="button" onClick={() => void loadModels()} disabled={loading}>
-              Ë¢ĞÂ
+              åˆ·æ–°
             </button>
           </div>
         </div>
         <div className="table">
           <div className="row head ai-model-row">
             <span>ID</span>
-            <span>Ãû³Æ</span>
-            <span>¹©Ó¦ÉÌ</span>
-            <span>Ä£ĞÍ</span>
-            <span>Ä¬ÈÏ</span>
-            <span>×´Ì¬</span>
-            <span>²Ù×÷</span>
+            <span>åç§°</span>
+            <span>ä¾›åº”å•†</span>
+            <span>æ¨¡å‹</span>
+            <span>é»˜è®¤</span>
+            <span>çŠ¶æ€</span>
+            <span>æ“ä½œ</span>
           </div>
           {models.map((item) => (
             <div className="row ai-model-row" key={item.id}>
@@ -293,18 +134,21 @@ export function AIModelConfigPage({ userId }: Props) {
               <span title={item.name}>{item.name}</span>
               <span>{item.provider}</span>
               <span title={item.model}>{item.model}</span>
-              <span>{item.is_default ? 'ÊÇ' : '-'}</span>
-              <span>{item.enabled ? 'ÆôÓÃ' : '½ûÓÃ'}</span>
+              <span>{item.is_default ? 'æ˜¯' : '-'}</span>
+              <span>{item.enabled ? 'å¯ç”¨' : 'ç¦ç”¨'}</span>
               <span className="actions">
                 <button type="button" onClick={() => setSelectedModelId(item.id)}>
-                  ¹ÜÀí
+                  è¯¦æƒ…
+                </button>
+                <button type="button" onClick={() => navigate(`/ai-models/${item.id}/edit?back=${encodedBack}`)}>
+                  ç¼–è¾‘
                 </button>
               </span>
             </div>
           ))}
           {models.length === 0 && !loading && (
             <div className="row ai-model-row">
-              <span style={{ textAlign: 'center', color: '#888', gridColumn: '1 / -1' }}>ÔİÎŞÅäÖÃ£¬ÇëÏÈÌí¼ÓÄ£ĞÍ</span>
+              <span style={{ textAlign: 'center', color: '#888', gridColumn: '1 / -1' }}>æš‚æ— é…ç½®ï¼Œè¯·å…ˆæ·»åŠ æ¨¡å‹</span>
             </div>
           )}
         </div>
@@ -314,188 +158,67 @@ export function AIModelConfigPage({ userId }: Props) {
         <div className="modal-backdrop" onClick={() => setSelectedModelId(null)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ai-model-manage-title">
             <div className="panel-headline">
-              <h3 id="ai-model-manage-title">Ä£ĞÍ¹ÜÀí #{selectedModel.id}</h3>
+              <h3 id="ai-model-manage-title">æ¨¡å‹è¯¦æƒ… #{selectedModel.id}</h3>
               <button type="button" onClick={() => setSelectedModelId(null)}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
             <p className="line-metric">
-              <span>Ãû³Æ / ¹©Ó¦ÉÌ</span>
+              <span>åç§° / ä¾›åº”å•†</span>
               <strong>
                 {selectedModel.name} / {selectedModel.provider}
               </strong>
             </p>
             <p className="line-metric">
-              <span>Ä£ĞÍ</span>
+              <span>æ¨¡å‹</span>
               <strong>{selectedModel.model}</strong>
             </p>
             <p className="line-metric">
-              <span>API µØÖ·</span>
+              <span>API åœ°å€</span>
               <strong>{selectedModel.api_base_url}</strong>
             </p>
             <p className="line-metric">
-              <span>Ä¬ÈÏ / ÆôÓÃ</span>
+              <span>é»˜è®¤ / å¯ç”¨</span>
               <strong>
-                {selectedModel.is_default ? 'Ä¬ÈÏ' : '·ÇÄ¬ÈÏ'} / {selectedModel.enabled ? 'ÆôÓÃ' : '½ûÓÃ'}
+                {selectedModel.is_default ? 'é»˜è®¤' : 'éé»˜è®¤'} / {selectedModel.enabled ? 'å¯ç”¨' : 'ç¦ç”¨'}
               </strong>
             </p>
             <p className="line-metric">
-              <span>²ÎÊı</span>
+              <span>å‚æ•°</span>
               <strong>
                 max_tokens={selectedModel.max_tokens}, temp={selectedModel.temperature}, timeout={selectedModel.timeout}
               </strong>
             </p>
             {revealedApiKeys[selectedModel.id] && (
               <article className="modal-section">
-                <h4>API Key£¨Ã÷ÎÄ£©</h4>
+                <h4>API Keyï¼ˆæ˜æ–‡ï¼‰</h4>
                 <code style={{ display: 'block', overflowX: 'auto', whiteSpace: 'nowrap' }}>{revealedApiKeys[selectedModel.id]}</code>
               </article>
             )}
             <div className="button-row">
               <button type="button" onClick={() => void handleTestSaved(selectedModel.id)} disabled={testing === selectedModel.id}>
-                {testing === selectedModel.id ? '²âÊÔÖĞ...' : '²âÊÔÁ¬½Ó'}
+                {testing === selectedModel.id ? 'æµ‹è¯•ä¸­...' : 'æµ‹è¯•è¿æ¥'}
               </button>
               <button
                 type="button"
                 onClick={() => void handleRevealApiKey(selectedModel.id)}
                 disabled={loadingApiKeyId === selectedModel.id}
               >
-                {loadingApiKeyId === selectedModel.id ? '¶ÁÈ¡ÖĞ...' : '²é¿´ API Key'}
+                {loadingApiKeyId === selectedModel.id ? 'è¯»å–ä¸­...' : 'æŸ¥çœ‹ API Key'}
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  openEdit(selectedModel)
+                  navigate(`/ai-models/${selectedModel.id}/edit?back=${encodedBack}`)
                   setSelectedModelId(null)
                 }}
               >
-                ±à¼­
+                ç¼–è¾‘
               </button>
               <button type="button" onClick={() => void handleDelete(selectedModel.id)} disabled={deletingId === selectedModel.id}>
-                {deletingId === selectedModel.id ? 'É¾³ıÖĞ...' : 'É¾³ı'}
+                {deletingId === selectedModel.id ? 'åˆ é™¤ä¸­...' : 'åˆ é™¤'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {editorOpen && (
-        <div className="modal-backdrop" onClick={closeEditor}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ai-model-editor-title">
-            <div className="panel-headline">
-              <h3 id="ai-model-editor-title">{editingId ? `±à¼­Ä£ĞÍ #${editingId}` : 'ĞÂÔöÄ£ĞÍ'}</h3>
-              <button type="button" onClick={closeEditor} disabled={saving || testing === 'form'}>
-                ¹Ø±Õ
-              </button>
-            </div>
-            <form className="form-grid" onSubmit={handleSubmit}>
-              <label>
-                ÏÔÊ¾Ãû³Æ
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="ÀıÈç£ºGPT-4o"
-                  required
-                />
-              </label>
-              <label>
-                ¹©Ó¦ÉÌ
-                <select value={form.provider} onChange={(e) => handleProviderChange(e.target.value as AIProvider)}>
-                  {providerOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                API µØÖ·
-                <input
-                  value={form.api_base_url}
-                  onChange={(e) => setForm((p) => ({ ...p, api_base_url: e.target.value }))}
-                  placeholder="https://api.example.com/v1"
-                  required
-                />
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  value={form.api_key}
-                  onChange={(e) => setForm((p) => ({ ...p, api_key: e.target.value }))}
-                  placeholder={editingId ? '(Áô¿Õ±íÊ¾²»ĞŞ¸Ä)' : 'ÇëÊäÈë API Key'}
-                />
-              </label>
-              <label>
-                Ä£ĞÍÃû³Æ
-                <input
-                  value={form.model}
-                  onChange={(e) => setForm((p) => ({ ...p, model: e.target.value }))}
-                  placeholder="ÀıÈç£ºgpt-4o"
-                  required
-                />
-              </label>
-              <label>
-                ×î´ó Tokens
-                <input
-                  type="number"
-                  value={form.max_tokens}
-                  onChange={(e) => setForm((p) => ({ ...p, max_tokens: Number(e.target.value) }))}
-                  min={1}
-                  max={128000}
-                />
-              </label>
-              <label>
-                Temperature
-                <input
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  max={2}
-                  value={form.temperature}
-                  onChange={(e) => setForm((p) => ({ ...p, temperature: Number(e.target.value) }))}
-                />
-              </label>
-              <label>
-                ³¬Ê±£¨Ãë£©
-                <input
-                  type="number"
-                  min={10}
-                  max={300}
-                  value={form.timeout}
-                  onChange={(e) => setForm((p) => ({ ...p, timeout: Number(e.target.value) }))}
-                />
-              </label>
-              <div className="checks wide">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={form.is_default}
-                    onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
-                  />
-                  Ä¬ÈÏÄ£ĞÍ
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={form.enabled}
-                    onChange={(e) => setForm((p) => ({ ...p, enabled: e.target.checked }))}
-                  />
-                  ÆôÓÃ
-                </label>
-              </div>
-              <div className="button-row wide">
-                <button type="button" onClick={closeEditor}>
-                  È¡Ïû
-                </button>
-                <button type="button" onClick={() => void handleTestForm()} disabled={testing === 'form'}>
-                  {testing === 'form' ? '²âÊÔÖĞ...' : '²âÊÔÁ¬½Ó'}
-                </button>
-                <button className="primary-btn" type="submit" disabled={saving}>
-                  {saving ? '±£´æÖĞ...' : editingId ? '¸üĞÂÄ£ĞÍ' : '´´½¨Ä£ĞÍ'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

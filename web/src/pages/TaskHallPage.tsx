@@ -449,7 +449,7 @@ export function TaskHallPage({ userId, profile }: Props) {
       </header>
 
       <form
-        className="panel form-grid"
+        className="panel filter-panel"
         onSubmit={(event) => {
           event.preventDefault()
           if (hasPendingFilterChanges) {
@@ -459,10 +459,12 @@ export function TaskHallPage({ userId, profile }: Props) {
           void load()
         }}
       >
-        <h3>任务筛选</h3>
-        <p className="wide muted">修改筛选后点击“应用筛选”，列表才会更新。</p>
-        <label>
-          等级
+        <div className="panel-headline">
+          <h3>任务筛选</h3>
+        </div>
+        <div className="filter-toolbar">
+          <label className="filter-field">
+            <span>等级</span>
           <select value={filterDraft.level} onChange={(event) => setFilterDraft((prev) => ({ ...prev, level: event.target.value }))}>
             <option value="">全部</option>
             <option value="S">S</option>
@@ -470,9 +472,9 @@ export function TaskHallPage({ userId, profile }: Props) {
             <option value="B">B</option>
             <option value="C">C</option>
           </select>
-        </label>
-        <label>
-          场景
+          </label>
+          <label className="filter-field">
+            <span>场景</span>
           <select value={filterDraft.scenario} onChange={(event) => setFilterDraft((prev) => ({ ...prev, scenario: event.target.value }))}>
             <option value="">全部</option>
             <option value="rd">研发</option>
@@ -481,26 +483,28 @@ export function TaskHallPage({ userId, profile }: Props) {
             <option value="support">支持</option>
             <option value="other">其他</option>
           </select>
-        </label>
-        <label>
-          最低奖励
+          </label>
+          <label className="filter-field">
+            <span>最低奖励</span>
           <input type="number" value={filterDraft.rewardMin} onChange={(event) => setFilterDraft((prev) => ({ ...prev, rewardMin: event.target.value }))} />
-        </label>
-        <label>
-          最高奖励
+          </label>
+          <label className="filter-field">
+            <span>最高奖励</span>
           <input type="number" value={filterDraft.rewardMax} onChange={(event) => setFilterDraft((prev) => ({ ...prev, rewardMax: event.target.value }))} />
-        </label>
-        <div className="button-row wide">
-          <button className="primary-btn" type="submit">应用筛选</button>
-          <button
-            type="button"
-            onClick={() => {
-              setFilterDraft(defaultTaskFilters)
-              setFilters(defaultTaskFilters)
-            }}
-          >
-            重置
-          </button>
+          </label>
+          <div className="filter-actions">
+            <button className="primary-btn" type="submit">应用筛选</button>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterDraft(defaultTaskFilters)
+                setFilters(defaultTaskFilters)
+              }}
+            >
+              重置
+            </button>
+            <button type="button" onClick={() => void load()}>刷新</button>
+          </div>
         </div>
       </form>
 
