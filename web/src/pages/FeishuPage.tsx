@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useToast } from '../components/ToastProvider'
@@ -57,10 +57,10 @@ export function FeishuPage({ userId, profile }: Props) {
 
   const sectionButtons = useMemo(
     () => [
-      { id: 'oauth' as const, label: 'OAuth µÇÂ¼' },
-      { id: 'sync' as const, label: 'Í¨Ñ¶Â¼Í¬²½' },
-      { id: 'scheduler' as const, label: 'µ÷¶ÈÅäÖÃ' },
-      { id: 'departments' as const, label: `²¿ÃÅÁĞ±í (${departments.length})` },
+      { id: 'oauth' as const, label: 'OAuth ç™»å½•' },
+      { id: 'sync' as const, label: 'é€šè®¯å½•åŒæ­¥' },
+      { id: 'scheduler' as const, label: 'å®šæ—¶ä»»åŠ¡' },
+      { id: 'departments' as const, label: `éƒ¨é—¨åˆ—è¡¨ (${departments.length})` },
     ],
     [departments.length],
   )
@@ -70,7 +70,7 @@ export function FeishuPage({ userId, profile }: Props) {
       const res = await requestJson<Department[]>('/departments', { userId })
       setDepartments(res)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØ²¿ÃÅÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½éƒ¨é—¨å¤±è´¥')
     }
   }, [userId])
 
@@ -88,14 +88,14 @@ export function FeishuPage({ userId, profile }: Props) {
       setReleaseFrequency(release.frequency_minutes)
       setReleaseFrequencyDraft(String(release.frequency_minutes))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¶ÁÈ¡ÆµÂÊÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'è¯»å–é¢‘ç‡å¤±è´¥')
     }
   }, [canAdmin, userId])
 
   const saveReleaseFrequency = async () => {
     const next = Number(releaseFrequencyDraft)
     if (!Number.isInteger(next) || next < 5 || next > 10080) {
-      setError('³¬ÆÚ¼ì²éÆµÂÊ·¶Î§Ó¦Îª 5-10080 ·ÖÖÓ')
+      setError('è¶…æœŸæ£€æŸ¥é¢‘ç‡èŒƒå›´åº”ä¸º 5-10080 åˆ†é’Ÿ')
       return
     }
     try {
@@ -107,16 +107,16 @@ export function FeishuPage({ userId, profile }: Props) {
       })
       setReleaseFrequency(next)
       setReleaseFrequencyDraft(String(next))
-      setMessage('³¬ÆÚ¼ì²éÆµÂÊÒÑ¸üĞÂ')
+      setMessage('è¶…æœŸæ£€æŸ¥é¢‘ç‡å·²æ›´æ–°')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¸üĞÂÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'æ›´æ–°å¤±è´¥')
     }
   }
 
   const saveFrequency = async () => {
     const next = Number(frequencyDraft)
     if (!Number.isInteger(next) || next < 5 || next > 10080) {
-      setError('Í¬²½ÆµÂÊ·¶Î§Ó¦Îª 5-10080 ·ÖÖÓ')
+      setError('åŒæ­¥é¢‘ç‡èŒƒå›´åº”ä¸º 5-10080 åˆ†é’Ÿ')
       return
     }
     try {
@@ -128,9 +128,9 @@ export function FeishuPage({ userId, profile }: Props) {
       })
       setFrequency(next)
       setFrequencyDraft(String(next))
-      setMessage('Í¬²½ÆµÂÊÒÑ¸üĞÂ')
+      setMessage('åŒæ­¥é¢‘ç‡å·²æ›´æ–°')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¸üĞÂÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'æ›´æ–°å¤±è´¥')
     }
   }
 
@@ -145,10 +145,10 @@ export function FeishuPage({ userId, profile }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`ÒÑÖ´ĞĞ³¬ÆÚÊÍ·Å£¬±¾´ÎÊÍ·Å ${res.released_claims} Ìõ`)
+      setMessage(`å·²æ‰§è¡Œè¶…æœŸé‡Šæ”¾ï¼Œæœ¬æ¬¡é‡Šæ”¾ ${res.released_claims} æ¡`)
       setConfirmReleaseOpen(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ö´ĞĞ³¬ÆÚÊÍ·ÅÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'æ‰§è¡Œè¶…æœŸé‡Šæ”¾å¤±è´¥')
     } finally {
       setRunningReleaseNow(false)
     }
@@ -169,7 +169,7 @@ export function FeishuPage({ userId, profile }: Props) {
       setLoginUrl(res)
       setState(res.state)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Éú³ÉµÇÂ¼Á´½ÓÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'ç”Ÿæˆç™»å½•é“¾æ¥å¤±è´¥')
     }
   }
 
@@ -177,7 +177,7 @@ export function FeishuPage({ userId, profile }: Props) {
     event.preventDefault()
     const trimmedCode = code.trim()
     if (!trimmedCode) {
-      setError('ÇëÏÈÊäÈëÊÚÈ¨Âë code')
+      setError('è¯·è¾“å…¥æˆæƒç  code')
       return
     }
     try {
@@ -189,9 +189,9 @@ export function FeishuPage({ userId, profile }: Props) {
       }
       const res = await requestJson<LoginResult>(`/auth/feishu/callback?${query.toString()}`, { userId })
       setLoginResult(res)
-      setMessage(`µÇÂ¼³É¹¦£º${res.user_name} (id=${res.user_id})`)
+      setMessage(`ç™»å½•æˆåŠŸï¼š${res.user_name} (id=${res.user_id})`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'µÇÂ¼Ê§°Ü')
+      setError(err instanceof Error ? err.message : 'ç™»å½•å¤±è´¥')
     }
   }
 
@@ -205,9 +205,9 @@ export function FeishuPage({ userId, profile }: Props) {
       })
       setSyncResult(res)
       await loadDepartments()
-      setMessage(`Í¬²½Íê³É£º²¿ÃÅ ${res.synced_departments}£¬ÈËÔ± ${res.synced_users}`)
+      setMessage(`åŒæ­¥å®Œæˆï¼šéƒ¨é—¨ ${res.synced_departments}ï¼Œäººå‘˜ ${res.synced_users}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Í¬²½Ê§°Ü')
+      setError(err instanceof Error ? err.message : 'åŒæ­¥å¤±è´¥')
     } finally {
       setSyncingMode(null)
     }
@@ -230,8 +230,8 @@ export function FeishuPage({ userId, profile }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>·ÉÊé¼¯³É</h2>
-        <p>OAuth »Øµ÷¡¢Í¨Ñ¶Â¼Í¬²½ÓëÆµÂÊÅäÖÃ¡£</p>
+        <h2>é£ä¹¦é›†æˆ</h2>
+        <p>OAuth å›è°ƒã€é€šè®¯å½•åŒæ­¥å’Œå®šæ—¶é¢‘ç‡è®¾ç½®ã€‚</p>
       </header>
 
       <article className="panel">
@@ -252,37 +252,37 @@ export function FeishuPage({ userId, profile }: Props) {
       {activeSection === 'oauth' && (
         <article className="panel form-grid">
           <div className="panel-headline wide">
-            <h3>OAuth µÇÂ¼</h3>
+            <h3>OAuth ç™»å½•</h3>
             <button type="button" onClick={() => void generateLoginUrl()}>
-              Éú³ÉµÇÂ¼Á´½Ó
+              ç”Ÿæˆç™»å½•é“¾æ¥
             </button>
           </div>
           {loginUrl && (
             <p className="wide muted">
               <a href={loginUrl.login_url} target="_blank" rel="noreferrer">
-                ´ò¿ªÊÚÈ¨Ò³£¨{loginUrl.provider}£©
+                æ‰“å¼€æˆæƒé¡µï¼ˆ{loginUrl.provider}ï¼‰
               </a>
             </p>
           )}
           <form className="wide form-grid" onSubmit={callbackLogin}>
             <label>
-              ÊÚÈ¨Âë£¨code£©
+              æˆæƒç ï¼ˆcodeï¼‰
               <input value={code} onChange={(event) => setCode(event.target.value)} required />
             </label>
             <label>
-              ×´Ì¬²ÎÊı£¨state£©
+              çŠ¶æ€å‚æ•°ï¼ˆstateï¼‰
               <input value={state} onChange={(event) => setState(event.target.value)} />
             </label>
             <div className="button-row wide">
               <button className="primary-btn" type="submit">
-                µ÷ÓÃ»Øµ÷µÇÂ¼
+                è°ƒç”¨å›è°ƒç™»å½•
               </button>
             </div>
           </form>
           {loginResult && (
             <p className="line-metric wide">
               <span>{loginResult.user_name}</span>
-              <strong>{loginResult.is_new_user ? 'ĞÂÓÃ»§' : 'ÒÑ´æÔÚÓÃ»§'}</strong>
+              <strong>{loginResult.is_new_user ? 'æ–°ç”¨æˆ·' : 'å·²å­˜åœ¨ç”¨æˆ·'}</strong>
             </p>
           )}
         </article>
@@ -290,27 +290,27 @@ export function FeishuPage({ userId, profile }: Props) {
 
       {activeSection === 'sync' && (
         <article className="panel">
-          <h3>Í¨Ñ¶Â¼Í¬²½</h3>
+          <h3>é€šè®¯å½•åŒæ­¥</h3>
           {canAdmin ? (
             <div className="button-row">
               <button type="button" onClick={() => void sync('all')} disabled={syncingMode !== null}>
-                {syncingMode === 'all' ? 'Í¬²½ÖĞ...' : 'Í¬²½È«²¿'}
+                {syncingMode === 'all' ? 'åŒæ­¥ä¸­...' : 'åŒæ­¥å…¨éƒ¨'}
               </button>
               <button type="button" onClick={() => void sync('departments')} disabled={syncingMode !== null}>
-                {syncingMode === 'departments' ? 'Í¬²½ÖĞ...' : '½öÍ¬²½²¿ÃÅ'}
+                {syncingMode === 'departments' ? 'åŒæ­¥ä¸­...' : 'ä»…åŒæ­¥éƒ¨é—¨'}
               </button>
               <button type="button" onClick={() => void sync('users')} disabled={syncingMode !== null}>
-                {syncingMode === 'users' ? 'Í¬²½ÖĞ...' : '½öÍ¬²½ÈËÔ±'}
+                {syncingMode === 'users' ? 'åŒæ­¥ä¸­...' : 'ä»…åŒæ­¥äººå‘˜'}
               </button>
             </div>
           ) : (
-            <p className="muted">µ±Ç°ÕËºÅ·Ç¹ÜÀíÔ±£¬½ö¿É²é¿´Í¬²½½á¹û¡£</p>
+            <p className="muted">å½“å‰è´¦å·éç®¡ç†å‘˜ï¼Œä»…å¯æŸ¥çœ‹åŒæ­¥ç»“æœã€‚</p>
           )}
           {syncResult && (
             <p className="line-metric">
-              <span>×î½üÒ»´ÎÍ¬²½½á¹û</span>
+              <span>æœ€è¿‘ä¸€æ¬¡åŒæ­¥ç»“æœ</span>
               <strong>
-                ²¿ÃÅ {syncResult.synced_departments} / ÈËÔ± {syncResult.synced_users} / Ä£Ê½ {syncResult.mode}
+                éƒ¨é—¨ {syncResult.synced_departments} / äººå‘˜ {syncResult.synced_users} / æ¨¡å¼ {syncResult.mode}
               </strong>
             </p>
           )}
@@ -319,13 +319,13 @@ export function FeishuPage({ userId, profile }: Props) {
 
       {activeSection === 'scheduler' && (
         <article className="panel form-grid">
-          <h3 className="wide">µ÷¶ÈÅäÖÃ</h3>
+          <h3 className="wide">å®šæ—¶ä»»åŠ¡</h3>
           {!canAdmin ? (
-            <p className="muted wide">µ±Ç°ÕËºÅ·Ç¹ÜÀíÔ±£¬½ö¹ÜÀíÔ±¿ÉĞŞ¸ÄÆµÂÊÓëÖ´ĞĞºóÌ¨ÈÎÎñ¡£</p>
+            <p className="muted wide">å½“å‰è´¦å·éç®¡ç†å‘˜ã€‚ä»…ç®¡ç†å‘˜å¯ä¿®æ”¹é¢‘ç‡ä¸æ‰§è¡Œåå°ä»»åŠ¡ã€‚</p>
           ) : (
             <>
               <label>
-                ·ÉÊéÍ¬²½ÆµÂÊ£¨·ÖÖÓ£©
+                é£ä¹¦åŒæ­¥é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
                 <input
                   type="number"
                   min={5}
@@ -336,13 +336,13 @@ export function FeishuPage({ userId, profile }: Props) {
               </label>
               <div className="button-row" style={{ alignItems: 'end' }}>
                 <button className="primary-btn" type="button" onClick={() => void saveFrequency()} disabled={!hasFreqChanges}>
-                  ±£´æÍ¬²½ÆµÂÊ
+                  ä¿å­˜åŒæ­¥é¢‘ç‡
                 </button>
-                <span className="muted">µ±Ç°£º{frequency} ·ÖÖÓ</span>
+                <span className="muted">å½“å‰ï¼š{frequency} åˆ†é’Ÿ</span>
               </div>
 
               <label>
-                ³¬ÆÚ¼ì²éÆµÂÊ£¨·ÖÖÓ£©
+                è¶…æœŸé‡Šæ”¾é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
                 <input
                   type="number"
                   min={5}
@@ -358,12 +358,12 @@ export function FeishuPage({ userId, profile }: Props) {
                   onClick={() => void saveReleaseFrequency()}
                   disabled={!hasReleaseFreqChanges}
                 >
-                  ±£´æ³¬ÆÚÆµÂÊ
+                  ä¿å­˜è¶…æœŸé¢‘ç‡
                 </button>
                 <button type="button" onClick={() => setConfirmReleaseOpen(true)}>
-                  Á¢¼´Ö´ĞĞ³¬ÆÚÊÍ·Å
+                  ç«‹å³æ‰§è¡Œè¶…æœŸé‡Šæ”¾
                 </button>
-                <span className="muted">µ±Ç°£º{releaseFrequency} ·ÖÖÓ</span>
+                <span className="muted">å½“å‰ï¼š{releaseFrequency} åˆ†é’Ÿ</span>
               </div>
             </>
           )}
@@ -373,17 +373,17 @@ export function FeishuPage({ userId, profile }: Props) {
       {activeSection === 'departments' && (
         <article className="panel">
           <div className="panel-headline">
-            <h3>²¿ÃÅÁĞ±í</h3>
+            <h3>éƒ¨é—¨åˆ—è¡¨</h3>
             <button type="button" onClick={() => void loadDepartments()}>
-              Ë¢ĞÂ
+              åˆ·æ–°
             </button>
           </div>
           <div className="table">
             <div className="row head">
               <span>ID</span>
-              <span>Íâ²¿ ID</span>
-              <span>Ãû³Æ</span>
-              <span>¸üĞÂÊ±¼ä</span>
+              <span>å¤–éƒ¨ ID</span>
+              <span>åç§°</span>
+              <span>æ›´æ–°æ—¶é—´</span>
             </div>
             {departments.map((dept) => (
               <div className="row" key={dept.id}>
@@ -395,7 +395,7 @@ export function FeishuPage({ userId, profile }: Props) {
             ))}
             {departments.length === 0 && (
               <div className="row">
-                <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>ÔİÎŞ²¿ÃÅÊı¾İ£¬ÇëÏÈÖ´ĞĞÍ¬²½</span>
+                <span style={{ gridColumn: '1 / -1', textAlign: 'center' }}>æš‚æ— éƒ¨é—¨æ•°æ®ï¼Œè¯·å…ˆæ‰§è¡ŒåŒæ­¥</span>
               </div>
             )}
           </div>
@@ -406,18 +406,18 @@ export function FeishuPage({ userId, profile }: Props) {
         <div className="modal-backdrop" onClick={() => setConfirmReleaseOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="confirm-release-title">
             <div className="panel-headline">
-              <h3 id="confirm-release-title">È·ÈÏÖ´ĞĞ³¬ÆÚÊÍ·Å</h3>
+              <h3 id="confirm-release-title">ç¡®è®¤æ‰§è¡Œè¶…æœŸé‡Šæ”¾</h3>
               <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={runningReleaseNow}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
-            <p>¸Ã²Ù×÷»áÁ¢¼´É¨Ãè²¢ÊÍ·Å³¬ÆÚÎ´Ìá½»½øÕ¹µÄ½Ò°ñ¼ÇÂ¼£¬ÇëÈ·ÈÏµ±Ç°Ê±»úÕıÈ·¡£</p>
+            <p>è¯¥æ“ä½œä¼šæ‰«æå¹¶é‡Šæ”¾è¶…æœŸæœªæäº¤è¿›å±•çš„æ­æ¦œè®°å½•ï¼Œè¯·ç¡®è®¤åç»§ç»­ã€‚</p>
             <div className="button-row">
               <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={runningReleaseNow}>
-                È¡Ïû
+                å–æ¶ˆ
               </button>
               <button className="primary-btn" type="button" onClick={() => void releaseOverdueNow()} disabled={runningReleaseNow}>
-                {runningReleaseNow ? 'Ö´ĞĞÖĞ...' : 'È·ÈÏÖ´ĞĞ'}
+                {runningReleaseNow ? 'æ‰§è¡Œä¸­...' : 'ç¡®è®¤æ‰§è¡Œ'}
               </button>
             </div>
           </div>

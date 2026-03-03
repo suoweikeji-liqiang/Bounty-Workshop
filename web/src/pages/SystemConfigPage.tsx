@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+ï»¿import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
@@ -84,7 +84,7 @@ export function SystemConfigPage({ userId }: Props) {
       setReworkTemplates(data.acceptance_templates.rework.join('\n'))
       setRejectedTemplates(data.acceptance_templates.rejected.join('\n'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '¼ÓÔØÏµÍ³ÅäÖÃÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'åŠ è½½ç³»ç»Ÿé…ç½®å¤±è´¥')
     } finally {
       setLoading(false)
     }
@@ -99,11 +99,11 @@ export function SystemConfigPage({ userId }: Props) {
     const releaseValue = Number(releaseFreq)
 
     if (!Number.isInteger(feishuValue) || feishuValue < 5) {
-      setError('·ÉÊéÍ¬²½ÆµÂÊ±ØĞëÊÇ´óÓÚµÈÓÚ 5 µÄÕûÊı')
+      setError('é£ä¹¦åŒæ­¥é¢‘ç‡å¿…é¡»æ˜¯å¤§äºç­‰äº 5 çš„æ•´æ•°')
       return
     }
     if (!Number.isInteger(releaseValue) || releaseValue < 5) {
-      setError('³¬ÆÚÊÍ·ÅÆµÂÊ±ØĞëÊÇ´óÓÚµÈÓÚ 5 µÄÕûÊı')
+      setError('è¶…æœŸé‡Šæ”¾é¢‘ç‡å¿…é¡»æ˜¯å¤§äºç­‰äº 5 çš„æ•´æ•°')
       return
     }
 
@@ -122,10 +122,10 @@ export function SystemConfigPage({ userId }: Props) {
           body: { frequency_minutes: releaseValue },
         }),
       ])
-      setMessage('Í¬²½Ïà¹ØÅäÖÃÒÑ¸üĞÂ')
+      setMessage('åŒæ­¥é¢‘ç‡é…ç½®å·²æ›´æ–°')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '±£´æÍ¬²½ÅäÖÃÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'ä¿å­˜åŒæ­¥é¢‘ç‡å¤±è´¥')
     } finally {
       setSavingSync(false)
     }
@@ -136,11 +136,11 @@ export function SystemConfigPage({ userId }: Props) {
     const budgetThresholdValue = Number(budgetThreshold)
 
     if (!Number.isInteger(claimThresholdValue) || claimThresholdValue < 1) {
-      setError('½Ò°ñÉóÅúãĞÖµ±ØĞëÊÇ´óÓÚµÈÓÚ 1 µÄÕûÊı')
+      setError('æ­æ¦œå®¡æ‰¹é˜ˆå€¼å¿…é¡»æ˜¯å¤§äºç­‰äº 1 çš„æ•´æ•°')
       return
     }
     if (!Number.isFinite(budgetThresholdValue) || budgetThresholdValue < 0) {
-      setError('×Ê½ğ¸´ºËãĞÖµ±ØĞëÊÇ´óÓÚµÈÓÚ 0 µÄÊı×Ö')
+      setError('èµ„é‡‘å¤æ ¸é˜ˆå€¼å¿…é¡»æ˜¯å¤§äºç­‰äº 0 çš„æ•°å­—')
       return
     }
 
@@ -159,10 +159,10 @@ export function SystemConfigPage({ userId }: Props) {
           body: { threshold: budgetThresholdValue },
         }),
       ])
-      setMessage('ÉóÅúãĞÖµÒÑ¸üĞÂ')
+      setMessage('ç­–ç•¥é˜ˆå€¼å·²æ›´æ–°')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '±£´æÉóÅúãĞÖµÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'ä¿å­˜ç­–ç•¥é˜ˆå€¼å¤±è´¥')
     } finally {
       setSavingThreshold(false)
     }
@@ -180,7 +180,7 @@ export function SystemConfigPage({ userId }: Props) {
       templatesPayload.rework.length === 0 ||
       templatesPayload.rejected.length === 0
     ) {
-      setError('Ã¿ÖÖÑéÊÕ½á¹ûÖÁÉÙĞèÒªÒ»ÌõÄ£°å')
+      setError('æ¯ç§éªŒæ”¶ç»“æœè‡³å°‘éœ€è¦ä¸€æ¡æ¨¡æ¿')
       return
     }
 
@@ -192,10 +192,10 @@ export function SystemConfigPage({ userId }: Props) {
         userId,
         body: templatesPayload,
       })
-      setMessage('ÑéÊÕÄ£°åÒÑ¸üĞÂ')
+      setMessage('éªŒæ”¶æ¨¡æ¿å·²æ›´æ–°')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '±£´æÑéÊÕÄ£°åÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'ä¿å­˜éªŒæ”¶æ¨¡æ¿å¤±è´¥')
     } finally {
       setSavingTemplates(false)
     }
@@ -209,11 +209,11 @@ export function SystemConfigPage({ userId }: Props) {
         method: 'POST',
         userId,
       })
-      setMessage(`ÒÑÖ´ĞĞ³¬ÆÚÊÍ·Å£¬±¾´Î´¦Àí ${result.released_claims} Ìõ½Ò°ñ`)
+      setMessage(`å·²æ‰§è¡Œè¶…æœŸé‡Šæ”¾ï¼Œæœ¬æ¬¡å¤„ç† ${result.released_claims} æ¡æ­æ¦œ`)
       setConfirmReleaseOpen(false)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ö´ĞĞ³¬ÆÚÊÍ·ÅÊ§°Ü')
+      setError(err instanceof Error ? err.message : 'æ‰§è¡Œè¶…æœŸé‡Šæ”¾å¤±è´¥')
     } finally {
       setReleasing(false)
     }
@@ -232,44 +232,44 @@ export function SystemConfigPage({ userId }: Props) {
   return (
     <section className="page-wrap">
       <header className="page-head">
-        <h2>ÏµÍ³ÅäÖÃ</h2>
-        <p>¼¯ÖĞ¹ÜÀíÍ¬²½ÆµÂÊ¡¢ÉóÅúãĞÖµºÍÑéÊÕÄ£°å¡£</p>
+        <h2>ç³»ç»Ÿé…ç½®</h2>
+        <p>é›†ä¸­ç®¡ç†åŒæ­¥é¢‘ç‡ã€å®¡æ‰¹é˜ˆå€¼ä¸éªŒæ”¶æ¨¡æ¿ã€‚</p>
       </header>
 
       <article className="panel">
         <div className="button-row">
           <button type="button" className={activeSection === 'sync' ? 'primary-btn' : ''} onClick={() => setActiveSection('sync')}>
-            Í¬²½ÆµÂÊ
+            åŒæ­¥é¢‘ç‡
           </button>
           <button type="button" className={activeSection === 'threshold' ? 'primary-btn' : ''} onClick={() => setActiveSection('threshold')}>
-            ÉóÅúãĞÖµ
+            ç­–ç•¥é˜ˆå€¼
           </button>
           <button type="button" className={activeSection === 'templates' ? 'primary-btn' : ''} onClick={() => setActiveSection('templates')}>
-            ÑéÊÕÄ£°å
+            éªŒæ”¶æ¨¡æ¿
           </button>
           <button type="button" className={activeSection === 'ops' ? 'primary-btn' : ''} onClick={() => setActiveSection('ops')}>
-            Î¬»¤²Ù×÷
+            è¿ç»´æ“ä½œ
           </button>
           <button type="button" onClick={() => void load()} disabled={loading}>
-            Ë¢ĞÂ
+            åˆ·æ–°
           </button>
         </div>
       </article>
 
       {activeSection === 'sync' && (
         <article className="panel form-grid">
-          <h3 className="wide">Í¬²½ÆµÂÊÅäÖÃ</h3>
+          <h3 className="wide">åŒæ­¥é¢‘ç‡é…ç½®</h3>
           <label>
-            ·ÉÊéÍ¬²½ÆµÂÊ£¨·ÖÖÓ£©
+            é£ä¹¦åŒæ­¥é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
             <input type="number" min={5} value={feishuFreq} onChange={(e) => setFeishuFreq(e.target.value)} disabled={loading} />
           </label>
           <label>
-            ³¬ÆÚÊÍ·ÅÆµÂÊ£¨·ÖÖÓ£©
+            è¶…æœŸé‡Šæ”¾é¢‘ç‡ï¼ˆåˆ†é’Ÿï¼‰
             <input type="number" min={5} value={releaseFreq} onChange={(e) => setReleaseFreq(e.target.value)} disabled={loading} />
           </label>
           <div className="button-row wide">
             <button className="primary-btn" type="button" onClick={() => void saveSyncConfig()} disabled={savingSync || !hasSyncChanges}>
-              {savingSync ? '±£´æÖĞ...' : '±£´æÍ¬²½ÅäÖÃ'}
+              {savingSync ? 'ä¿å­˜ä¸­...' : 'ä¿å­˜åŒæ­¥é¢‘ç‡'}
             </button>
           </div>
         </article>
@@ -277,13 +277,13 @@ export function SystemConfigPage({ userId }: Props) {
 
       {activeSection === 'threshold' && (
         <article className="panel form-grid">
-          <h3 className="wide">ÉóÅúãĞÖµÅäÖÃ</h3>
+          <h3 className="wide">ç­–ç•¥é˜ˆå€¼é…ç½®</h3>
           <label>
-            ½Ò°ñÉóÅúãĞÖµ
+            æ­æ¦œå®¡æ‰¹è¶…æœŸé˜ˆå€¼
             <input type="number" min={1} value={claimThreshold} onChange={(e) => setClaimThreshold(e.target.value)} disabled={loading} />
           </label>
           <label>
-            ×Ê½ğ¸´ºËãĞÖµ
+            èµ„é‡‘å¤æ ¸é˜ˆå€¼
             <input type="number" min={0} value={budgetThreshold} onChange={(e) => setBudgetThreshold(e.target.value)} disabled={loading} />
           </label>
           <div className="button-row wide">
@@ -293,7 +293,7 @@ export function SystemConfigPage({ userId }: Props) {
               onClick={() => void saveThresholdConfig()}
               disabled={savingThreshold || !hasThresholdChanges}
             >
-              {savingThreshold ? '±£´æÖĞ...' : '±£´æÉóÅúãĞÖµ'}
+              {savingThreshold ? 'ä¿å­˜ä¸­...' : 'ä¿å­˜ç­–ç•¥é˜ˆå€¼'}
             </button>
           </div>
         </article>
@@ -301,22 +301,22 @@ export function SystemConfigPage({ userId }: Props) {
 
       {activeSection === 'templates' && (
         <article className="panel form-grid">
-          <h3 className="wide">ÑéÊÕÄ£°åÅäÖÃ</h3>
+          <h3 className="wide">éªŒæ”¶æ¨¡æ¿é…ç½®</h3>
           <label className="wide">
-            ÑéÊÕÄ£°å£ºÍ¨¹ı£¨Ã¿ĞĞÒ»Ìõ£©
+            é€šè¿‡æ¨¡æ¿ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
             <textarea value={approvedTemplates} onChange={(e) => setApprovedTemplates(e.target.value)} disabled={loading} />
           </label>
           <label className="wide">
-            ÑéÊÕÄ£°å£ºÕû¸Ä£¨Ã¿ĞĞÒ»Ìõ£©
+            è¿”å·¥æ¨¡æ¿ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
             <textarea value={reworkTemplates} onChange={(e) => setReworkTemplates(e.target.value)} disabled={loading} />
           </label>
           <label className="wide">
-            ÑéÊÕÄ£°å£º²»Í¨¹ı£¨Ã¿ĞĞÒ»Ìõ£©
+            é©³å›æ¨¡æ¿ï¼ˆæ¯è¡Œä¸€æ¡ï¼‰
             <textarea value={rejectedTemplates} onChange={(e) => setRejectedTemplates(e.target.value)} disabled={loading} />
           </label>
           <div className="button-row wide">
             <button className="primary-btn" type="button" onClick={() => void saveTemplates()} disabled={savingTemplates || !hasTemplateChanges}>
-              {savingTemplates ? '±£´æÖĞ...' : '±£´æÄ£°å'}
+              {savingTemplates ? 'ä¿å­˜ä¸­...' : 'ä¿å­˜æ¨¡æ¿'}
             </button>
           </div>
         </article>
@@ -324,11 +324,11 @@ export function SystemConfigPage({ userId }: Props) {
 
       {activeSection === 'ops' && (
         <article className="panel">
-          <h3>Î¬»¤²Ù×÷</h3>
-          <p className="muted">Á¢¼´´¥·¢Ò»´Î³¬ÆÚ½Ò°ñÊÍ·ÅÈÎÎñ£¬ÓÃÓÚÈË¹¤¸ÉÔ¤´¦Àí¡£</p>
+          <h3>è¿ç»´æ“ä½œ</h3>
+          <p className="muted">å¯æ‰‹åŠ¨è§¦å‘ä¸€æ¬¡è¶…æœŸæ­æ¦œé‡Šæ”¾ä»»åŠ¡ï¼Œç”¨äºå¼‚å¸¸æ¢å¤æˆ–äººå·¥å¹²é¢„ã€‚</p>
           <div className="button-row">
             <button type="button" onClick={() => setConfirmReleaseOpen(true)}>
-              Á¢¼´ÊÍ·Å³¬ÆÚ½Ò°ñ
+              ç«‹å³é‡Šæ”¾è¶…æœŸæ­æ¦œ
             </button>
           </div>
         </article>
@@ -336,11 +336,11 @@ export function SystemConfigPage({ userId }: Props) {
 
       {overview && (
         <article className="panel">
-          <h3>µ±Ç°ÅäÖÃ¿ìÕÕ</h3>
-          <p className="line-metric"><span>·ÉÊéÍ¬²½ÆµÂÊ</span><strong>{overview.feishu_sync_frequency_minutes} ·ÖÖÓ</strong></p>
-          <p className="line-metric"><span>³¬ÆÚÊÍ·ÅÆµÂÊ</span><strong>{overview.release_overdue_frequency_minutes} ·ÖÖÓ</strong></p>
-          <p className="line-metric"><span>½Ò°ñÉóÅúãĞÖµ</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
-          <p className="line-metric"><span>×Ê½ğ¸´ºËãĞÖµ</span><strong>{overview.budget_review_threshold}</strong></p>
+          <h3>å½“å‰é…ç½®å¿«ç…§</h3>
+          <p className="line-metric"><span>é£ä¹¦åŒæ­¥é¢‘ç‡</span><strong>{overview.feishu_sync_frequency_minutes} åˆ†é’Ÿ</strong></p>
+          <p className="line-metric"><span>è¶…æœŸé‡Šæ”¾é¢‘ç‡</span><strong>{overview.release_overdue_frequency_minutes} åˆ†é’Ÿ</strong></p>
+          <p className="line-metric"><span>æ­æ¦œå®¡æ‰¹é˜ˆå€¼</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
+          <p className="line-metric"><span>èµ„é‡‘å¤æ ¸é˜ˆå€¼</span><strong>{overview.budget_review_threshold}</strong></p>
         </article>
       )}
 
@@ -348,18 +348,18 @@ export function SystemConfigPage({ userId }: Props) {
         <div className="modal-backdrop" onClick={() => setConfirmReleaseOpen(false)}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="release-overdue-title">
             <div className="panel-headline">
-              <h3 id="release-overdue-title">È·ÈÏÖ´ĞĞ³¬ÆÚÊÍ·Å</h3>
+              <h3 id="release-overdue-title">ç¡®è®¤æ‰§è¡Œè¶…æœŸé‡Šæ”¾</h3>
               <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={releasing}>
-                ¹Ø±Õ
+                å…³é—­
               </button>
             </div>
-            <p>¸Ã²Ù×÷»áÁ¢¼´´¥·¢ÊÍ·ÅÈÎÎñ£¬¿ÉÄÜ¸Ä±äÕıÔÚ½øĞĞÖĞµÄ½Ò°ñ×´Ì¬¡£</p>
+            <p>è¯¥æ“ä½œä¼šç«‹å³æ‰§è¡Œè¶…æœŸé‡Šæ”¾ä»»åŠ¡ï¼Œå¯èƒ½æ”¹å˜éƒ¨åˆ†æ­æ¦œè®°å½•çŠ¶æ€ã€‚</p>
             <div className="button-row">
               <button type="button" onClick={() => setConfirmReleaseOpen(false)} disabled={releasing}>
-                È¡Ïû
+                å–æ¶ˆ
               </button>
               <button className="primary-btn" type="button" onClick={() => void runReleaseOverdueNow()} disabled={releasing}>
-                {releasing ? 'Ö´ĞĞÖĞ...' : 'È·ÈÏÖ´ĞĞ'}
+                {releasing ? 'æ‰§è¡Œä¸­...' : 'ç¡®è®¤æ‰§è¡Œ'}
               </button>
             </div>
           </div>
