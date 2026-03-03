@@ -29,6 +29,7 @@ from app.services import (
     create_problem,
     get_problem_analysis,
     get_problem_detail,
+    is_problem_analysis_timed_out,
     list_hypothesis_verifications,
     list_problems,
     resubmit_problem,
@@ -184,6 +185,7 @@ def post_problem_budget_review(
 def post_problem_analyze(
     problem_id: int,
     background_tasks: BackgroundTasks,
+    force: bool = Query(default=False),
     session: Session = Depends(get_session),
     actor_id: int = Depends(get_current_user_id),
 ) -> dict:
@@ -194,7 +196,14 @@ def post_problem_analyze(
     if problem.submitter_id != actor_id and Role.ADMIN not in actor_roles and Role.REVIEWER not in actor_roles:
         raise HTTPException(status_code=403, detail="permission denied")
 
-    if problem.analysis_status != AnalysisStatus.ANALYZING:
+    timed_out = (
+        problem.analysis_status == AnalysisStatus.ANALYZING
+        and is_problem_analysis_timed_out(session, problem)
+    )
+    if problem.analysis_status == AnalysisStatus.ANALYZING and not force and not timed_out:
+        raise HTTPException(status_code=409, detail="analysis is still running")
+
+    if problem.analysis_status != AnalysisStatus.ANALYZING or force or timed_out:
         problem.analysis_status = AnalysisStatus.ANALYZING
         problem.analysis_id = None
         session.commit()
@@ -203,7 +212,7 @@ def post_problem_analyze(
     return {
         "analysis_id": problem.analysis_id,
         "status": AnalysisStatus.ANALYZING.value,
-        "message": "analysis started",
+        "message": "analysis retried" if (force or timed_out) else "analysis started",
     }
 
 

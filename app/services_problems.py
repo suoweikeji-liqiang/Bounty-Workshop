@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
@@ -42,6 +43,8 @@ from app.services_common import _ensure_role, _ensure_user_exists, _from_json_li
 BUDGET_REVIEW_THRESHOLD_KEY = "budget_review_threshold"
 DEFAULT_BUDGET_REVIEW_THRESHOLD = 3000.0
 MIN_BUDGET_REVIEW_THRESHOLD = 0.0
+ANALYSIS_TIMEOUT_SECONDS_KEY = "ANALYSIS_TIMEOUT_SECONDS"
+DEFAULT_ANALYSIS_TIMEOUT_SECONDS = 600
 
 
 def get_budget_review_threshold(session: Session) -> float:
@@ -68,6 +71,34 @@ def set_budget_review_threshold(session: Session, threshold: float) -> float:
         row.updated_at = now
     session.commit()
     return value
+
+
+def get_analysis_timeout_seconds() -> int:
+    raw = os.getenv(ANALYSIS_TIMEOUT_SECONDS_KEY)
+    try:
+        timeout = int(raw) if raw is not None else DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+    except ValueError:
+        timeout = DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+    return max(1, timeout)
+
+
+def is_problem_analysis_timed_out(session: Session, problem: Problem) -> bool:
+    if problem.analysis_status != AnalysisStatus.ANALYZING:
+        return False
+
+    timeout_seconds = get_analysis_timeout_seconds()
+    now = datetime.utcnow()
+
+    if problem.analysis_id is None:
+        # No analysis row while still "analyzing" usually means the background task did not start.
+        started_at = problem.created_at
+    else:
+        analysis = session.get(ProblemAnalysis, problem.analysis_id)
+        if analysis is None:
+            return True
+        started_at = analysis.updated_at or analysis.created_at
+
+    return (now - started_at).total_seconds() >= timeout_seconds
 
 
 def _problem_to_read(problem: Problem, submitter_name: str) -> ProblemRead:

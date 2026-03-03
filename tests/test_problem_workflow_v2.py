@@ -426,6 +426,87 @@ def test_submit_for_review_auto_triggers_analysis(tmp_path: Path, monkeypatch) -
     app.dependency_overrides.clear()
 
 
+def test_analyze_rejects_retry_when_not_timed_out(tmp_path: Path, monkeypatch) -> None:
+    client = _setup_client(tmp_path)
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AnalyzeRunner", "employee_no": "E200", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, employee_id)
+
+    called_problem_ids: list[int] = []
+
+    def fake_trigger(pid: int) -> None:
+        called_problem_ids.append(pid)
+
+    monkeypatch.setattr("app.routers.problems._trigger_analysis_background", fake_trigger)
+
+    first_resp = client.post(f"/problems/{problem_id}/analyze", headers=_headers(employee_id))
+    assert first_resp.status_code == 200
+    assert called_problem_ids == [problem_id]
+
+    monkeypatch.setattr(
+        "app.routers.problems.is_problem_analysis_timed_out",
+        lambda _session, _problem: False,
+    )
+    second_resp = client.post(f"/problems/{problem_id}/analyze", headers=_headers(employee_id))
+    assert second_resp.status_code == 409
+    assert "analysis is still running" in second_resp.text
+    assert called_problem_ids == [problem_id]
+
+    app.dependency_overrides.clear()
+
+
+def test_analyze_allows_retry_when_timed_out_or_forced(tmp_path: Path, monkeypatch) -> None:
+    client = _setup_client(tmp_path)
+
+    employee_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "AnalyzeRetry", "employee_no": "E201", "department": "RD", "roles": ["employee"]},
+    )
+    assert employee_resp.status_code == 200
+    employee_id = employee_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, employee_id)
+
+    called_problem_ids: list[int] = []
+
+    def fake_trigger(pid: int) -> None:
+        called_problem_ids.append(pid)
+
+    monkeypatch.setattr("app.routers.problems._trigger_analysis_background", fake_trigger)
+
+    first_resp = client.post(f"/problems/{problem_id}/analyze", headers=_headers(employee_id))
+    assert first_resp.status_code == 200
+    assert called_problem_ids == [problem_id]
+
+    monkeypatch.setattr(
+        "app.routers.problems.is_problem_analysis_timed_out",
+        lambda _session, _problem: True,
+    )
+    timeout_retry_resp = client.post(f"/problems/{problem_id}/analyze", headers=_headers(employee_id))
+    assert timeout_retry_resp.status_code == 200
+    assert timeout_retry_resp.json()["message"] == "analysis retried"
+    assert called_problem_ids == [problem_id, problem_id]
+
+    monkeypatch.setattr(
+        "app.routers.problems.is_problem_analysis_timed_out",
+        lambda _session, _problem: False,
+    )
+    force_retry_resp = client.post(f"/problems/{problem_id}/analyze?force=true", headers=_headers(employee_id))
+    assert force_retry_resp.status_code == 200
+    assert force_retry_resp.json()["message"] == "analysis retried"
+    assert called_problem_ids == [problem_id, problem_id, problem_id]
+
+    app.dependency_overrides.clear()
+
+
 def test_problem_and_task_transparency_with_mine_filter(tmp_path: Path) -> None:
     client = _setup_client(tmp_path)
 
