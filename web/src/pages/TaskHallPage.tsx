@@ -89,6 +89,13 @@ function formatScenario(scenario: string | null | undefined) {
   return map[scenario] ?? scenario
 }
 
+function formatClaimMode(mode: string, teamSize: number) {
+  if (mode === 'team') {
+    return `组队(${Math.max(teamSize, 1)}人)`
+  }
+  return '个人'
+}
+
 function buildCriteriaDrafts(detail: ClaimExecutionDetail): CriteriaDraft[] {
   const byResult = detail.criteria_results ?? []
   const criteria = detail.acceptance_criteria ?? []
@@ -382,6 +389,24 @@ export function TaskHallPage({ userId, profile }: Props) {
     setCriteriaDrafts([{ key: 'criteria-1', label: '验收项 #1', value: '' }])
   }
 
+  const renderTaskClaimDetails = (task: Task) => {
+    if (!task.active_claims || task.active_claims.length === 0) {
+      return <span className="muted">暂无活跃揭榜</span>
+    }
+    return (
+      <div className="task-claim-snapshots">
+        {task.active_claims.map((claim) => (
+          <p className="task-claim-snapshot" key={`task-${task.id}-claim-${claim.claim_id}`}>
+            <span className="task-claim-id">#{claim.claim_id}</span>
+            <span>{formatTaskStatus(claim.status)}</span>
+            <span>{formatClaimMode(claim.mode, claim.team_size)}</span>
+            <span>组长:{claim.lead_user_name || `#${claim.lead_user_id}`}</span>
+          </p>
+        ))}
+      </div>
+    )
+  }
+
   const submitDeliverable = async (event: FormEvent) => {
     event.preventDefault()
     const parsedClaimId = Number(deliverableClaimId)
@@ -515,7 +540,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
         <div className="table">
           <div className="row head task-open-row">
-            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>操作</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
           </div>
           {openTasks.map((task) => (
             <div className="row task-open-row" key={task.id}>
@@ -526,6 +551,7 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
               <span>{task.active_claim_count}</span>
+              <span className="claim-detail-cell">{renderTaskClaimDetails(task)}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
                 <button
@@ -554,7 +580,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
         <div className="table">
           <div className="row head task-all-row">
-            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>状态</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>操作</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>状态</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
           </div>
           {allTasks.map((task) => (
             <div className="row task-all-row" key={`all-task-${task.id}`}>
@@ -566,6 +592,7 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
               <span>{task.active_claim_count}</span>
+              <span className="claim-detail-cell">{renderTaskClaimDetails(task)}</span>
               <span className="actions">
                 <button type="button" onClick={() => void openTaskDetail(task.id)}>详情</button>
                 {task.status === 'open' && (

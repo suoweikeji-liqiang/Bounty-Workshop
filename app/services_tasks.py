@@ -5,8 +5,8 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.enums import ClaimStatus, Scenario, TaskLevel, TaskStatus
-from app.models import Claim, Problem, Task
-from app.schemas import TaskDetailRead, TaskRead
+from app.models import Claim, ClaimMember, Problem, Task, User
+from app.schemas import TaskActiveClaimRead, TaskDetailRead, TaskRead
 from app.services_common import _from_json_list
 
 
@@ -38,14 +38,50 @@ def list_tasks(
         statement.order_by(Task.created_at.desc()).offset(safe_offset).limit(safe_limit)
     ).all()
     task_ids = [task.id for task, _ in rows]
-    active_claim_map: dict[int, int] = {}
+    active_claim_map: dict[int, list[TaskActiveClaimRead]] = {}
     if task_ids:
+        team_size_subquery = (
+            select(ClaimMember.claim_id, func.count(ClaimMember.user_id).label("team_size"))
+            .group_by(ClaimMember.claim_id)
+            .subquery()
+        )
         claim_rows = session.exec(
-            select(Claim.task_id, func.count(Claim.id))
+            select(
+                Claim.task_id,
+                Claim.id,
+                Claim.mode,
+                Claim.status,
+                Claim.lead_user_id,
+                User.name,
+                func.coalesce(team_size_subquery.c.team_size, 1),
+                Claim.created_at,
+            )
+            .join(User, User.id == Claim.lead_user_id)
+            .outerjoin(team_size_subquery, team_size_subquery.c.claim_id == Claim.id)
             .where(Claim.task_id.in_(task_ids), Claim.status == ClaimStatus.ACTIVE)
-            .group_by(Claim.task_id)
+            .order_by(Claim.task_id.asc(), Claim.created_at.desc(), Claim.id.desc())
         ).all()
-        active_claim_map = {int(task_id): int(count) for task_id, count in claim_rows}
+        for (
+            task_id,
+            claim_id,
+            claim_mode,
+            claim_status,
+            lead_user_id,
+            lead_user_name,
+            team_size,
+            claim_created_at,
+        ) in claim_rows:
+            active_claim_map.setdefault(int(task_id), []).append(
+                TaskActiveClaimRead(
+                    claim_id=int(claim_id),
+                    mode=claim_mode,
+                    status=claim_status.value,
+                    lead_user_id=int(lead_user_id),
+                    lead_user_name=lead_user_name,
+                    team_size=max(int(team_size), 1),
+                    created_at=claim_created_at,
+                )
+            )
 
     return [
         TaskRead(
@@ -56,7 +92,8 @@ def list_tasks(
             level=task.level,
             reward_total=task.reward_total,
             is_complex=task.is_complex,
-            active_claim_count=active_claim_map.get(task.id, 0),
+            active_claim_count=len(active_claim_map.get(task.id, [])),
+            active_claims=active_claim_map.get(task.id, []),
             due_date=task.due_date,
             status=task.status.value,
             created_at=task.created_at,

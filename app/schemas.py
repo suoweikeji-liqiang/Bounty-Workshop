@@ -306,7 +306,18 @@ class ProblemReview(BaseModel):
         return self
 
 
+class TaskActiveClaimRead(BaseModel):
+    claim_id: int
+    mode: ClaimMode
+    status: str
+    lead_user_id: int
+    lead_user_name: str
+    team_size: int
+    created_at: datetime
+
+
 class TaskRead(BaseModel):
+
     id: int
     problem_id: int
     title: str
@@ -315,6 +326,7 @@ class TaskRead(BaseModel):
     reward_total: float
     is_complex: bool = False
     active_claim_count: int = 0
+    active_claims: list[TaskActiveClaimRead] = Field(default_factory=list)
     due_date: date
     status: str
     created_at: datetime

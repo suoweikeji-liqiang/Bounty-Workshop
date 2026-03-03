@@ -421,26 +421,28 @@ button:disabled {
 .row.task-open-row {
   grid-template-columns:
     minmax(0, 0.6fr)
-    minmax(0, 1.8fr)
+    minmax(0, 1.5fr)
     minmax(0, 0.9fr)
     minmax(0, 0.65fr)
     minmax(0, 0.85fr)
     minmax(0, 0.85fr)
-    minmax(0, 0.75fr)
-    minmax(0, 1.4fr);
+    minmax(0, 0.6fr)
+    minmax(0, 1.8fr)
+    minmax(0, 1.2fr);
 }
 
 .row.task-all-row {
   grid-template-columns:
     minmax(0, 0.6fr)
-    minmax(0, 1.7fr)
+    minmax(0, 1.45fr)
     minmax(0, 0.9fr)
     minmax(0, 0.65fr)
-    minmax(0, 0.9fr)
     minmax(0, 0.8fr)
-    minmax(0, 0.9fr)
-    minmax(0, 0.7fr)
-    minmax(0, 1.2fr);
+    minmax(0, 0.8fr)
+    minmax(0, 0.85fr)
+    minmax(0, 0.55fr)
+    minmax(0, 1.8fr)
+    minmax(0, 1.1fr);
 }
 
 .row.task-claim-row {
@@ -640,6 +642,29 @@ button:disabled {
   padding: 4px 8px;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.claim-detail-cell {
+  color: var(--text-secondary);
+}
+
+.task-claim-snapshots {
+  display: grid;
+  gap: 4px;
+}
+
+.task-claim-snapshot {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.task-claim-id {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .problem-row-actions {

@@ -160,8 +160,19 @@ export type Task = {
   reward_total: number
   is_complex: boolean
   active_claim_count: number
+  active_claims: TaskActiveClaim[]
   due_date: string
   status: string
+  created_at: string
+}
+
+export type TaskActiveClaim = {
+  claim_id: number
+  mode: 'individual' | 'team'
+  status: string
+  lead_user_id: number
+  lead_user_name: string
+  team_size: number
   created_at: string
 }
 

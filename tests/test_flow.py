@@ -213,6 +213,7 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     target_task = next(item for item in task_rows if item["id"] == task_id)
     assert target_task["scenario"] == "rd"
     assert target_task["active_claim_count"] == 0
+    assert target_task["active_claims"] == []
 
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(employee_id))
     assert task_detail_resp.status_code == 200
@@ -235,6 +236,13 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert task_in_progress_resp.status_code == 200
     in_progress_task = next(item for item in task_in_progress_resp.json() if item["id"] == task_id)
     assert in_progress_task["active_claim_count"] >= 1
+    claim_snapshot = next(item for item in in_progress_task["active_claims"] if item["claim_id"] == claim_id)
+    assert claim_snapshot["mode"] == "individual"
+    assert claim_snapshot["status"] == "active"
+    assert claim_snapshot["lead_user_id"] == employee_id
+    assert claim_snapshot["lead_user_name"] == "Alice"
+    assert claim_snapshot["team_size"] == 1
+    assert claim_snapshot["created_at"]
 
     detail_owner_resp = client.get(f"/claims/{claim_id}/detail", headers=_headers(employee_id))
     assert detail_owner_resp.status_code == 200
