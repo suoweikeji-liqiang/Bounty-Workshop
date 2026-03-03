@@ -93,6 +93,7 @@ export function HypothesisVerificationPage({ userId }: Props) {
   const [loading, setLoading] = useState(false)
   const [loadingProblems, setLoadingProblems] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [forceUnlocking, setForceUnlocking] = useState(false)
   const [savingVerification, setSavingVerification] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -211,6 +212,29 @@ export function HypothesisVerificationPage({ userId }: Props) {
       setError(err instanceof Error ? err.message : '触发论证失败')
     } finally {
       setAnalyzing(false)
+    }
+  }
+
+  const handleForceUnlock = async () => {
+    const id = parseProblemId()
+    if (!id) {
+      setError('请先选择问题')
+      return
+    }
+    const confirmed = window.confirm('将强制重启本问题论证流程，是否继续？')
+    if (!confirmed) return
+
+    setForceUnlocking(true)
+    try {
+      setError(null)
+      await requestJson(`/problems/${id}/analyze?force=true`, { method: 'POST', userId })
+      toast.success('已强制解锁并重新触发论证')
+      await loadProblemOptions()
+      await loadAnalysis()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '强行解锁失败')
+    } finally {
+      setForceUnlocking(false)
     }
   }
 
@@ -392,6 +416,15 @@ export function HypothesisVerificationPage({ userId }: Props) {
           <button type="button" onClick={() => void handleAnalyze()} disabled={analyzing || !problemId}>
             {analyzing ? '论证中...' : '重新论证'}
           </button>
+          {selectedProblem?.analysis_status === 'analyzing' && (
+            <button
+              type="button"
+              onClick={() => void handleForceUnlock()}
+              disabled={forceUnlocking || analyzing || !problemId}
+            >
+              {forceUnlocking ? '解锁中...' : '强行解锁'}
+            </button>
+          )}
         </div>
       </form>
 
