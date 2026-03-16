@@ -4,7 +4,6 @@ import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
 import type {
   AcceptanceTemplatesConfig,
-  BudgetReviewThresholdConfig,
   ClaimApprovalThresholdConfig,
   SyncFrequencyConfig,
   SystemConfigOverview,
@@ -31,7 +30,6 @@ export function SystemConfigPage({ userId }: Props) {
   const [feishuFreq, setFeishuFreq] = useState('')
   const [releaseFreq, setReleaseFreq] = useState('')
   const [claimThreshold, setClaimThreshold] = useState('')
-  const [budgetThreshold, setBudgetThreshold] = useState('')
   const [approvedTemplates, setApprovedTemplates] = useState('')
   const [reworkTemplates, setReworkTemplates] = useState('')
   const [rejectedTemplates, setRejectedTemplates] = useState('')
@@ -55,11 +53,8 @@ export function SystemConfigPage({ userId }: Props) {
 
   const hasThresholdChanges = useMemo(() => {
     if (!overview) return false
-    return (
-      Number(claimThreshold) !== overview.claim_approval_overdue_threshold ||
-      Number(budgetThreshold) !== overview.budget_review_threshold
-    )
-  }, [budgetThreshold, claimThreshold, overview])
+    return Number(claimThreshold) !== overview.claim_approval_overdue_threshold
+  }, [claimThreshold, overview])
 
   const hasTemplateChanges = useMemo(() => {
     if (!overview) return false
@@ -79,7 +74,6 @@ export function SystemConfigPage({ userId }: Props) {
       setFeishuFreq(String(data.feishu_sync_frequency_minutes))
       setReleaseFreq(String(data.release_overdue_frequency_minutes))
       setClaimThreshold(String(data.claim_approval_overdue_threshold))
-      setBudgetThreshold(String(data.budget_review_threshold))
       setApprovedTemplates(data.acceptance_templates.approved.join('\n'))
       setReworkTemplates(data.acceptance_templates.rework.join('\n'))
       setRejectedTemplates(data.acceptance_templates.rejected.join('\n'))
@@ -133,32 +127,20 @@ export function SystemConfigPage({ userId }: Props) {
 
   const saveThresholdConfig = async () => {
     const claimThresholdValue = Number(claimThreshold)
-    const budgetThresholdValue = Number(budgetThreshold)
 
     if (!Number.isInteger(claimThresholdValue) || claimThresholdValue < 1) {
       setError('揭榜审批阈值必须是大于等于 1 的整数')
-      return
-    }
-    if (!Number.isFinite(budgetThresholdValue) || budgetThresholdValue < 0) {
-      setError('资金复核阈值必须是大于等于 0 的数字')
       return
     }
 
     try {
       setSavingThreshold(true)
       setError(null)
-      await Promise.all([
-        requestJson<ClaimApprovalThresholdConfig>('/system/config/claim-approval-overdue-threshold', {
-          method: 'PUT',
-          userId,
-          body: { threshold: claimThresholdValue },
-        }),
-        requestJson<BudgetReviewThresholdConfig>('/system/config/budget-review-threshold', {
-          method: 'PUT',
-          userId,
-          body: { threshold: budgetThresholdValue },
-        }),
-      ])
+      await requestJson<ClaimApprovalThresholdConfig>('/system/config/claim-approval-overdue-threshold', {
+        method: 'PUT',
+        userId,
+        body: { threshold: claimThresholdValue },
+      })
       setMessage('策略阈值已更新')
       await load()
     } catch (err) {
@@ -233,7 +215,7 @@ export function SystemConfigPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>系统配置</h2>
-        <p>集中管理同步频率、审批阈值与验收模板。</p>
+        <p>集中管理同步频率、审批规则与验收模板。</p>
       </header>
 
       <article className="panel">
@@ -277,15 +259,16 @@ export function SystemConfigPage({ userId }: Props) {
 
       {activeSection === 'threshold' && (
         <article className="panel form-grid">
-          <h3 className="wide">策略阈值配置</h3>
+          <h3 className="wide">审批规则配置</h3>
           <label>
             揭榜审批超期阈值
             <input type="number" min={1} value={claimThreshold} onChange={(e) => setClaimThreshold(e.target.value)} disabled={loading} />
           </label>
           <label>
-            资金复核阈值
-            <input type="number" min={0} value={budgetThreshold} onChange={(e) => setBudgetThreshold(e.target.value)} disabled={loading} />
+            资金复核规则
+            <input type="text" value="已停用：所有项目资金统一进入资金复核" disabled />
           </label>
+          <p className="wide muted">资金复核阈值已停用，评审定价后统一进入资金复核，不再按金额大小分流。</p>
           <div className="button-row wide">
             <button
               className="primary-btn"
@@ -340,7 +323,7 @@ export function SystemConfigPage({ userId }: Props) {
           <p className="line-metric"><span>飞书同步频率</span><strong>{overview.feishu_sync_frequency_minutes} 分钟</strong></p>
           <p className="line-metric"><span>超期释放频率</span><strong>{overview.release_overdue_frequency_minutes} 分钟</strong></p>
           <p className="line-metric"><span>揭榜审批阈值</span><strong>{overview.claim_approval_overdue_threshold}</strong></p>
-          <p className="line-metric"><span>资金复核阈值</span><strong>{overview.budget_review_threshold}</strong></p>
+          <p className="line-metric"><span>资金复核规则</span><strong>已停用金额阈值，统一全量审批</strong></p>
         </article>
       )}
 

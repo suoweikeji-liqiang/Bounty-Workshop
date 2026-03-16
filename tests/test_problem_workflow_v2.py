@@ -218,16 +218,19 @@ def test_budget_review_preserves_task_is_complex(tmp_path: Path) -> None:
     budget_payload = budget_approve_resp.json()
     assert budget_payload["status"] == "approved"
     assert budget_payload["task"]["is_complex"] is True
+    assert budget_payload["task"]["task_type"] == "complex"
     task_id = budget_payload["task"]["id"]
 
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
     assert task_detail_resp.status_code == 200
     assert task_detail_resp.json()["is_complex"] is True
+    assert task_detail_resp.json()["task_type"] == "complex"
 
     task_list_resp = client.get("/tasks", headers=_headers(submitter_id), params={"status": "open"})
     assert task_list_resp.status_code == 200
     task_row = next(item for item in task_list_resp.json() if item["id"] == task_id)
     assert task_row["is_complex"] is True
+    assert task_row["task_type"] == "complex"
 
     app.dependency_overrides.clear()
 
@@ -330,13 +333,24 @@ def test_re_review_pricing_only_preserves_complexity_flag(tmp_path: Path) -> Non
     )
     assert second_review_resp.status_code == 200
     second_review_payload = second_review_resp.json()
-    assert second_review_payload["status"] == "approved"
-    assert second_review_payload["task"]["is_complex"] is True
-    task_id = second_review_payload["task"]["id"]
+    assert second_review_payload["status"] == "budget_pending"
+
+    second_budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "repriced budget approved"},
+    )
+    assert second_budget_approve_resp.status_code == 200
+    second_budget_payload = second_budget_approve_resp.json()
+    assert second_budget_payload["status"] == "approved"
+    assert second_budget_payload["task"]["is_complex"] is True
+    assert second_budget_payload["task"]["task_type"] == "complex"
+    task_id = second_budget_payload["task"]["id"]
 
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
     assert task_detail_resp.status_code == 200
     assert task_detail_resp.json()["is_complex"] is True
+    assert task_detail_resp.json()["task_type"] == "complex"
 
     app.dependency_overrides.clear()
 
@@ -351,6 +365,14 @@ def test_reviewer_prices_but_does_not_define_task_content(tmp_path: Path) -> Non
     )
     assert reviewer_resp.status_code == 200
     reviewer_id = reviewer_resp.json()["id"]
+
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "FlowFin", "employee_no": "F003", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
 
     employee_resp = client.post(
         "/users",
@@ -384,13 +406,452 @@ def test_reviewer_prices_but_does_not_define_task_content(tmp_path: Path) -> Non
         },
     )
     assert review_resp.status_code == 200
-    task_id = review_resp.json()["task"]["id"]
+    assert review_resp.json()["status"] == "budget_pending"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "low reward still reviewed"},
+    )
+    assert budget_approve_resp.status_code == 200
+    assert budget_approve_resp.json()["status"] == "approved"
+    assert budget_approve_resp.json()["task"]["task_type"] == "normal"
+    task_id = budget_approve_resp.json()["task"]["id"]
 
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(employee_id))
     assert task_detail_resp.status_code == 200
     payload = task_detail_resp.json()
     assert payload["goal"] == "automate release checklist and core scripts"
     assert payload["scope"] == "build script + CI integration"
+    assert payload["task_type"] == "normal"
+    assert payload["is_complex"] is False
+
+    app.dependency_overrides.clear()
+
+
+def test_re_review_pricing_can_downgrade_to_normal_task_type(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewDowngradeReviewer", "employee_no": "R022", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewDowngradeFin", "employee_no": "F022", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "ReReviewDowngradeSubmitter", "employee_no": "E022", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    first_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "re-review-downgrade-complex-task",
+                "goal": "allow downgrade back to normal",
+                "scope": "single workflow",
+                "due_date": (date.today() + timedelta(days=7)).isoformat(),
+                "level": "A",
+                "reward_total": 5000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 50,
+                "badge": "impact-maker",
+                "task_type": "complex",
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "first phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "second phase",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "phase 2 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "downgrade survives", "type": "quantified"}],
+            },
+        },
+    )
+    assert first_review_resp.status_code == 200
+    assert first_review_resp.json()["status"] == "budget_pending"
+
+    budget_reject_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": False, "comment": "please simplify"},
+    )
+    assert budget_reject_resp.status_code == 200
+    assert budget_reject_resp.json()["status"] == "pricing_revision_required"
+
+    second_review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "pricing": {
+                "level": "C",
+                "reward_total": 600,
+                "proposer_ratio": 0.3,
+                "accepter_id": reviewer_id,
+                "points": 10,
+                "badge": None,
+                "task_type": "normal",
+            },
+        },
+    )
+    assert second_review_resp.status_code == 200
+    assert second_review_resp.json()["status"] == "budget_pending"
+
+    second_budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "simplified budget approved"},
+    )
+    assert second_budget_approve_resp.status_code == 200
+    second_budget_payload = second_budget_approve_resp.json()
+    assert second_budget_payload["status"] == "approved"
+    assert second_budget_payload["task"]["task_type"] == "normal"
+    assert second_budget_payload["task"]["is_complex"] is False
+
+    app.dependency_overrides.clear()
+
+
+def test_mountain_task_requires_reward_floor_and_three_milestones(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainReviewer", "employee_no": "R030", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainSubmitter", "employee_no": "E030", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    low_reward_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "mountain-low-reward",
+                "goal": "validate mountain minimum reward",
+                "scope": "company level change",
+                "due_date": (date.today() + timedelta(days=200)).isoformat(),
+                "level": "S",
+                "task_type": "mountain",
+                "reward_total": 90000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 120,
+                "closing_reward_ratio": 0.25,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "phase one",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "phase two",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m2 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 3,
+                        "title": "m3",
+                        "goal": "phase three",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m3 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "mountain delivered", "type": "quantified"}],
+            },
+        },
+    )
+    assert low_reward_resp.status_code == 422
+    assert "100000" in low_reward_resp.text
+
+    milestone_problem_id = _create_problem_with_submitter_task(client, submitter_id)
+    submit_again_resp = client.post(f"/problems/{milestone_problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_again_resp.status_code == 200
+
+    too_few_milestones_resp = client.post(
+        f"/problems/{milestone_problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "mountain-too-few-milestones",
+                "goal": "validate milestone minimum",
+                "scope": "company level change",
+                "due_date": (date.today() + timedelta(days=200)).isoformat(),
+                "level": "S",
+                "task_type": "mountain",
+                "reward_total": 100000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 120,
+                "closing_reward_ratio": 0.4,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "phase one",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "m1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "phase two",
+                        "reward_ratio": 0.3,
+                        "acceptance_criteria": [{"description": "m2 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "mountain delivered", "type": "quantified"}],
+            },
+        },
+    )
+    assert too_few_milestones_resp.status_code == 422
+    assert "at least 3 milestones" in too_few_milestones_resp.text
+
+    app.dependency_overrides.clear()
+
+
+def test_mountain_task_requires_180_day_cycle_at_budget_approval(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainCycleReviewer", "employee_no": "R031", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainCycleFin", "employee_no": "F031", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainCycleSubmitter", "employee_no": "E031", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "mountain-short-cycle",
+                "goal": "validate cycle minimum",
+                "scope": "company level change",
+                "due_date": (date.today() + timedelta(days=90)).isoformat(),
+                "level": "S",
+                "task_type": "mountain",
+                "reward_total": 100000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 120,
+                "closing_reward_ratio": 0.25,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "phase one",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "phase two",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m2 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 3,
+                        "title": "m3",
+                        "goal": "phase three",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m3 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "mountain delivered", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    assert review_resp.json()["status"] == "budget_pending"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "cycle too short"},
+    )
+    assert budget_approve_resp.status_code == 422
+    assert "180 days" in budget_approve_resp.text
+
+    app.dependency_overrides.clear()
+
+
+def test_mountain_task_persists_task_type_after_budget_approval(tmp_path: Path) -> None:
+    client = _setup_client(tmp_path)
+
+    reviewer_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainPersistReviewer", "employee_no": "R032", "department": "QA", "roles": ["reviewer", "acceptor", "employee"]},
+    )
+    assert reviewer_resp.status_code == 200
+    reviewer_id = reviewer_resp.json()["id"]
+
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainPersistFin", "employee_no": "F032", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
+    submitter_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "MountainPersistSubmitter", "employee_no": "E032", "department": "RD", "roles": ["employee"]},
+    )
+    assert submitter_resp.status_code == 200
+    submitter_id = submitter_resp.json()["id"]
+
+    problem_id = _create_problem_with_submitter_task(client, submitter_id)
+
+    submit_resp = client.post(f"/problems/{problem_id}/submit-for-review", headers=_headers(submitter_id))
+    assert submit_resp.status_code == 200
+
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json={
+            "approve": True,
+            "task": {
+                "title": "mountain-persist",
+                "goal": "persist mountain task type",
+                "scope": "company level change",
+                "due_date": (date.today() + timedelta(days=200)).isoformat(),
+                "level": "S",
+                "task_type": "mountain",
+                "reward_total": 100000,
+                "proposer_ratio": 0.25,
+                "accepter_id": reviewer_id,
+                "points": 120,
+                "closing_reward_ratio": 0.25,
+                "milestones": [
+                    {
+                        "sequence": 1,
+                        "title": "m1",
+                        "goal": "phase one",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m1 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 2,
+                        "title": "m2",
+                        "goal": "phase two",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m2 done", "type": "quantified"}],
+                    },
+                    {
+                        "sequence": 3,
+                        "title": "m3",
+                        "goal": "phase three",
+                        "reward_ratio": 0.25,
+                        "acceptance_criteria": [{"description": "m3 done", "type": "quantified"}],
+                    },
+                ],
+                "acceptance_criteria": [{"description": "mountain delivered", "type": "quantified"}],
+            },
+        },
+    )
+    assert review_resp.status_code == 200
+    assert review_resp.json()["status"] == "budget_pending"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "mountain approved"},
+    )
+    assert budget_approve_resp.status_code == 200
+    budget_payload = budget_approve_resp.json()
+    assert budget_payload["status"] == "approved"
+    assert budget_payload["task"]["task_type"] == "mountain"
+    assert budget_payload["task"]["is_complex"] is True
+    task_id = budget_payload["task"]["id"]
+
+    task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
+    assert task_detail_resp.status_code == 200
+    assert task_detail_resp.json()["task_type"] == "mountain"
+    assert task_detail_resp.json()["is_complex"] is True
+
+    task_list_resp = client.get("/tasks", headers=_headers(submitter_id), params={"status": "open"})
+    assert task_list_resp.status_code == 200
+    task_row = next(item for item in task_list_resp.json() if item["id"] == task_id)
+    assert task_row["task_type"] == "mountain"
+    assert task_row["is_complex"] is True
 
     app.dependency_overrides.clear()
 
@@ -518,6 +979,14 @@ def test_problem_and_task_transparency_with_mine_filter(tmp_path: Path) -> None:
     assert reviewer_resp.status_code == 200
     reviewer_id = reviewer_resp.json()["id"]
 
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={"name": "TransparentFin", "employee_no": "F099", "department": "Finance", "roles": ["reward_approver"]},
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
     submitter_resp = client.post(
         "/users",
         headers=_headers(1),
@@ -555,7 +1024,15 @@ def test_problem_and_task_transparency_with_mine_filter(tmp_path: Path) -> None:
         },
     )
     assert review_resp.status_code == 200
-    task_id = review_resp.json()["task"]["id"]
+    assert review_resp.json()["status"] == "budget_pending"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "transparent flow approved"},
+    )
+    assert budget_approve_resp.status_code == 200
+    task_id = budget_approve_resp.json()["task"]["id"]
 
     all_problems_resp = client.get("/problems", headers=_headers(viewer_id))
     assert all_problems_resp.status_code == 200

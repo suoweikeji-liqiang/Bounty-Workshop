@@ -4,10 +4,16 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from app.enums import ClaimStatus, Scenario, TaskLevel, TaskStatus
+from app.enums import ClaimStatus, Scenario, TaskLevel, TaskStatus, TaskType, is_milestone_task_type
 from app.models import Claim, ClaimMember, Problem, Task, User
 from app.schemas import TaskActiveClaimRead, TaskDetailRead, TaskRead
 from app.services_common import _from_json_list
+
+
+def _normalize_task_type(task_type: TaskType | str | None, is_complex: bool) -> TaskType:
+    if task_type is None:
+        return TaskType.COMPLEX if is_complex else TaskType.NORMAL
+    return TaskType(task_type)
 
 
 def list_tasks(
@@ -91,7 +97,8 @@ def list_tasks(
             scenario=task_scenario,
             level=task.level,
             reward_total=task.reward_total,
-            is_complex=task.is_complex,
+            task_type=_normalize_task_type(task.task_type, task.is_complex),
+            is_complex=is_milestone_task_type(_normalize_task_type(task.task_type, task.is_complex)),
             active_claim_count=len(active_claim_map.get(task.id, [])),
             active_claims=active_claim_map.get(task.id, []),
             due_date=task.due_date,
@@ -105,8 +112,9 @@ def list_tasks(
 def get_task_detail(session: Session, task_id: int) -> TaskDetailRead:
     task = session.get(Task, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="task not found")
     acceptance_criteria = _from_json_list(task.acceptance_criteria_json)
+    task_type = _normalize_task_type(task.task_type, task.is_complex)
     return TaskDetailRead(
         id=task.id,
         problem_id=task.problem_id,
@@ -120,7 +128,8 @@ def get_task_detail(session: Session, task_id: int) -> TaskDetailRead:
         accepter_id=task.accepter_id,
         points=task.points,
         badge=task.badge,
-        is_complex=task.is_complex,
+        task_type=task_type,
+        is_complex=is_milestone_task_type(task_type),
         closing_reward_ratio=task.closing_reward_ratio,
         acceptance_criteria=acceptance_criteria,
         status=task.status.value,

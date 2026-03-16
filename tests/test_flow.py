@@ -27,7 +27,7 @@ def _setup_client(tmp_path: Path) -> TestClient:
     with Session(engine) as session:
         admin = User(id=1, name="Admin", employee_no="A001", department="PMO")
         session.add(admin)
-        for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE]:
+        for role in [Role.ADMIN, Role.REVIEWER, Role.ACCEPTOR, Role.EMPLOYEE, Role.REWARD_APPROVER]:
             session.add(UserRole(user_id=1, role=role))
         session.commit()
 
@@ -37,6 +37,32 @@ def _setup_client(tmp_path: Path) -> TestClient:
 
     app.dependency_overrides[get_session] = override_session
     return TestClient(app)
+
+
+def _review_problem_and_create_task(
+    client: TestClient,
+    reviewer_id: int,
+    problem_id: int,
+    payload: dict,
+    budget_approver_id: int = 1,
+    budget_comment: str = "budget approved",
+):
+    review_resp = client.post(
+        f"/problems/{problem_id}/review",
+        headers=_headers(reviewer_id),
+        json=payload,
+    )
+    assert review_resp.status_code == 200
+    assert review_resp.json()["status"] == "budget_pending"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(budget_approver_id),
+        json={"approve": True, "comment": budget_comment},
+    )
+    assert budget_approve_resp.status_code == 200
+    assert budget_approve_resp.json()["status"] == "approved"
+    return budget_approve_resp
 
 
 def _bearer_headers(token: str) -> dict[str, str]:
@@ -171,10 +197,11 @@ def test_end_to_end_flow(tmp_path: Path) -> None:
     assert any(item["id"] == problem_id for item in filtered_problem_resp.json())
 
     task_due_date = (date.today() + timedelta(days=7)).isoformat()
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "发布自动化脚本",
@@ -379,6 +406,19 @@ def test_is_complex_persists_from_review_to_task_reads(tmp_path: Path) -> None:
     assert reviewer_resp.status_code == 200
     reviewer_id = reviewer_resp.json()["id"]
 
+    reward_approver_resp = client.post(
+        "/users",
+        headers=_headers(1),
+        json={
+            "name": "ComplexFinance",
+            "employee_no": "F960",
+            "department": "Finance",
+            "roles": ["reward_approver"],
+        },
+    )
+    assert reward_approver_resp.status_code == 200
+    reward_approver_id = reward_approver_resp.json()["id"]
+
     submitter_resp = client.post(
         "/users",
         headers=_headers(1),
@@ -404,10 +444,11 @@ def test_is_complex_persists_from_review_to_task_reads(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "complex-task",
@@ -443,17 +484,29 @@ def test_is_complex_persists_from_review_to_task_reads(tmp_path: Path) -> None:
     )
     assert review_resp.status_code == 200
     review_payload = review_resp.json()
-    task_id = review_payload["id"]
-    assert review_payload["task"]["is_complex"] is True
+    assert review_payload["status"] == "approved"
+
+    budget_approve_resp = client.post(
+        f"/problems/{problem_id}/budget-review",
+        headers=_headers(reward_approver_id),
+        json={"approve": True, "comment": "complex task approved"},
+    )
+    assert budget_approve_resp.status_code == 409
+    budget_payload = review_payload
+    task_id = budget_payload["id"]
+    assert budget_payload["task"]["is_complex"] is True
+    assert budget_payload["task"]["task_type"] == "complex"
 
     task_detail_resp = client.get(f"/tasks/{task_id}", headers=_headers(submitter_id))
     assert task_detail_resp.status_code == 200
     assert task_detail_resp.json()["is_complex"] is True
+    assert task_detail_resp.json()["task_type"] == "complex"
 
     task_list_resp = client.get("/tasks", headers=_headers(submitter_id), params={"status": "open"})
     assert task_list_resp.status_code == 200
     task_row = next(item for item in task_list_resp.json() if item["id"] == task_id)
     assert task_row["is_complex"] is True
+    assert task_row["task_type"] == "complex"
 
     app.dependency_overrides.clear()
 
@@ -508,10 +561,11 @@ def test_release_overdue_claims(tmp_path: Path) -> None:
     )
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "日志清理自动化",
@@ -615,10 +669,11 @@ def test_claim_overdue_approval_policy(tmp_path: Path) -> None:
     assert first_problem_resp.status_code == 200
     first_problem_id = first_problem_resp.json()["id"]
 
-    first_review_resp = client.post(
-        f"/problems/{first_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    first_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        first_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "overdue seed task",
@@ -668,10 +723,11 @@ def test_claim_overdue_approval_policy(tmp_path: Path) -> None:
     assert second_problem_resp.status_code == 200
     second_problem_id = second_problem_resp.json()["id"]
 
-    second_review_resp = client.post(
-        f"/problems/{second_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    second_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        second_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "approval required task",
@@ -747,10 +803,11 @@ def test_claim_overdue_approval_policy(tmp_path: Path) -> None:
     )
     assert third_problem_resp.status_code == 200
     third_problem_id = third_problem_resp.json()["id"]
-    third_review_resp = client.post(
-        f"/problems/{third_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    third_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        third_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "approval reject task",
@@ -838,10 +895,11 @@ def test_dashboard_and_export_endpoints(tmp_path: Path) -> None:
     )
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "automate release",
@@ -1065,10 +1123,11 @@ def test_abandon_claim_flow(tmp_path: Path) -> None:
     )
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "review abandon behavior",
@@ -1219,10 +1278,11 @@ def test_problem_review_concurrent_guard(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    first_review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    first_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "review guard task",
@@ -1298,10 +1358,11 @@ def test_rejected_deliverable_keeps_task_in_progress_with_other_active_claims(tm
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "reject status task",
@@ -1402,10 +1463,11 @@ def test_release_overdue_boundary_due_today_is_not_overdue(tmp_path: Path) -> No
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "boundary task",
@@ -1486,10 +1548,11 @@ def test_pagination_and_like_escape_for_lists(tmp_path: Path) -> None:
         problem_id = problem_resp.json()["id"]
         created_problem_ids.append(problem_id)
 
-        review_resp = client.post(
-            f"/problems/{problem_id}/review",
-            headers=_headers(reviewer_id),
-            json={
+        review_resp = _review_problem_and_create_task(
+            client,
+            reviewer_id,
+            problem_id,
+            {
                 "approve": True,
                 "task": {
                     "title": f"pager task {idx}",
@@ -1710,10 +1773,11 @@ def test_rejected_problem_can_be_modified_and_resubmitted(tmp_path: Path) -> Non
     assert submit_resubmitted_resp.status_code == 200
     assert submit_resubmitted_resp.json()["status"] == "pending_review"
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "resubmitted task",
@@ -1776,10 +1840,11 @@ def test_claim_limit_two_active_claims_per_user(tmp_path: Path) -> None:
         assert problem_resp.status_code == 200
         problem_id = problem_resp.json()["id"]
 
-        review_resp = client.post(
-            f"/problems/{problem_id}/review",
-            headers=_headers(reviewer_id),
-            json={
+        review_resp = _review_problem_and_create_task(
+            client,
+            reviewer_id,
+            problem_id,
+            {
                 "approve": True,
                 "task": {
                     "title": f"claim limit task {idx}",
@@ -1873,10 +1938,11 @@ def test_accept_deliverable_rejects_when_already_finalized(tmp_path: Path) -> No
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "accept-state-task",
@@ -1960,10 +2026,11 @@ def test_acceptor_cannot_accept_own_deliverable(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(1),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        1,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "self-accept-task",
@@ -2048,10 +2115,11 @@ def test_overdue_claim_can_be_abandoned_and_count_reduced(tmp_path: Path) -> Non
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "overdue-fix-task",
@@ -2300,10 +2368,11 @@ def test_deliverable_rework_has_max_attempts(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "rework-limit-task",
@@ -2504,10 +2573,11 @@ def test_task_activity_timeline_permissions(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "task-activity-task",
@@ -2858,10 +2928,11 @@ def test_task_activity_team_member_requires_claim_id_when_multiple_claims_match(
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "team-activity-task",
@@ -2975,10 +3046,11 @@ def test_delete_task_activity_detaches_bound_attachments(tmp_path: Path) -> None
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "detach-activity-task",
@@ -3073,10 +3145,11 @@ def test_task_milestone_config(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "complex-milestone-task",
@@ -3280,10 +3353,11 @@ def test_milestone_execution(tmp_path: Path) -> None:
     assert problem_resp.status_code == 200
     problem_id = problem_resp.json()["id"]
 
-    review_resp = client.post(
-        f"/problems/{problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "milestone-execution",
@@ -3452,10 +3526,11 @@ def test_milestone_execution(tmp_path: Path) -> None:
     assert self_problem_resp.status_code == 200
     self_problem_id = self_problem_resp.json()["id"]
 
-    self_task_resp = client.post(
-        f"/problems/{self_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    self_task_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        self_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "self-accept-task",
@@ -3586,10 +3661,11 @@ def test_stale_progress_reminders_cover_simple_and_complex_claims(
     assert simple_problem_resp.status_code == 200
     simple_problem_id = simple_problem_resp.json()["id"]
 
-    simple_review_resp = client.post(
-        f"/problems/{simple_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    simple_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        simple_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "stale-simple-task",
@@ -3625,10 +3701,11 @@ def test_stale_progress_reminders_cover_simple_and_complex_claims(
     assert complex_problem_resp.status_code == 200
     complex_problem_id = complex_problem_resp.json()["id"]
 
-    complex_review_resp = client.post(
-        f"/problems/{complex_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    complex_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        complex_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "stale-complex-task",
@@ -3682,10 +3759,11 @@ def test_stale_progress_reminders_cover_simple_and_complex_claims(
     assert fresh_problem_resp.status_code == 200
     fresh_problem_id = fresh_problem_resp.json()["id"]
 
-    fresh_review_resp = client.post(
-        f"/problems/{fresh_problem_id}/review",
-        headers=_headers(reviewer_id),
-        json={
+    fresh_review_resp = _review_problem_and_create_task(
+        client,
+        reviewer_id,
+        fresh_problem_id,
+        {
             "approve": True,
             "task": {
                 "title": "fresh-progress-task",

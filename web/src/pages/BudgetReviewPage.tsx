@@ -2,6 +2,7 @@
 
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { formatTaskTypeLabel, isMilestoneTaskType } from '../lib/taskType'
 import type { Problem, ProblemDetail, ProblemReviewResult } from '../types'
 
 type Props = {
@@ -172,8 +173,8 @@ export function BudgetReviewPage({ userId }: Props) {
                 <p><strong>提交人分成：</strong>{detail.priced_proposer_ratio ?? '-'}</p>
                 <p><strong>验收人：</strong>{detail.priced_accepter_id ?? '-'}</p>
                 <p><strong>积分/徽章：</strong>{detail.priced_points ?? 0} / {detail.priced_badge ?? '-'}</p>
-                <p><strong>任务类型：</strong>{detail.priced_is_complex ? '复杂任务' : '普通任务'}</p>
-                {detail.priced_is_complex && (
+                <p><strong>任务类型：</strong>{formatTaskTypeLabel(detail.priced_task_type, detail.priced_is_complex)}</p>
+                {isMilestoneTaskType(detail.priced_task_type, detail.priced_is_complex) && (
                   <div className="wide">
                     <p><strong>结项比例：</strong>{detail.priced_closing_reward_ratio ?? 1}</p>
                     <div>

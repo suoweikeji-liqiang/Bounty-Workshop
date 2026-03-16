@@ -42,7 +42,7 @@ function formatRoleType(roleType: string) {
   return roleType
 }
 
-export function RewardReviewPage({ userId, profile: _profile }: Props) {
+export function RewardReviewPage({ userId }: Props) {
   const toast = useToast()
   const [rows, setRows] = useState<Reward[]>([])
   const [filter, setFilter] = useState<RewardFilter>('generated')

@@ -84,6 +84,8 @@ export type ProblemDraftFormState = {
   criteria: ProblemDraftCriteria[]
 }
 
+export type TaskType = 'normal' | 'complex' | 'mountain'
+
 export type ProblemDetail = {
   id: number
   title: string
@@ -116,6 +118,7 @@ export type ProblemDetail = {
   priced_accepter_id?: number | null
   priced_points?: number
   priced_badge?: string | null
+  priced_task_type?: TaskType | null
   priced_is_complex?: boolean
   priced_closing_reward_ratio?: number
   priced_milestones?: Array<{
@@ -158,6 +161,7 @@ export type Task = {
   scenario: string
   level: string
   reward_total: number
+  task_type: TaskType
   is_complex: boolean
   active_claim_count: number
   active_claims: TaskActiveClaim[]
@@ -189,6 +193,7 @@ export type TaskDetail = {
   accepter_id: number
   points: number
   badge: string | null
+  task_type: TaskType
   is_complex: boolean
   closing_reward_ratio: number
   acceptance_criteria: Array<{ description?: string; type?: string }>

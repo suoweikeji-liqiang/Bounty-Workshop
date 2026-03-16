@@ -7,6 +7,7 @@ import { TaskActivityTimeline } from '../components/TaskActivityTimeline'
 import { useToast } from '../components/ToastProvider'
 import { listTaskMilestones, submitMilestone } from '../lib/api'
 import { downloadFile, requestJson } from '../lib/http'
+import { formatTaskTypeLabel, isMilestoneTaskType } from '../lib/taskType'
 import type {
   Attachment,
   AcceptanceTemplatesConfig,
@@ -242,7 +243,7 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
         setError(null)
         const taskDetail = await requestJson<TaskDetail>(`/tasks/${claim.task_id}`, { userId })
         setMilestoneTaskDetail(taskDetail)
-        if (!taskDetail.is_complex) {
+        if (!isMilestoneTaskType(taskDetail.task_type, taskDetail.is_complex)) {
           setMilestones([])
           return
         }
@@ -525,13 +526,13 @@ export function ExecutionLoopPage({ userId, profile }: Props) {
           </select>
         </label>
         {!selectedMilestoneClaim && <p className="muted">暂无进行中的揭榜任务</p>}
-        {selectedMilestoneClaim && milestoneTaskDetail && !milestoneTaskDetail.is_complex && (
+        {selectedMilestoneClaim && milestoneTaskDetail && !isMilestoneTaskType(milestoneTaskDetail.task_type, milestoneTaskDetail.is_complex) && (
           <p className="muted">当前任务为普通任务，里程碑面板已隐藏。</p>
         )}
-        {selectedMilestoneClaim && milestoneTaskDetail?.is_complex && (
+        {selectedMilestoneClaim && milestoneTaskDetail && isMilestoneTaskType(milestoneTaskDetail.task_type, milestoneTaskDetail.is_complex) && (
           <>
             <p className="muted">
-              当前任务：{selectedMilestoneClaim.task_title} / 结项比例 {milestoneTaskDetail.closing_reward_ratio}
+              当前任务：{selectedMilestoneClaim.task_title} / {formatTaskTypeLabel(milestoneTaskDetail.task_type, milestoneTaskDetail.is_complex)} / 结项比例 {milestoneTaskDetail.closing_reward_ratio}
             </p>
             {currentMilestone && (
               <form className="form-grid" onSubmit={submitCurrentMilestone}>

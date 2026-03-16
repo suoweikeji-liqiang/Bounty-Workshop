@@ -28,6 +28,7 @@ from app.enums import (
     TaskActivityType,
     TaskLevel,
     TaskStatus,
+    TaskType,
     UserStatus,
 )
 
@@ -85,6 +86,7 @@ class Problem(SQLModel, table=True):
     priced_accepter_id: Optional[int] = Field(default=None, foreign_key="user.id")
     priced_points: int = Field(default=0)
     priced_badge: Optional[str] = None
+    priced_task_type: TaskType = Field(default=TaskType.NORMAL)
     priced_is_complex: bool = Field(default=False)
     priced_closing_reward_ratio: float = Field(default=1.0)
     priced_milestones_json: str = Field(default="[]")
@@ -111,6 +113,7 @@ class Task(SQLModel, table=True):
     accepter_id: int = Field(foreign_key="user.id", index=True)
     points: int = Field(default=0)
     badge: Optional[str] = None
+    task_type: TaskType = Field(default=TaskType.NORMAL, index=True)
     is_complex: bool = Field(default=False, index=True)
     closing_reward_ratio: float = Field(default=1.0)
     acceptance_criteria_json: str = Field(default="[]")

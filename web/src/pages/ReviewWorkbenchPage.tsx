@@ -3,17 +3,20 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AnalysisReportView } from '../components/AnalysisReportView'
-import { MilestoneEditor, buildDefaultMilestones } from '../components/MilestoneEditor'
+import { MilestoneEditor } from '../components/MilestoneEditor'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { buildDefaultMilestones } from '../lib/milestoneDrafts'
 import { formatProblemStatusLabel } from '../lib/enumLabels'
+import { isMilestoneTaskType, resolveTaskType } from '../lib/taskType'
 import type {
   BadgeDefinition,
   Problem,
   ProblemAnalysisReport,
   ProblemDetail,
   ProblemReviewResult,
+  TaskType,
   TaskMilestoneDefinition,
   UserProfile,
 } from '../types'
@@ -46,6 +49,10 @@ const pointsRangeByLevel: Record<TaskLevel, { min: number; max: number }> = {
   B: { min: 15, max: 40 },
   C: { min: 5, max: 15 },
 }
+
+const MOUNTAIN_MIN_REWARD = 100000
+const MOUNTAIN_MIN_MILESTONES = 3
+const MOUNTAIN_MIN_DURATION_DAYS = 180
 
 function buildDefaultPricingDraft(): PricingDraft {
   return {
@@ -89,6 +96,39 @@ function normalizeMilestones(detail: ProblemDetail | null): TaskMilestoneDefinit
   return rows.length > 0 ? rows : buildDefaultMilestones()
 }
 
+function buildMilestoneSeed(sequence: number): TaskMilestoneDefinition {
+  return {
+    sequence,
+    title: `里程碑 ${sequence}`,
+    goal: '',
+    due_date: null,
+    reward_ratio: 0.2,
+    acceptance_criteria: [{ description: '', type: 'behavioral' }],
+  }
+}
+
+function ensureMilestoneCount(
+  milestones: TaskMilestoneDefinition[],
+  taskType: TaskType,
+): TaskMilestoneDefinition[] {
+  if (!isMilestoneTaskType(taskType)) {
+    return milestones
+  }
+  const minimum = taskType === 'mountain' ? MOUNTAIN_MIN_MILESTONES : 2
+  const next = milestones.length > 0 ? [...milestones] : buildDefaultMilestones()
+  while (next.length < minimum) {
+    next.push(buildMilestoneSeed(next.length + 1))
+  }
+  return next.map((item, index) => ({ ...item, sequence: index + 1 }))
+}
+
+function minimumMountainDueDate(): string {
+  const next = new Date()
+  next.setHours(0, 0, 0, 0)
+  next.setDate(next.getDate() + MOUNTAIN_MIN_DURATION_DAYS)
+  return next.toISOString().slice(0, 10)
+}
+
 export function ReviewWorkbenchPage({ userId }: Props) {
   const toast = useToast()
   const navigate = useNavigate()
@@ -104,7 +144,10 @@ export function ReviewWorkbenchPage({ userId }: Props) {
   const [pricingDraft, setPricingDraft] = useState<PricingDraft>(buildDefaultPricingDraft())
   const [reviewComment, setReviewComment] = useState('')
   const [analysisAcceptance, setAnalysisAcceptance] = useState('')
-  const [isComplexTask, setIsComplexTask] = useState(false)
+  const [taskType, setTaskType] = useState<TaskType>('normal')
+  const [taskGoal, setTaskGoal] = useState('')
+  const [taskScope, setTaskScope] = useState('')
+  const [taskDueDate, setTaskDueDate] = useState('')
   const [closingRewardRatio, setClosingRewardRatio] = useState(0.4)
   const [milestones, setMilestones] = useState<TaskMilestoneDefinition[]>(buildDefaultMilestones())
   const [loading, setLoading] = useState(false)
@@ -115,6 +158,12 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     () => pendingProblems.find((item) => item.id === selectedProblemId) ?? null,
     [pendingProblems, selectedProblemId],
   )
+  const milestoneTask = useMemo(() => isMilestoneTaskType(taskType), [taskType])
+  const minimumMountainDate = useMemo(() => minimumMountainDueDate(), [])
+  const mountainDueDateTooShort = useMemo(() => {
+    if (taskType !== 'mountain' || !taskDueDate) return false
+    return taskDueDate < minimumMountainDate
+  }, [minimumMountainDate, taskDueDate, taskType])
 
   const resetReviewContext = () => {
     setSelectedProblemId(null)
@@ -123,7 +172,10 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     setReviewComment('')
     setAnalysisAcceptance('')
     setPricingDraft(buildDefaultPricingDraft())
-    setIsComplexTask(false)
+    setTaskType('normal')
+    setTaskGoal('')
+    setTaskScope('')
+    setTaskDueDate('')
     setClosingRewardRatio(0.4)
     setMilestones(buildDefaultMilestones())
     setReviewModalOpen(false)
@@ -174,9 +226,13 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       ])
       setSelectedProblemDetail(detail)
       setSelectedAnalysis(analysis)
-      setIsComplexTask(Boolean(detail.priced_is_complex))
-      setClosingRewardRatio(Number(detail.priced_closing_reward_ratio ?? 0.4))
-      setMilestones(normalizeMilestones(detail))
+      const nextTaskType = resolveTaskType(detail.priced_task_type, detail.priced_is_complex)
+      setTaskType(nextTaskType)
+      setTaskGoal(detail.draft_goal || '')
+      setTaskScope(detail.draft_scope || '')
+      setTaskDueDate(detail.draft_due_date || '')
+      setClosingRewardRatio(Number(detail.priced_closing_reward_ratio ?? (nextTaskType === 'normal' ? 1 : 0.4)))
+      setMilestones(ensureMilestoneCount(normalizeMilestones(detail), nextTaskType))
       if (detail.priced_level && detail.priced_reward_total) {
         setPricingDraft({
           level: detail.priced_level as TaskLevel,
@@ -231,7 +287,16 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     const range = rewardRangeByLevel[pricingDraft.level]
     const pointRange = pointsRangeByLevel[pricingDraft.level]
 
-    if (!Number.isFinite(reward) || reward < range.min || reward > range.max) {
+    if (taskType === 'mountain') {
+      if (pricingDraft.level !== 'S') {
+        setError('山头任务必须使用 S 级')
+        return
+      }
+      if (!Number.isFinite(reward) || reward < MOUNTAIN_MIN_REWARD) {
+        setError(`山头任务奖励总额必须不低于 ${MOUNTAIN_MIN_REWARD}`)
+        return
+      }
+    } else if (!Number.isFinite(reward) || reward < range.min || reward > range.max) {
       setError(`奖励总额需在 ${range.min}-${range.max} 区间`)
       return
     }
@@ -247,8 +312,21 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       setError(`积分需在 ${pointRange.min}-${pointRange.max} 区间`)
       return
     }
-    if (isComplexTask) {
-      if (milestones.length < 2 || milestones.length > 5) {
+    if (milestoneTask) {
+      if (!taskGoal.trim() || !taskScope.trim() || !taskDueDate) {
+        setError('请补全任务目标、范围和截止日期')
+        return
+      }
+      if (taskType === 'mountain' && mountainDueDateTooShort) {
+        setError(`山头任务截止日期至少需要 ${MOUNTAIN_MIN_DURATION_DAYS} 天周期`)
+        return
+      }
+      if (taskType === 'mountain') {
+        if (milestones.length < MOUNTAIN_MIN_MILESTONES) {
+          setError(`山头任务至少需要 ${MOUNTAIN_MIN_MILESTONES} 个里程碑`)
+          return
+        }
+      } else if (milestones.length < 2 || milestones.length > 5) {
         setError('复杂任务必须配置 2-5 个里程碑')
         return
       }
@@ -277,23 +355,22 @@ export function ReviewWorkbenchPage({ userId }: Props) {
       const result = await requestJson<ProblemReviewResult>(`/problems/${selectedProblem.id}/review`, {
         method: 'POST',
         userId,
-        body: isComplexTask
+        body: milestoneTask
           ? {
               ...commonPayload,
               task: {
                 title: selectedProblem.title,
-                goal: selectedProblemDetail.draft_goal || '待补充目标',
-                scope: selectedProblemDetail.draft_scope || '待补充范围',
-                due_date:
-                  selectedProblemDetail.draft_due_date ||
-                  new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+                goal: taskGoal.trim(),
+                scope: taskScope.trim(),
+                due_date: taskDueDate,
                 level: pricingDraft.level,
                 reward_total: reward,
                 proposer_ratio: proposerRatio,
                 accepter_id: accepterId,
                 points,
                 badge: pricingDraft.badge.trim() || null,
-                is_complex: true,
+                task_type: taskType,
+                is_complex: milestoneTask,
                 closing_reward_ratio: closingRewardRatio,
                 milestones,
                 acceptance_criteria: taskAcceptanceCriteria,
@@ -308,6 +385,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                 accepter_id: accepterId,
                 points,
                 badge: pricingDraft.badge.trim() || null,
+                task_type: taskType,
               },
             },
       })
@@ -337,7 +415,7 @@ export function ReviewWorkbenchPage({ userId }: Props) {
     <section className="page-wrap">
       <header className="page-head">
         <h2>问题评审与定价</h2>
-        <p>评审人可退回修改，或直接定价通过；复杂任务可配置里程碑。</p>
+        <p>评审人可退回修改，或直接定价通过；复杂任务和山头任务在这里配置任务定义与里程碑。</p>
       </header>
 
       <article className="panel">
@@ -456,9 +534,51 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                   <form className="form-grid" onSubmit={submitPricingApprove}>
                     <h4>评审定价</h4>
                     <label>
+                      任务类型
+                      <select
+                        value={taskType}
+                        onChange={(event) => {
+                          const nextTaskType = event.target.value as TaskType
+                          setTaskType(nextTaskType)
+                          setMilestones((prev) => ensureMilestoneCount(prev, nextTaskType))
+                          setClosingRewardRatio((prev) => {
+                            if (nextTaskType === 'normal') return 1
+                            return prev === 1 ? 0.4 : prev
+                          })
+                          setPricingDraft((prev) => {
+                            if (nextTaskType !== 'mountain') {
+                              return prev
+                            }
+                            const nextPoints =
+                              Number(prev.points) < pointsRangeByLevel.S.min || Number(prev.points) > pointsRangeByLevel.S.max
+                                ? String(pointsRangeByLevel.S.min)
+                                : prev.points
+                            const nextReward =
+                              Number(prev.reward_total) < MOUNTAIN_MIN_REWARD
+                                ? String(MOUNTAIN_MIN_REWARD)
+                                : prev.reward_total
+                            return {
+                              ...prev,
+                              level: 'S',
+                              reward_total: nextReward,
+                              points: nextPoints,
+                            }
+                          })
+                          if (nextTaskType === 'mountain' && (!taskDueDate || taskDueDate < minimumMountainDate)) {
+                            setTaskDueDate(minimumMountainDate)
+                          }
+                        }}
+                      >
+                        <option value="normal">普通任务</option>
+                        <option value="complex">复杂任务</option>
+                        <option value="mountain">山头任务</option>
+                      </select>
+                    </label>
+                    <label>
                       任务等级
                       <select
                         value={pricingDraft.level}
+                        disabled={taskType === 'mountain'}
                         onChange={(event) => {
                           const level = event.target.value as TaskLevel
                           const range = rewardRangeByLevel[level]
@@ -544,23 +664,37 @@ export function ReviewWorkbenchPage({ userId }: Props) {
                         ))}
                       </select>
                     </label>
-                    <label className="wide">
-                      <span>复杂任务模式</span>
-                      <input
-                        type="checkbox"
-                        checked={isComplexTask}
-                        onChange={(event) => setIsComplexTask(event.target.checked)}
-                      />
-                    </label>
-                    {isComplexTask && (
-                      <div className="wide">
-                        <MilestoneEditor
-                          value={milestones}
-                          onChange={setMilestones}
-                          closingRewardRatio={closingRewardRatio}
-                          onClosingRewardRatioChange={setClosingRewardRatio}
-                        />
-                      </div>
+                    {taskType === 'mountain' && (
+                      <p className="wide muted">
+                        山头任务要求：奖励不低于 {MOUNTAIN_MIN_REWARD}，最短周期 {MOUNTAIN_MIN_DURATION_DAYS} 天，至少 {MOUNTAIN_MIN_MILESTONES} 个里程碑。
+                      </p>
+                    )}
+                    {milestoneTask && (
+                      <>
+                        <label className="wide">
+                          任务目标
+                          <textarea value={taskGoal} onChange={(event) => setTaskGoal(event.target.value)} required />
+                        </label>
+                        <label className="wide">
+                          任务范围
+                          <textarea value={taskScope} onChange={(event) => setTaskScope(event.target.value)} required />
+                        </label>
+                        <label>
+                          截止日期
+                          <input type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} required />
+                        </label>
+                        {taskType === 'mountain' && mountainDueDateTooShort && (
+                          <p className="wide muted">山头任务截止日期需不早于 {minimumMountainDate}。</p>
+                        )}
+                        <div className="wide">
+                          <MilestoneEditor
+                            value={milestones}
+                            onChange={setMilestones}
+                            closingRewardRatio={closingRewardRatio}
+                            onClosingRewardRatioChange={setClosingRewardRatio}
+                          />
+                        </div>
+                      </>
                     )}
                     <div className="button-row wide">
                       <button type="button" onClick={resetReviewContext}>取消</button>

@@ -54,6 +54,12 @@ class TaskLevel(str, Enum):
     C = "C"
 
 
+class TaskType(str, Enum):
+    NORMAL = "normal"
+    COMPLEX = "complex"
+    MOUNTAIN = "mountain"
+
+
 class TaskStatus(str, Enum):
     OPEN = "open"
     IN_PROGRESS = "in_progress"
@@ -129,6 +135,10 @@ class MilestoneRewardHoldStatus(str, Enum):
     EARNED = "earned"
     RELEASED = "released"
     CANCELLED = "cancelled"
+
+
+def is_milestone_task_type(task_type: TaskType) -> bool:
+    return task_type in {TaskType.COMPLEX, TaskType.MOUNTAIN}
 
 
 

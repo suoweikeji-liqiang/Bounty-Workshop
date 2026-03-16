@@ -1,3 +1,4 @@
+import { buildMilestoneDraft } from '../lib/milestoneDrafts'
 import type { TaskMilestoneDefinition } from '../types'
 
 type Props = {
@@ -9,14 +10,7 @@ type Props = {
 }
 
 function buildMilestone(sequence: number): TaskMilestoneDefinition {
-  return {
-    sequence,
-    title: `里程碑 ${sequence}`,
-    goal: '',
-    due_date: null,
-    reward_ratio: 0.2,
-    acceptance_criteria: [{ description: '', type: 'behavioral' }],
-  }
+  return buildMilestoneDraft(sequence)
 }
 
 export function MilestoneEditor({
@@ -47,7 +41,7 @@ export function MilestoneEditor({
   return (
     <article className="panel">
       <div className="panel-headline">
-        <h3>复杂任务里程碑</h3>
+        <h3>里程碑配置</h3>
         <button type="button" onClick={addMilestone} disabled={disabled || value.length >= 5}>
           添加里程碑
         </button>
@@ -136,8 +130,3 @@ export function MilestoneEditor({
     </article>
   )
 }
-
-export function buildDefaultMilestones(): TaskMilestoneDefinition[] {
-  return [buildMilestone(1), buildMilestone(2)]
-}
-

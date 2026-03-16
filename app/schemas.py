@@ -21,7 +21,9 @@ from app.enums import (
     Scenario,
     TaskActivityType,
     TaskLevel,
+    TaskType,
     UserStatus,
+    is_milestone_task_type,
 )
 
 
@@ -38,6 +40,10 @@ LEVEL_POINTS_RANGE = {
     TaskLevel.B: (15, 40),
     TaskLevel.C: (5, 15),
 }
+
+MOUNTAIN_MIN_REWARD = 100000.0
+MOUNTAIN_MIN_MILESTONES = 3
+MOUNTAIN_MIN_DURATION_DAYS = 180
 
 
 class UserCreate(BaseModel):
@@ -184,6 +190,7 @@ class ProblemDetailRead(BaseModel):
     priced_accepter_id: Optional[int] = None
     priced_points: int = 0
     priced_badge: Optional[str] = None
+    priced_task_type: Optional[TaskType] = None
     priced_is_complex: bool = False
     priced_closing_reward_ratio: float = 1.0
     priced_milestones: list[dict] = Field(default_factory=list)
@@ -217,16 +224,26 @@ class TaskDefinition(BaseModel):
     accepter_id: int
     points: int = 0
     badge: Optional[str] = None
+    task_type: Optional[TaskType] = None
     is_complex: bool = False
-    closing_reward_ratio: float = Field(default=0.4, gt=0, lt=1)
+    closing_reward_ratio: float = Field(default=0.4, gt=0, le=1)
     milestones: list["TaskMilestoneDefinition"] = Field(default_factory=list)
     acceptance_criteria: list[AcceptanceCriteriaItem] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_reward_range(self) -> "TaskDefinition":
-        low, high = LEVEL_REWARD_RANGE[self.level]
-        if not (low <= self.reward_total <= high):
-            raise ValueError(f"{self.level} 等级激励范围应在 {low}-{high}")
+        if self.task_type is None:
+            self.task_type = TaskType.COMPLEX if self.is_complex else TaskType.NORMAL
+        self.is_complex = is_milestone_task_type(self.task_type)
+        if self.task_type == TaskType.MOUNTAIN:
+            if self.level != TaskLevel.S:
+                raise ValueError("mountain tasks must use S level")
+            if self.reward_total < MOUNTAIN_MIN_REWARD:
+                raise ValueError(f"mountain tasks require reward_total >= {int(MOUNTAIN_MIN_REWARD)}")
+        else:
+            low, high = LEVEL_REWARD_RANGE[self.level]
+            if not (low <= self.reward_total <= high):
+                raise ValueError(f"{self.level} 等级激励范围应在 {low}-{high}")
         points_low, points_high = LEVEL_POINTS_RANGE[self.level]
         if self.points == 0:
             self.points = points_low
@@ -234,10 +251,18 @@ class TaskDefinition(BaseModel):
             raise ValueError(f"{self.level} 等级积分范围应在 {points_low}-{points_high}")
         if self.badge and not is_valid_badge_code(self.badge):
             raise ValueError("invalid badge code")
+        if self.task_type == TaskType.NORMAL:
+            if self.milestones:
+                raise ValueError("simple tasks do not support milestones")
+            self.closing_reward_ratio = 1.0
+            return self
         if not self.is_complex and self.milestones:
             raise ValueError("simple tasks do not support milestones")
         if self.is_complex:
-            if not (2 <= len(self.milestones) <= 5):
+            if self.task_type == TaskType.MOUNTAIN:
+                if len(self.milestones) < MOUNTAIN_MIN_MILESTONES:
+                    raise ValueError(f"mountain tasks require at least {MOUNTAIN_MIN_MILESTONES} milestones")
+            elif not (2 <= len(self.milestones) <= 5):
                 raise ValueError("complex tasks must define 2-5 milestones")
             ordered = sorted(self.milestones, key=lambda item: item.sequence)
             for index, item in enumerate(ordered, start=1):
@@ -267,12 +292,19 @@ class PricingDefinition(BaseModel):
     accepter_id: int
     points: int = 0
     badge: Optional[str] = None
+    task_type: Optional[TaskType] = None
 
     @model_validator(mode="after")
     def validate_reward_range(self) -> "PricingDefinition":
-        low, high = LEVEL_REWARD_RANGE[self.level]
-        if not (low <= self.reward_total <= high):
-            raise ValueError(f"{self.level} reward range must be {low}-{high}")
+        if self.task_type == TaskType.MOUNTAIN:
+            if self.level != TaskLevel.S:
+                raise ValueError("mountain tasks must use S level")
+            if self.reward_total < MOUNTAIN_MIN_REWARD:
+                raise ValueError(f"mountain tasks require reward_total >= {int(MOUNTAIN_MIN_REWARD)}")
+        else:
+            low, high = LEVEL_REWARD_RANGE[self.level]
+            if not (low <= self.reward_total <= high):
+                raise ValueError(f"{self.level} reward range must be {low}-{high}")
         points_low, points_high = LEVEL_POINTS_RANGE[self.level]
         if self.points == 0:
             self.points = points_low
@@ -324,6 +356,7 @@ class TaskRead(BaseModel):
     scenario: Scenario
     level: TaskLevel
     reward_total: float
+    task_type: TaskType = TaskType.NORMAL
     is_complex: bool = False
     active_claim_count: int = 0
     active_claims: list[TaskActiveClaimRead] = Field(default_factory=list)
@@ -371,6 +404,7 @@ class TaskDetailRead(BaseModel):
     accepter_id: int
     points: int
     badge: Optional[str]
+    task_type: TaskType = TaskType.NORMAL
     is_complex: bool = False
     closing_reward_ratio: float = 1.0
     acceptance_criteria: list[dict]

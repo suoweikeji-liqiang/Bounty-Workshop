@@ -13,6 +13,8 @@ from app.enums import (
     Role,
     Scenario,
     TaskLevel,
+    TaskType,
+    is_milestone_task_type,
 )
 from app.attachments import bind_attachments
 from app.models import (
@@ -27,6 +29,7 @@ from app.models import (
 )
 from app.prodmind import run_analysis as run_prodmind_analysis
 from app.schemas import (
+    MOUNTAIN_MIN_DURATION_DAYS,
     PricingDefinition,
     ProblemBudgetReview,
     ProblemCreate,
@@ -45,6 +48,16 @@ DEFAULT_BUDGET_REVIEW_THRESHOLD = 3000.0
 MIN_BUDGET_REVIEW_THRESHOLD = 0.0
 ANALYSIS_TIMEOUT_SECONDS_KEY = "ANALYSIS_TIMEOUT_SECONDS"
 DEFAULT_ANALYSIS_TIMEOUT_SECONDS = 600
+
+
+def _task_type_from_flag(is_complex: bool) -> TaskType:
+    return TaskType.COMPLEX if is_complex else TaskType.NORMAL
+
+
+def _normalize_task_type(task_type: TaskType | str | None, is_complex: bool = False) -> TaskType:
+    if task_type is None:
+        return _task_type_from_flag(is_complex)
+    return TaskType(task_type)
 
 
 def get_budget_review_threshold(session: Session) -> float:
@@ -147,6 +160,7 @@ def _problem_to_detail(problem: Problem, submitter_name: str) -> ProblemDetailRe
         priced_accepter_id=problem.priced_accepter_id,
         priced_points=problem.priced_points,
         priced_badge=problem.priced_badge,
+        priced_task_type=_normalize_task_type(problem.priced_task_type, problem.priced_is_complex),
         priced_is_complex=problem.priced_is_complex,
         priced_closing_reward_ratio=problem.priced_closing_reward_ratio,
         priced_milestones=_from_json_list(problem.priced_milestones_json),
@@ -176,6 +190,7 @@ def _reset_pricing(problem: Problem) -> None:
     problem.priced_accepter_id = None
     problem.priced_points = 0
     problem.priced_badge = None
+    problem.priced_task_type = TaskType.NORMAL
     problem.priced_is_complex = False
     problem.priced_closing_reward_ratio = 1.0
     problem.priced_milestones_json = "[]"
@@ -393,6 +408,7 @@ def _pricing_from_review(payload: ProblemReview) -> PricingDefinition:
         accepter_id=payload.task.accepter_id,
         points=payload.task.points,
         badge=payload.task.badge,
+        task_type=_normalize_task_type(payload.task.task_type, payload.task.is_complex),
     )
 
 
@@ -401,11 +417,14 @@ def _create_task_from_problem(
     problem: Problem,
     pricing: PricingDefinition,
     title_override: str | None = None,
+    task_type: TaskType = TaskType.NORMAL,
     is_complex: bool = False,
     closing_reward_ratio: float = 1.0,
     milestone_definitions: list[TaskMilestoneDefinition] | None = None,
 ) -> Task:
     title = ((title_override or "").strip() if title_override is not None else "") or problem.title
+    normalized_task_type = _normalize_task_type(task_type, is_complex)
+    milestone_task = is_milestone_task_type(normalized_task_type)
     task = Task(
         problem_id=problem.id,
         title=title,
@@ -418,13 +437,14 @@ def _create_task_from_problem(
         accepter_id=pricing.accepter_id,
         points=pricing.points,
         badge=pricing.badge,
-        is_complex=is_complex,
+        task_type=normalized_task_type,
+        is_complex=milestone_task,
         closing_reward_ratio=closing_reward_ratio,
         acceptance_criteria_json=problem.draft_acceptance_criteria_json,
     )
     session.add(task)
     session.flush()
-    if is_complex:
+    if milestone_task:
         for item in sorted(milestone_definitions or [], key=lambda row: row.sequence):
             session.add(
                 TaskMilestone(
@@ -443,7 +463,21 @@ def _create_task_from_problem(
     return task
 
 
+def _validate_budget_approval_task(problem: Problem, task_type: TaskType) -> None:
+    if task_type != TaskType.MOUNTAIN:
+        return
+    if problem.draft_due_date is None:
+        raise HTTPException(status_code=400, detail="mountain task due date is required")
+    minimum_due_date = date.today() + timedelta(days=MOUNTAIN_MIN_DURATION_DAYS)
+    if problem.draft_due_date < minimum_due_date:
+        raise HTTPException(
+            status_code=422,
+            detail=f"mountain tasks require due_date at least {MOUNTAIN_MIN_DURATION_DAYS} days after budget approval",
+        )
+
+
 def _task_to_read(task: Task, problem: Problem) -> TaskRead:
+    task_type = _normalize_task_type(task.task_type, task.is_complex)
     return TaskRead(
         id=task.id,
         problem_id=task.problem_id,
@@ -451,7 +485,8 @@ def _task_to_read(task: Task, problem: Problem) -> TaskRead:
         scenario=problem.scenario,
         level=task.level,
         reward_total=task.reward_total,
-        is_complex=task.is_complex,
+        task_type=task_type,
+        is_complex=is_milestone_task_type(task_type),
         active_claim_count=0,
         due_date=task.due_date,
         status=task.status.value,
@@ -539,12 +574,7 @@ def review_problem(
         )
         session.add(ref)
 
-    if payload.task is not None and (
-        problem.draft_goal is None
-        or problem.draft_scope is None
-        or problem.draft_due_date is None
-        or is_legacy_direct_review
-    ):
+    if payload.task is not None:
         problem.draft_goal = payload.task.goal
         problem.draft_scope = payload.task.scope
         problem.draft_due_date = payload.task.due_date
@@ -564,76 +594,41 @@ def review_problem(
     problem.priced_points = pricing.points
     problem.priced_badge = pricing.badge
     if payload.task is not None:
-        problem.priced_is_complex = payload.task.is_complex
+        problem.priced_task_type = _normalize_task_type(payload.task.task_type, payload.task.is_complex)
+        problem.priced_is_complex = is_milestone_task_type(problem.priced_task_type)
         problem.priced_closing_reward_ratio = payload.task.closing_reward_ratio
         problem.priced_milestones_json = _to_json(
             [item.model_dump(mode="json") for item in payload.task.milestones]
         )
+    else:
+        problem.priced_task_type = _normalize_task_type(pricing.task_type, problem.priced_is_complex)
+        problem.priced_is_complex = is_milestone_task_type(problem.priced_task_type)
+        if not problem.priced_is_complex:
+            problem.priced_closing_reward_ratio = 1.0
+            problem.priced_milestones_json = "[]"
     problem.priced_by_user_id = actor_id
     problem.reviewer_comment = None
 
     threshold = get_budget_review_threshold(session)
-    if pricing.reward_total >= threshold:
-        problem.status = ProblemStatus.BUDGET_PENDING
-        _log(
-            session,
-            actor_id,
-            "problem.pricing.approve",
-            "problem",
-            problem_id,
-            {
-                "reward_total": pricing.reward_total,
-                "threshold": threshold,
-                "status": problem.status.value,
-            },
-        )
-        session.commit()
-        return ProblemReviewResult(
-            status=problem.status,
-            message="pricing approved, waiting budget review",
-        )
-
-    problem.status = ProblemStatus.APPROVED
-    problem.reject_reason = None
-    problem.merged_problem_id = None
-    task_title = payload.task.title if payload.task is not None else None
-    milestone_definitions = (
-        payload.task.milestones
-        if payload.task is not None
-        else [TaskMilestoneDefinition.model_validate(item) for item in _from_json_list(problem.priced_milestones_json)]
-    )
-    task = _create_task_from_problem(
-        session,
-        problem,
-        pricing,
-        title_override=task_title,
-        is_complex=payload.task.is_complex if payload.task is not None else problem.priced_is_complex,
-        closing_reward_ratio=(
-            payload.task.closing_reward_ratio
-            if payload.task is not None
-            else problem.priced_closing_reward_ratio
-        ),
-        milestone_definitions=milestone_definitions,
-    )
-
+    problem.status = ProblemStatus.BUDGET_PENDING
     _log(
         session,
         actor_id,
-        "problem.approve",
+        "problem.pricing.approve",
         "problem",
         problem_id,
-        {"task_id": task.id, "mode": "single_review"},
-    )
-    _log(
-        session,
-        actor_id,
-        "task.create",
-        "task",
-        task.id,
-        {"problem_id": problem_id, "level": task.level.value},
+        {
+            "reward_total": pricing.reward_total,
+            "threshold": threshold,
+            "status": problem.status.value,
+            "task_type": problem.priced_task_type.value,
+        },
     )
     session.commit()
-    return _result_with_task(problem.status, _task_to_read(task, problem))
+    return ProblemReviewResult(
+        status=problem.status,
+        message="pricing approved, waiting budget review",
+    )
 
 
 def budget_review_problem(
@@ -670,6 +665,7 @@ def budget_review_problem(
         session.commit()
         return ProblemReviewResult(status=problem.status, message=problem.reviewer_comment)
 
+    normalized_task_type = _normalize_task_type(problem.priced_task_type, problem.priced_is_complex)
     pricing = PricingDefinition(
         level=TaskLevel(problem.priced_level),
         reward_total=problem.priced_reward_total,
@@ -677,12 +673,15 @@ def budget_review_problem(
         accepter_id=problem.priced_accepter_id,
         points=problem.priced_points,
         badge=problem.priced_badge,
+        task_type=normalized_task_type,
     )
+    _validate_budget_approval_task(problem, normalized_task_type)
 
     task = _create_task_from_problem(
         session,
         problem,
         pricing,
+        task_type=normalized_task_type,
         is_complex=problem.priced_is_complex,
         closing_reward_ratio=problem.priced_closing_reward_ratio,
         milestone_definitions=[

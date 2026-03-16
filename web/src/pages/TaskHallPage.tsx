@@ -5,6 +5,7 @@ import { AttachmentField } from '../components/AttachmentField'
 import { TaskActivityTimeline } from '../components/TaskActivityTimeline'
 import { useToast } from '../components/ToastProvider'
 import { requestJson } from '../lib/http'
+import { formatTaskTypeLabel } from '../lib/taskType'
 import type {
   Attachment,
   ClaimExecution,
@@ -540,7 +541,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
         <div className="table">
           <div className="row head task-open-row">
-            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>任务类型</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
           </div>
           {openTasks.map((task) => (
             <div className="row task-open-row" key={task.id}>
@@ -548,6 +549,7 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span title={task.title}>{task.title}</span>
               <span>{formatScenario(task.scenario)}</span>
               <span>{task.level}</span>
+              <span>{formatTaskTypeLabel(task.task_type, task.is_complex)}</span>
               <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
               <span>{task.active_claim_count}</span>
@@ -580,7 +582,7 @@ export function TaskHallPage({ userId, profile }: Props) {
         </div>
         <div className="table">
           <div className="row head task-all-row">
-            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>状态</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
+            <span>ID</span><span>标题</span><span>场景</span><span>等级</span><span>任务类型</span><span>状态</span><span>奖励</span><span>截止日</span><span>揭榜数</span><span>揭榜详情</span><span>操作</span>
           </div>
           {allTasks.map((task) => (
             <div className="row task-all-row" key={`all-task-${task.id}`}>
@@ -588,6 +590,7 @@ export function TaskHallPage({ userId, profile }: Props) {
               <span title={task.title}>{task.title}</span>
               <span>{formatScenario(task.scenario)}</span>
               <span>{task.level}</span>
+              <span>{formatTaskTypeLabel(task.task_type, task.is_complex)}</span>
               <span>{formatTaskStatus(task.status)}</span>
               <span>¥{task.reward_total.toFixed(0)}</span>
               <span>{task.due_date}</span>
@@ -803,7 +806,7 @@ export function TaskHallPage({ userId, profile }: Props) {
             <p className="line-metric"><span>目标</span><strong>{taskDetail.goal}</strong></p>
             <p className="line-metric"><span>范围</span><strong>{taskDetail.scope}</strong></p>
             <p className="line-metric"><span>等级/状态</span><strong>{taskDetail.level} / {formatTaskStatus(taskDetail.status)}</strong></p>
-            <p className="line-metric"><span>任务类型</span><strong>{taskDetail.is_complex ? '复杂任务' : '普通任务'}</strong></p>
+            <p className="line-metric"><span>任务类型</span><strong>{formatTaskTypeLabel(taskDetail.task_type, taskDetail.is_complex)}</strong></p>
             <p className="line-metric"><span>截止日</span><strong>{taskDetail.due_date}</strong></p>
             <article className="modal-section">
               <h4>验收标准</h4>
